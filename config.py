@@ -4,7 +4,7 @@
 import os
 
 # 🚨 آستانه‌های هشدار قیمتی
-DOLLAR_HIGH = 170000      # آستانه بالای دلار
+DOLLAR_HIGH = 170_000      # آستانه بالای دلار
 DOLLAR_LOW = 160_000       # آستانه پایین دلار
 
 SHAMS_HIGH = 26_000_000    # آستانه بالای شمش طلا 
@@ -31,10 +31,10 @@ CHANNEL_HANDLE = "@Gold_Iran_Market"
 ALERT_CHANNEL_HANDLE = "@ALERT_GOLD"
 
 # ارزش روزانه دلار تومان
-VALUE_DIFF = 111000 # دلار پارسال
-LOW_VALUE = 197
-VALUE = 330
-HIGH_VALUE = 482
+VALUE_DIFF = 111_000 # دلار پارسال
+LOW_VALUE = 214
+VALUE = 348
+HIGH_VALUE = 611
 
 # ════════════════════════════════════════════════════════════════
 # 🔐 متغیرهای محیطی (Environment Variables)
