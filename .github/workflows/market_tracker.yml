@@ -1,7 +1,7 @@
 name: Gold Market Tracker
 
-#on:
-#  workflow_dispatch:
+on:
+  workflow_dispatch:
 
 concurrency:
   group: gold-market-tracker
