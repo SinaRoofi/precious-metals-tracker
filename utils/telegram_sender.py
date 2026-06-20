@@ -374,7 +374,7 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
         "NAV",
         "آخرین %",
         "حباب %",
-        " میانگین حباب %",
+        " میانگین حباب",
         "سرانه خرید",
         "اختلاف سرانه",
         "پول حقیقی",
