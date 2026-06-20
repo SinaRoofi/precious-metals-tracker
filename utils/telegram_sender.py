@@ -397,57 +397,57 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
     # ═══════════════════════════════════════════════════════
     top_10 = df_sorted.head(10)
 
-    table_header = [
-        "نماد",
-        "آخرین",
-        "آخرین %",
-        "NAV",
-        "NAV %",
-        "حباب %",
-        "سرانه خرید",
-        "اختلاف سرانه",
-        "پول حقیقی",
-        "ارزش",
-        "بازده هفتگی"
-    ]
+   table_header = [
+    "نماد",
+    "آخرین",
+    "NAV",
+    "آخرین %",
+    "حباب %",
+    "میانگین حباب ماه",
+    "سرانه خرید",
+    "اختلاف سرانه",
+    "پول حقیقی",
+    "ارزش",
+    "بازده هفتگی"
+]
 
     # لیست‌های داده‌ها (Cell values)
-    table_cells = [
-        top_10.index.tolist(),                                  # 0: نماد
-        [f"{x:,.0f}" for x in top_10["close_price"]],           # 1: آخرین
-        [f"{x:+.2f}%" for x in top_10["close_price_change_percent"]], # 2: آخرین %
-        [f"{x:,.0f}" for x in top_10["NAV"]],                   # 3: NAV
-        [f"{x:+.2f}%" for x in top_10["NAV_change_percent"]],   # 4: NAV %
-        [f"{x:+.2f}%" for x in top_10["nominal_bubble"]],       # 5: حباب %
-        [f"{x:+.2f}" for x in top_10["sarane_kharid"]],         # 6: سرانه خرید
-        [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],       # 7: اختلاف سرانه
-        [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],           # 8: پول حقیقی
-        [f"{x:,.0f}" for x in top_10["value"]],                 # 9: ارزش
-        [f"{x:+.2f}%" for x in top_10["weekly_return"]],        # 10: بازده هفتگی
-    ]
+   table_cells = [
+    top_10.index.tolist(),                                           # 0: نماد
+    [f"{x:,.0f}" for x in top_10["close_price"]],                   # 1: آخرین
+    [f"{x:,.0f}" for x in top_10["NAV"]],                           # 2: NAV
+    [f"{x:+.2f}%" for x in top_10["close_price_change_percent"]],   # 3: آخرین %
+    [f"{x:+.2f}%" for x in top_10["nominal_bubble"]],               # 4: حباب %
+    [f"{x:+.2f}%" for x in top_10["avg_monthly_bubble"]],           # 5: میانگین حباب ماه
+    [f"{x:+.2f}" for x in top_10["sarane_kharid"]],                 # 6: سرانه خرید
+    [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],               # 7: اختلاف سرانه
+    [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],                   # 8: پول حقیقی
+    [f"{x:,.0f}" for x in top_10["value"]],                         # 9: ارزش
+    [f"{x:+.2f}%" for x in top_10["weekly_return"]],                # 10: بازده هفتگی
+]
 
     # محاسبه طیف متقارن برای ستون‌های صفر-محور (بر اساس اندیس‌های جدید)
-    vmin_2, vmax_2 = get_symmetric_vrange(table_cells[2]) # آخرین %
-    vmin_4, vmax_4 = get_symmetric_vrange(table_cells[4]) # NAV %
-    vmin_5, vmax_5 = get_symmetric_vrange(table_cells[5]) # حباب %
-    vmin_7, vmax_7 = get_symmetric_vrange(table_cells[7]) # اختلاف سرانه
-    vmin_8, vmax_8 = get_symmetric_vrange(table_cells[8]) # پول حقیقی
-    vmin_10, vmax_10 = get_symmetric_vrange(table_cells[10]) # بازده هفتگی
+   vmin_3, vmax_3 = get_symmetric_vrange(table_cells[3])   # آخرین %
+   vmin_4, vmax_4 = get_symmetric_vrange(table_cells[4])   # حباب %
+   vmin_5, vmax_5 = get_symmetric_vrange(table_cells[5])   # میانگین حباب ماه
+   vmin_7, vmax_7 = get_symmetric_vrange(table_cells[7])   # اختلاف سرانه
+   vmin_8, vmax_8 = get_symmetric_vrange(table_cells[8])   # پول حقیقی
+   vmin_10, vmax_10 = get_symmetric_vrange(table_cells[10]) # بازده هفتگیبازده هفتگی
 
     # رنگ‌بندی سلول‌ها
     cell_colors = [
-        ["#1C2733"] * 10,  # 0: نماد
-        ["#1C2733"] * 10,  # 1: آخرین
-        apply_gradient_colors(table_cells[2], vmin=vmin_2, vmax=vmax_2), # 2: آخرین %
-        ["#1C2733"] * 10,  # 3: NAV
-        apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4), # 4: NAV %
-        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5), # 5: حباب %
-        apply_gradient_colors(table_cells[6], force_positive=True),      # 6: سرانه خرید (مثبت محور)
-        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7), # 7: اختلاف سرانه
-        apply_gradient_colors(table_cells[8], vmin=vmin_8, vmax=vmax_8), # 8: پول حقیقی
-        ["#1C2733"] * 10,  # 9: ارزش معاملات
-        apply_gradient_colors(table_cells[10], vmin=vmin_10, vmax=vmax_10), # 10: بازده هفتگی
-    ]
+    ["#1C2733"] * 10,                                                        # 0: نماد
+    ["#1C2733"] * 10,                                                        # 1: آخرین
+    ["#1C2733"] * 10,                                                        # 2: NAV
+    apply_gradient_colors(table_cells[3], vmin=vmin_3, vmax=vmax_3),        # 3: آخرین %
+    apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4),        # 4: حباب %
+    apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),        # 5: میانگین حباب ماه
+    apply_gradient_colors(table_cells[6], force_positive=True),             # 6: سرانه خرید
+    apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),        # 7: اختلاف سرانه
+    apply_gradient_colors(table_cells[8], vmin=vmin_8, vmax=vmax_8),        # 8: پول حقیقی
+    ["#1C2733"] * 10,                                                        # 9: ارزش
+    apply_gradient_colors(table_cells[10], vmin=vmin_10, vmax=vmax_10),     # 10: بازده هفتگی
+]
 
     fig.add_trace(
         go.Table(
