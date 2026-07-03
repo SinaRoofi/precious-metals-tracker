@@ -1,37 +1,48 @@
-# config.py
-"""تنظیمات و ثابت‌های پروژه Gold Market Tracker"""
+"""تنظیمات و ثابت‌های پروژه Gold & Silver Market Tracker"""
 
 import os
 
+# ════════════════════════════════════════════════════════════════
 # 🚨 آستانه‌های هشدار قیمتی
-DOLLAR_HIGH = 172_000      # آستانه بالای دلار
-DOLLAR_LOW = 170_000       # آستانه پایین دلار
+# ════════════════════════════════════════════════════════════════
 
-SHAMS_HIGH = 22_500_000    # آستانه بالای شمش طلا 
-SHAMS_LOW = 22_000_000     # آستانه پایین شمش طلا 
+DOLLAR_HIGH = 176_000
+DOLLAR_LOW = 174_000
 
-GOLD_HIGH = 4100       # آستانه بالای اونس طلا
-GOLD_LOW = 4000      # آستانه پایین اونس طلا
+# --- طلا ---
+SHAMS_HIGH = 22_500_000
+SHAMS_LOW = 22_000_000
 
-ALERT_THRESHOLD_PERCENT = 0.5  # درصد تغییر سریع 
-EKHTELAF_THRESHOLD = 10         # اختلاف سرانه (میلیون تومان)
+GOLD_HIGH = 4200
+GOLD_LOW = 4000
+
+# --- نقره ---
+SILVER_SHAMS_HIGH = 4_000_000
+SILVER_SHAMS_LOW = 3_000_000
+
+SILVER_HIGH = 70
+SILVER_LOW = 50
+
+ALERT_THRESHOLD_PERCENT = 0.5
+EKHTELAF_THRESHOLD = 10
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4050    
-DEFAULT_DOLLAR_PRICE = 166000 
+DEFAULT_GOLD_PRICE = 4180
+DEFAULT_DOLLAR_PRICE = 175_000
+DEFAULT_SILVER_PRICE = 62  # TODO: سینا مقدار دقیق‌تر فال‌بک رو در صورت نیاز عوض کنه
 
 # 🎈 آستانه‌های هشدار حباب
-BUBBLE_SHARP_CHANGE_THRESHOLD = 0.5  # درصد
+BUBBLE_SHARP_CHANGE_THRESHOLD = 0.5
 
 # ✅ آستانه‌های هشدار پول حقیقی
 POL_SHARP_CHANGE_THRESHOLD = 100
 
-# 📌 هندل کانال تلگرام
-CHANNEL_HANDLE = "@Gold_Iran_Market"
-ALERT_CHANNEL_HANDLE = "@ALERT_GOLD"
+# 📌 هندل کانال تلگرام — مشترک برای طلا و نقره
+CHANNEL_HANDLE = "@PreciousMetals_IR"
+ALERT_CHANNEL_HANDLE = "@ALERT_METALS"
 
 # ارزش روزانه دلار تومان
-VALUE_DIFF = 111_000 # دلار پارسال
+VALUE_DIFF = 111_000
 LOW_VALUE = 186
 VALUE = 315
 HIGH_VALUE = 564
@@ -40,17 +51,14 @@ HIGH_VALUE = 564
 # 🔐 متغیرهای محیطی (Environment Variables)
 # ════════════════════════════════════════════════════════════════
 
-# GitHub Gist
 GIST_ID = os.getenv("GIST_ID")
 GIST_TOKEN = os.getenv("GIST_TOKEN")
 ALERT_STATUS_FILE = "alert_status.json"
 MESSAGE_ID_FILE = "message_id.json"
 
-# Google Sheets
 SHEET_ID = os.getenv("SHEET_ID")
 SERVICE_ACCOUNT_JSON = os.getenv("SHEETS_SERVICE_ACCOUNT")
 
-# Telegram
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 TELETHON_API_ID = int(os.getenv('TELETHON_API_ID', 0))
@@ -61,19 +69,29 @@ TELEGRAM_ALERT_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID')
 # ════════════════════════════════════════════════════════════════
 # 📡 کانال‌های تلگرام
 # ════════════════════════════════════════════════════════════════
+# نکته: کانال قیمت جهانی طلا (XAUUSD_ONE) دیگر استفاده نمی‌شود —
+# طلا و نقره‌ی جهانی هر دو از رهاورد (light-charts) می‌آیند.
+# فقط کانال دلار باقی می‌ماند.
 
 TELEGRAM_CHANNELS = {
-    'gold': 'XAUUSD_ONE',
-    'dollar': 'dollar_tehran3bze'
+    'dollar': 'dollar_tehran3bze',
 }
 
 # ════════════════════════════════════════════════════════════════
-# 🌐 API URLs
+# 🌐 API URLs — nested بر اساس کالا
 # ════════════════════════════════════════════════════════════════
 
 API_URLS = {
-    'rahavard': 'https://rahavard365.com/api/v2/gold/intrinsic-values',
-    'traders': 'https://tradersarena.ir/data/industries-stocks-csv/gold-funds?_=1762346248071'
+    'gold': {
+        'intrinsic': 'https://rahavard365.com/api/v2/gold/intrinsic-values',
+        'light_charts': 'https://rahavard365.com/api/v2/gold/light-charts',
+        'funds': 'https://tradersarena.ir/data/industries-stocks-csv/gold-funds',
+    },
+    'silver': {
+        'intrinsic': 'https://rahavard365.com/api/v2/silver/intrinsic-values',
+        'light_charts': 'https://rahavard365.com/api/v2/silver/light-charts',
+        'funds': 'https://tradersarena.ir/data/industries-stocks-csv/silver-funds',
+    },
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -83,66 +101,102 @@ API_URLS = {
 TIMEZONE = 'Asia/Tehran'
 
 TRADING_HOURS = {
-    'start': 12,  # ساعت شروع معاملات
-    'end': 17,    # ساعت پایان معاملات
+    'start': 12,
+    'end': 17,
 }
 
-# روزهای معاملاتی (شنبه=5, یکشنبه=6, دوشنبه=0, سه‌شنبه=1, چهارشنبه=2)
 TRADING_DAYS = [5, 6, 0, 1, 2]
 
 # ════════════════════════════════════════════════════════════════
 # 🎨 تنظیمات نمودارها
 # ════════════════════════════════════════════════════════════════
 
-# نمودار روند بازار (Charts)
 CHART_WIDTH = 1400
 CHART_HEIGHT = 2200
 CHART_SCALE = 2
 
-# نمودار Treemap
 TREEMAP_WIDTH = 1350
 TREEMAP_HEIGHT = 1350
 TREEMAP_SCALE = 2
 
-# رنگ‌های نمودار
-COLOR_POSITIVE = '#00E676'      # سبز (مثبت)
-COLOR_NEGATIVE = '#FF1744'      # قرمز (منفی)
-COLOR_NEUTRAL = '#2C2C2C'       # خاکستری (خنثی)
-COLOR_BACKGROUND = '#0D1117'    # پس‌زمینه
-COLOR_GRID = '#21262D'          # خطوط شبکه
-COLOR_GOLD = '#FFD700'          # طلایی
+COLOR_POSITIVE = '#00E676'
+COLOR_NEGATIVE = '#FF1744'
+COLOR_NEUTRAL = '#2C2C2C'
+COLOR_BACKGROUND = '#0D1117'
+COLOR_GRID = '#21262D'
+COLOR_GOLD = '#FFD700'
+COLOR_SILVER = '#C0C0C0'
 
-# Colorscale برای Treemap (منفی → صفر → مثبت)
 TREEMAP_COLORSCALE = [
-    [0.0, "#E57373"], [0.1, "#D85C5C"], [0.2, "#C94444"], 
+    [0.0, "#E57373"], [0.1, "#D85C5C"], [0.2, "#C94444"],
     [0.3, "#A52A2A"], [0.4, "#6B1A1A"],
-    [0.5, "#2C2C2C"],  # خنثی
-    [0.6, "#1B5E20"], [0.7, "#2E7D32"], [0.8, "#43A047"], 
+    [0.5, "#2C2C2C"],
+    [0.6, "#1B5E20"], [0.7, "#2E7D32"], [0.8, "#43A047"],
     [0.9, "#5CB860"], [1.0, "#66BB6A"],
 ]
 
-# گام محور Y برای نمودار سرانه
-Y_AXIS_STEP = 50  # افزایش 50 تایی
+Y_AXIS_STEP = 50
 
 # ════════════════════════════════════════════════════════════════
-# 📝 ترتیب نمایش دارایی‌ها
+# 📝 دارایی‌های داخلی هر کالا (ترتیب = ترتیب ایندکس در calculate_values)
 # ════════════════════════════════════════════════════════════════
 
-ASSET_ORDER = [
-    "طلا-گرم-18-عیار",
-    "طلا-گرم-24-عیار",
-    "شمش-طلا",
-    "سطلا",
-    "سکه-امامی-طرح-جدید",
-    "سکه-بهار-آزادی-طرح-قدیم",
-    "طلا-مظنه-آبشده-تهران",
-    "سکه0312پ01",
-    "سکه0411پ05",
-    "سکه0412پ03",
-    "نیم-سکه",
-    "ربع-سکه",
-    "سکه-1-گرمی",
-]
+BULLION_ASSET = {
+    'gold': 'شمش-طلا',
+    'silver': 'شمش-نقره',
+}
+
+ASSET_ORDER = {
+    'gold': [
+        "طلا-گرم-18-عیار",
+        "طلا-گرم-24-عیار",
+        "شمش-طلا",
+        "سطلا",
+        "سکه-امامی-طرح-جدید",
+        "سکه-بهار-آزادی-طرح-قدیم",
+        "طلا-مظنه-آبشده-تهران",
+        "سکه0312پ01",
+        "سکه0411پ05",
+        "سکه0412پ03",
+        "نیم-سکه",
+        "ربع-سکه",
+        "سکه-1-گرمی",
+    ],
+    'silver': [
+        "شمش-نقره",
+        "نقره-گرمی-999",
+    ],
+}
+
+# ════════════════════════════════════════════════════════════════
+# 💰 ضرایب فرمول ارزش ذاتی (Value) — از calculate_values موجود استخراج شده
+# هر آیتم متناظر با همون ایندکس در ASSET_ORDER[commodity] است
+# فرمول: Value = ((purity * dollar * global_price) / TROY_OZ) * weight * scale
+# ════════════════════════════════════════════════════════════════
+
+TROY_OZ = 31.1034768
+
+PRICING_FACTORS = {
+    'gold': [
+        {'purity': 0.75,  'weight': 1,       'scale': 10},    # طلا-گرم-18-عیار
+        {'purity': 0.995, 'weight': 1,       'scale': 10},    # طلا-گرم-24-عیار
+        {'purity': 0.995, 'weight': 1,       'scale': 1},     # شمش-طلا
+        {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سطلا
+        {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سکه-امامی-طرح-جدید
+        {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سکه-بهار-آزادی-طرح-قدیم
+        {'purity': 0.705, 'weight': 4.6083,  'scale': 10},    # طلا-مظنه-آبشده-تهران
+        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0312پ01
+        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0411پ05
+        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0412پ03
+        {'purity': 0.9,   'weight': 4.0665,  'scale': 10},    # نیم-سکه
+        {'purity': 0.9,   'weight': 2.03225, 'scale': 10},    # ربع-سکه
+        {'purity': 0.9,   'weight': 1,       'scale': 10},    # سکه-1-گرمی
+    ],
+    'silver': [
+        {'purity': 0.999, 'weight': 1, 'scale': 10},  # شمش-نقره
+        {'purity': 0.999, 'weight': 1, 'scale': 10},  # نقره-گرمی-999
+    ],
+}
 
 # ════════════════════════════════════════════════════════════════
 # 🔤 مسیر فونت‌ها
@@ -157,36 +211,38 @@ FONT_REGULAR_PATH = "assets/fonts/Vazirmatn-Regular.ttf"
 # ════════════════════════════════════════════════════════════════
 
 MAX_RETRIES = 3
-RETRY_DELAY = 5  # ثانیه
-REQUEST_TIMEOUT = 90  # ثانیه
+RETRY_DELAY = 5
+REQUEST_TIMEOUT = 90
 
-# Headers برای درخواست‌های HTTP
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
 # ════════════════════════════════════════════════════════════════
-# 📊 تنظیمات Google Sheets
+# 📊 تنظیمات Google Sheets — یک Spreadsheet، دو تب (Gold / Silver)
 # ════════════════════════════════════════════════════════════════
 
-# ✅ هدر استاندارد (13 ستونی)
+SHEET_NAMES = {
+    'gold': 'Gold',
+    'silver': 'Silver',
+}
+
 STANDARD_HEADER = [
     'timestamp',
-    'gold_price_usd',
+    'global_price_usd',
     'dollar_price',
     'shams_price',
     'dollar_change_percent',
     'shams_change_percent',
     'fund_weighted_change_percent',
-    'fund_final_price_avg',    
+    'fund_final_price_avg',
     'fund_weighted_bubble_percent',
     'sarane_kharid_weighted',
     'sarane_forosh_weighted',
     'ekhtelaf_sarane_weighted',
-    'pol_hagigi'  # ✅ ستون پول حقیقی
+    'pol_hagigi',
 ]
 
-# تعداد روزهای نگهداری داده
 KEEP_DAYS = 30
 
 # ════════════════════════════════════════════════════════════════
@@ -194,15 +250,12 @@ KEEP_DAYS = 30
 # ════════════════════════════════════════════════════════════════
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-LOG_FILE = 'gold_tracker.log'
+LOG_FILE = 'market_tracker.log'
 LOG_LEVEL = 'INFO'
 
 # ════════════════════════════════════════════════════════════════
 # 📌 تنظیمات Telegram Message
 # ════════════════════════════════════════════════════════════════
 
-# حداکثر تعداد پیام‌های بررسی شده برای یافتن قیمت بسته
 MAX_MESSAGES_TO_CHECK = 10000
-
-# اندازه batch برای خواندن پیام‌های تلگرام
 MESSAGE_BATCH_SIZE = 100
