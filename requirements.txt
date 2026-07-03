@@ -7,12 +7,7 @@ requests==2.31.0
 pytz==2024.1
 persiantools==4.2.0
 jdatetime==5.0.0
-matplotlib==3.8.2
-squarify==0.4.3
 numpy==1.26.3
 google-auth==2.27.0
-google-auth-oauthlib==1.2.0
 google-api-python-client==2.116.0
-arabic-reshaper==3.0.0
-python-bidi==0.6.7
 beautifulsoup4==4.12.3
