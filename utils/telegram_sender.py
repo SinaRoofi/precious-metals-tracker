@@ -1,5 +1,5 @@
 # utils/telegram_sender.py
-"""ماژول ارسال داده‌ها به تلگرام"""
+"""ماژول ارسال داده‌های طلا/نقره به تلگرام"""
 
 import io
 import json
@@ -16,17 +16,43 @@ from config import (
     GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE,
     FONT_BOLD_PATH, FONT_MEDIUM_PATH, FONT_REGULAR_PATH,
     TREEMAP_WIDTH, TREEMAP_HEIGHT, TREEMAP_SCALE,
-    TREEMAP_COLORSCALE, CHANNEL_HANDLE,
-    REQUEST_TIMEOUT, TIMEZONE
+    TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
+    REQUEST_TIMEOUT, TIMEZONE, LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF,
 )
 from utils.chart_creator import create_market_charts
 
 logger = logging.getLogger(__name__)
 
-# ────────────────── توابع Gist (message_id) ──────────────────
+COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
+COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
-def get_gist_data():
-    """دریافت message_id از GitHub Gist"""
+# دارایی‌هایی که در کپشن به‌صورت جداگانه نمایش داده می‌شن.
+# unit='ریال' یعنی close_price خام نمایش داده می‌شه (شمش/wholesale)
+# unit='تومان' یعنی close_price/10 نمایش داده می‌شه (گرمی/سکه/retail)
+# show_ounce_calc=True یعنی "اونس محاسباتی" هم علاوه بر "دلار محاسباتی" نشون داده می‌شه
+CAPTION_ASSETS = {
+    "gold": [
+        {"key": "شمش-طلا", "title": "✨ شمش طلا بورسی", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
+        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+        {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+        {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+    ],
+    "silver": [
+        {"key": "شمش-نقره", "title": "⚪ شمش نقره بورسی", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
+        {"key": "نقره-گرمی-999", "title": "🔸 نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+    ],
+}
+
+
+# ────────────────── توابع Gist (message_id) — per-commodity ──────────────────
+
+def _empty_message_store():
+    return {"gold": {"message_id": None, "date": None},
+            "silver": {"message_id": None, "date": None}}
+
+
+def get_gist_data(commodity):
+    """دریافت message_id یک کالا از GitHub Gist"""
     try:
         if not GIST_ID or not GIST_TOKEN:
             return {"message_id": None, "date": None}
@@ -35,27 +61,35 @@ def get_gist_data():
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         if response.status_code == 200:
             content = response.json()["files"][MESSAGE_ID_FILE]["content"]
-            return json.loads(content)
+            store = json.loads(content)
+            return store.get(commodity, {"message_id": None, "date": None})
     except Exception as e:
-        logger.error(f"خطا در خواندن Gist: {e}")
-        return {"message_id": None, "date": None}
+        logger.error(f"[{commodity}] خطا در خواندن Gist: {e}")
+    return {"message_id": None, "date": None}
 
 
-def save_gist_data(message_id, date):
-    """ذخیره message_id در GitHub Gist"""
+def save_gist_data(commodity, message_id, date):
+    """ذخیره message_id یک کالا در GitHub Gist (بدون بازنویسی کالای دیگر)"""
     try:
         url = f"https://api.github.com/gists/{GIST_ID}"
         headers = {"Authorization": f"token {GIST_TOKEN}"}
-        data = {
-            "files": {
-                MESSAGE_ID_FILE: {
-                    "content": json.dumps({"message_id": message_id, "date": date})
-                }
-            }
-        }
+
+        # اول کل store رو می‌خونیم تا کالای دیگه رو overwrite نکنیم
+        store = _empty_message_store()
+        try:
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                content = response.json()["files"][MESSAGE_ID_FILE]["content"]
+                store.update(json.loads(content))
+        except Exception:
+            pass
+
+        store[commodity] = {"message_id": message_id, "date": date}
+
+        data = {"files": {MESSAGE_ID_FILE: {"content": json.dumps(store, ensure_ascii=False)}}}
         requests.patch(url, headers=headers, json=data, timeout=REQUEST_TIMEOUT)
     except Exception as e:
-        logger.error(f"خطا در ذخیره Gist: {e}")
+        logger.error(f"[{commodity}] خطا در ذخیره Gist: {e}")
 
 
 def get_today_date():
@@ -65,71 +99,62 @@ def get_today_date():
 
 # ────────────────── ارسال اصلی به تلگرام ──────────────────
 
-def send_to_telegram(bot_token, chat_id, data, dollar_prices, gold_price,
-                     gold_yesterday, gold_time, yesterday_close, dirham_price=None):
-    """
-    ارسال داده‌ها به کانال تلگرام
-    """
+def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_price,
+                      global_yesterday, global_time, yesterday_close, dirham_price=None):
+    """ارسال گزارش یک کالا (gold یا silver) به کانال تلگرام مشترک، به‌صورت پیام مستقل"""
+    if commodity not in CAPTION_ASSETS:
+        raise ValueError(f"کالای نامعتبر: {commodity}")
+
     if data is None:
-        logger.error("❌ داده‌ها None است")
+        logger.error(f"❌ [{commodity}] داده‌ها None است")
         return False
 
     try:
-        logger.info("🎨 در حال ساخت تصویر Treemap...")
+        logger.info(f"🎨 [{commodity}] در حال ساخت تصویر Treemap...")
         img1_bytes = create_combined_image(
-            data["Fund_df"],
-            dollar_prices["last_trade"],
-            gold_price,
-            gold_yesterday,
-            data["dfp"],
-            yesterday_close
+            commodity, data["Fund_df"], dollar_prices["last_trade"],
+            global_price, global_yesterday, data["dfp"], yesterday_close
         )
 
-        logger.info("📊 در حال ساخت نمودارهای بازار...")
-        img2_bytes = create_market_charts()
+        logger.info(f"📊 [{commodity}] در حال ساخت نمودارهای بازار...")
+        img2_bytes = create_market_charts(commodity)
 
-        logger.info("📝 در حال ساخت کپشن...")
+        logger.info(f"📝 [{commodity}] در حال ساخت کپشن...")
         caption = create_simple_caption(
-            data,
-            dollar_prices,
-            gold_price,
-            gold_yesterday,
-            yesterday_close,
-            gold_time,
-            dirham_price
+            commodity, data, dollar_prices, global_price,
+            global_yesterday, yesterday_close, global_time, dirham_price
         )
 
-        gist_data = get_gist_data()
+        gist_data = get_gist_data(commodity)
         saved_message_id = gist_data.get("message_id")
         saved_date = gist_data.get("date")
         today = get_today_date()
 
         if saved_date != today:
-            logger.info(f"📅 روز جدید ({today}) - ریست message_id")
+            logger.info(f"📅 [{commodity}] روز جدید ({today}) - ریست message_id")
             saved_message_id = None
 
         if saved_message_id:
-            logger.info(f"🔄 در حال آپدیت پیام پین‌شده (ID: {saved_message_id})...")
+            logger.info(f"🔄 [{commodity}] در حال آپدیت پیام پین‌شده (ID: {saved_message_id})...")
             if update_media_group_correctly(bot_token, chat_id, saved_message_id,
-                                           img1_bytes, img2_bytes, caption):
-                logger.info("✅ پیام پین‌شده آپدیت شد")
+                                             img1_bytes, img2_bytes, caption):
+                logger.info(f"✅ [{commodity}] پیام پین‌شده آپدیت شد")
                 return True
-            else:
-                logger.warning("⚠️ آپدیت پیام ناموفق بود، پیام جدید ارسال می‌شود")
+            logger.warning(f"⚠️ [{commodity}] آپدیت پیام ناموفق بود، پیام جدید ارسال می‌شود")
 
-        logger.info("📤 ارسال پیام جدید...")
+        logger.info(f"📤 [{commodity}] ارسال پیام جدید...")
         new_message_id = send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption)
         if new_message_id:
-            save_gist_data(new_message_id, today)
+            save_gist_data(commodity, new_message_id, today)
             pin_message(bot_token, chat_id, new_message_id)
-            logger.info(f"✅ پیام جدید ارسال و پین شد (ID: {new_message_id})")
+            logger.info(f"✅ [{commodity}] پیام جدید ارسال و پین شد (ID: {new_message_id})")
             return True
 
-        logger.error("❌ ارسال پیام ناموفق بود")
+        logger.error(f"❌ [{commodity}] ارسال پیام ناموفق بود")
         return False
 
     except Exception as e:
-        logger.error(f"❌ خطا در ارسال به تلگرام: {e}", exc_info=True)
+        logger.error(f"❌ [{commodity}] خطا در ارسال به تلگرام: {e}", exc_info=True)
         return False
 
 
@@ -143,67 +168,38 @@ def send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption):
             "photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png"),
         }
         media = [
-            {
-                "type": "photo",
-                "media": "attach://photo1",
-                "caption": caption,
-                "parse_mode": "HTML"
-            },
-            {
-                "type": "photo",
-                "media": "attach://photo2"
-            },
+            {"type": "photo", "media": "attach://photo1", "caption": caption, "parse_mode": "HTML"},
+            {"type": "photo", "media": "attach://photo2"},
         ]
         response = requests.post(
-            url,
-            files=files,
-            data={"chat_id": chat_id, "media": json.dumps(media)},
-            timeout=60
+            url, files=files, data={"chat_id": chat_id, "media": json.dumps(media)}, timeout=60
         )
         if response.status_code == 200:
             return response.json()["result"][0]["message_id"]
-        else:
-            logger.error(f"خطای ارسال MediaGroup: {response.status_code} - {response.text}")
-
+        logger.error(f"خطای ارسال MediaGroup: {response.status_code} - {response.text}")
     except Exception as e:
         logger.error(f"خطا در sendMediaGroup: {e}")
     return None
 
 
-def update_media_group_correctly(bot_token, chat_id, first_message_id,
-                                 img1_bytes, img2_bytes, caption):
+def update_media_group_correctly(bot_token, chat_id, first_message_id, img1_bytes, img2_bytes, caption):
     try:
         url = f"https://api.telegram.org/bot{bot_token}/editMessageMedia"
 
-        media1 = {
-            "type": "photo",
-            "media": "attach://photo1",
-            "caption": caption,
-            "parse_mode": "HTML"
-        }
+        media1 = {"type": "photo", "media": "attach://photo1", "caption": caption, "parse_mode": "HTML"}
         files1 = {"photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png")}
         r1 = requests.post(
             url,
-            data={
-                "chat_id": chat_id,
-                "message_id": first_message_id,
-                "media": json.dumps(media1)
-            },
-            files=files1,
-            timeout=REQUEST_TIMEOUT
+            data={"chat_id": chat_id, "message_id": first_message_id, "media": json.dumps(media1)},
+            files=files1, timeout=REQUEST_TIMEOUT,
         )
 
         media2 = {"type": "photo", "media": "attach://photo2"}
         files2 = {"photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png")}
         r2 = requests.post(
             url,
-            data={
-                "chat_id": chat_id,
-                "message_id": first_message_id + 1,
-                "media": json.dumps(media2)
-            },
-            files=files2,
-            timeout=REQUEST_TIMEOUT
+            data={"chat_id": chat_id, "message_id": first_message_id + 1, "media": json.dumps(media2)},
+            files=files2, timeout=REQUEST_TIMEOUT,
         )
 
         if not r1.ok:
@@ -222,12 +218,8 @@ def pin_message(bot_token, chat_id, message_id):
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{bot_token}/pinChatMessage",
-            data={
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "disable_notification": True
-            },
-            timeout=REQUEST_TIMEOUT
+            data={"chat_id": chat_id, "message_id": message_id, "disable_notification": True},
+            timeout=REQUEST_TIMEOUT,
         )
         if response.status_code == 200:
             logger.info("📌 پیام پین شد")
@@ -287,7 +279,7 @@ def get_symmetric_vrange(values):
         try:
             clean = str(v).replace("%", "").replace("+", "").replace(",", "")
             numeric_values.append(float(clean))
-        except:
+        except Exception:
             numeric_values.append(0)
 
     if not numeric_values:
@@ -303,7 +295,7 @@ def apply_gradient_colors(values, vmin=None, vmax=None, force_positive=False):
         try:
             clean = str(v).replace("%", "").replace("+", "").replace(",", "")
             numeric_values.append(float(clean))
-        except:
+        except Exception:
             numeric_values.append(0)
 
     if vmin is None:
@@ -319,9 +311,12 @@ def apply_gradient_colors(values, vmin=None, vmax=None, force_positive=False):
     return [get_gradient_color(v, vmin, vmax) for v in numeric_values]
 
 
-# ────────────────── ساخت تصویر ──────────────────
+# ────────────────── ساخت تصویر Treemap + جدول ──────────────────
 
-def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yesterday_close):
+def create_combined_image(commodity, Fund_df, last_trade, global_price, global_yesterday, dfp, yesterday_close):
+    label = COMMODITY_LABEL[commodity]
+    accent_color = COMMODITY_COLOR[commodity]
+
     tehran_tz = pytz.timezone(TIMEZONE)
     now_jalali = JalaliDateTime.now(tehran_tz)
     date_time_str = now_jalali.strftime("%Y/%m/%d - %H:%M")
@@ -334,13 +329,16 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
     )
 
     df_sorted = Fund_df.copy()
-    df_sorted["color_value"] = df_sorted["close_price_change_percent"]
-    df_sorted = df_sorted.sort_values("value", ascending=False)
+    if df_sorted.empty:
+        logger.warning(f"⚠️ [{commodity}] Fund_df خالی است، treemap بدون داده ساخته می‌شود")
+
+    df_sorted["color_value"] = df_sorted.get("close_price_change_percent", 0)
+    df_sorted = df_sorted.sort_values("value", ascending=False) if "value" in df_sorted.columns else df_sorted
 
     try:
         ImageFont.truetype(FONT_MEDIUM_PATH, 40)
         treemap_font_family = "Vazirmatn-Medium, sans-serif"
-    except:
+    except Exception:
         treemap_font_family = "sans-serif"
 
     fig.add_trace(
@@ -356,9 +354,7 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
             marker=dict(
                 colors=df_sorted["color_value"],
                 colorscale=TREEMAP_COLORSCALE,
-                cmid=0,
-                cmin=-10,
-                cmax=10,
+                cmid=0, cmin=-10, cmax=10,
                 line=dict(width=3, color="#1A1A1A"),
             ),
             pathbar=dict(visible=False),
@@ -369,69 +365,55 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
     top_10 = df_sorted.head(10)
 
     table_header = [
-        "نماد",
-        "آخرین",
-        "NAV",
-        "آخرین %",
-        "حباب %",
-        " میانگین حباب",
-        "سرانه خرید",
-        "اختلاف سرانه",
-        "پول حقیقی",
-        "ارزش",
-        "بازده هفتگی"
+        "نماد", "آخرین", "NAV", "آخرین %", "حباب %",
+        " میانگین حباب", "سرانه خرید", "اختلاف سرانه", "پول حقیقی", "ارزش", "بازده هفتگی"
     ]
 
     table_cells = [
-        top_10.index.tolist(),                                           # 0: نماد
-        [f"{x:,.0f}" for x in top_10["close_price"]],                   # 1: آخرین
-        [f"{x:,.0f}" for x in top_10["NAV"]],                           # 2: NAV
-        [f"{x:+.2f}%" for x in top_10["close_price_change_percent"]],   # 3: آخرین %
-        [f"{x:+.2f}%" for x in top_10["nominal_bubble"]],               # 4: حباب %
-        [f"{x:+.2f}%" for x in top_10["avg_monthly_bubble"]],           # 5: میانگین حباب ماه
-        [f"{x:+.2f}" for x in top_10["sarane_kharid"]],                 # 6: سرانه خرید
-        [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],               # 7: اختلاف سرانه
-        [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],                   # 8: پول حقیقی
-        [f"{x:,.0f}" for x in top_10["value"]],                         # 9: ارزش
-        [f"{x:+.2f}%" for x in top_10["weekly_return"]],                # 10: بازده هفتگی
+        top_10.index.tolist(),
+        [f"{x:,.0f}" for x in top_10["close_price"]],
+        [f"{x:,.0f}" for x in top_10["NAV"]],
+        [f"{x:+.2f}%" for x in top_10["close_price_change_percent"]],
+        [f"{x:+.2f}%" for x in top_10["nominal_bubble"]],
+        [f"{x:+.2f}%" for x in top_10["avg_monthly_bubble"]],
+        [f"{x:+.2f}" for x in top_10["sarane_kharid"]],
+        [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],
+        [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],
+        [f"{x:,.0f}" for x in top_10["value"]],
+        [f"{x:+.2f}%" for x in top_10["weekly_return"]],
     ]
 
-    vmin_3, vmax_3 = get_symmetric_vrange(table_cells[3])   # آخرین %
-    vmin_4, vmax_4 = get_symmetric_vrange(table_cells[4])   # حباب %
-    vmin_5, vmax_5 = get_symmetric_vrange(table_cells[5])   # میانگین حباب ماه
-    vmin_7, vmax_7 = get_symmetric_vrange(table_cells[7])   # اختلاف سرانه
-    vmin_8, vmax_8 = get_symmetric_vrange(table_cells[8])   # پول حقیقی
-    vmin_10, vmax_10 = get_symmetric_vrange(table_cells[10]) # بازده هفتگی
+    vmin_3, vmax_3 = get_symmetric_vrange(table_cells[3])
+    vmin_4, vmax_4 = get_symmetric_vrange(table_cells[4])
+    vmin_5, vmax_5 = get_symmetric_vrange(table_cells[5])
+    vmin_7, vmax_7 = get_symmetric_vrange(table_cells[7])
+    vmin_8, vmax_8 = get_symmetric_vrange(table_cells[8])
+    vmin_10, vmax_10 = get_symmetric_vrange(table_cells[10])
 
     cell_colors = [
-        ["#1C2733"] * 10,                                                        # 0: نماد
-        ["#1C2733"] * 10,                                                        # 1: آخرین
-        ["#1C2733"] * 10,                                                        # 2: NAV
-        apply_gradient_colors(table_cells[3], vmin=vmin_3, vmax=vmax_3),        # 3: آخرین %
-        apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4),        # 4: حباب %
-        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),        # 5: میانگین حباب ماه
-        apply_gradient_colors(table_cells[6], force_positive=True),             # 6: سرانه خرید
-        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),        # 7: اختلاف سرانه
-        apply_gradient_colors(table_cells[8], vmin=vmin_8, vmax=vmax_8),        # 8: پول حقیقی
-        ["#1C2733"] * 10,                                                        # 9: ارزش
-        apply_gradient_colors(table_cells[10], vmin=vmin_10, vmax=vmax_10),     # 10: بازده هفتگی
+        ["#1C2733"] * 10,
+        ["#1C2733"] * 10,
+        ["#1C2733"] * 10,
+        apply_gradient_colors(table_cells[3], vmin=vmin_3, vmax=vmax_3),
+        apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4),
+        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),
+        apply_gradient_colors(table_cells[6], force_positive=True),
+        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),
+        apply_gradient_colors(table_cells[8], vmin=vmin_8, vmax=vmax_8),
+        ["#1C2733"] * 10,
+        apply_gradient_colors(table_cells[10], vmin=vmin_10, vmax=vmax_10),
     ]
 
     fig.add_trace(
         go.Table(
             header=dict(
                 values=[f"<b>{h}</b>" for h in table_header],
-                fill_color="#242F3D",
-                align="center",
-                font=dict(color="white", size=17, family=treemap_font_family),
-                height=35,
+                fill_color="#242F3D", align="center",
+                font=dict(color="white", size=17, family=treemap_font_family), height=35,
             ),
             cells=dict(
-                values=table_cells,
-                fill_color=cell_colors,
-                align="center",
-                font=dict(color="white", size=19, family=treemap_font_family),
-                height=35,
+                values=table_cells, fill_color=cell_colors, align="center",
+                font=dict(color="white", size=19, family=treemap_font_family), height=35,
             ),
         ),
         row=2, col=1,
@@ -444,28 +426,21 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
         width=TREEMAP_WIDTH,
         margin=dict(t=140, l=20, r=20, b=20),
         title=dict(
-            text="<b>نقشه بازار صندوق‌های طلا</b>",
-            font=dict(size=35, color="#FFD700"),
-            x=0.5, y=0.96,
-            xanchor="center",
-            yanchor="top",
+            text=f"<b>نقشه بازار صندوق‌های {label}</b>",
+            font=dict(size=35, color=accent_color),
+            x=0.5, y=0.96, xanchor="center", yanchor="top",
         ),
         showlegend=False,
     )
 
-    img_bytes = fig.to_image(
-        format="png",
-        width=TREEMAP_WIDTH,
-        height=TREEMAP_HEIGHT,
-        scale=TREEMAP_SCALE
-    )
+    img_bytes = fig.to_image(format="png", width=TREEMAP_WIDTH, height=TREEMAP_HEIGHT, scale=TREEMAP_SCALE)
     img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
     try:
         font_date = ImageFont.truetype(FONT_BOLD_PATH, 64)
         font_desc = ImageFont.truetype(FONT_MEDIUM_PATH, 50)
-    except:
+    except Exception:
         font_date = font_desc = ImageFont.load_default()
 
     draw.text((60, 35), date_time_str, font=font_date, fill="#FFFFFF")
@@ -474,7 +449,7 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
 
     try:
         wfont = ImageFont.truetype(FONT_REGULAR_PATH, 50)
-    except:
+    except Exception:
         wfont = ImageFont.load_default()
 
     wtext = CHANNEL_HANDLE.replace("@", "")
@@ -496,11 +471,10 @@ def create_combined_image(Fund_df, last_trade, Gold, Gold_yesterday, dfp, yester
 
 # ────────────────── کپشن ──────────────────
 
-def create_simple_caption(data, dollar_prices, gold_price, gold_yesterday,
-                          yesterday_close, gold_time, dirham_price=None):
-    from config import LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF
-    from persiantools.jdatetime import JalaliDateTime
-    import pytz
+def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
+                           yesterday_close, global_time, dirham_price=None):
+    label = COMMODITY_LABEL[commodity]
+    assets_config = CAPTION_ASSETS[commodity]
 
     def days_passed_this_year():
         tehran_tz = pytz.timezone("Asia/Tehran")
@@ -512,10 +486,7 @@ def create_simple_caption(data, dollar_prices, gold_price, gold_yesterday,
         times = [t for t in [last_trade_time, bid_time, ask_time] if t is not None]
         if not times:
             return ""
-        newest_time = max(times)
-        if newest_time == last_trade_time:
-            return "✅"
-        return ""
+        return "✅" if max(times) == last_trade_time else ""
 
     days = days_passed_this_year()
     low_total = LOW_VALUE * days + VALUE_DIFF
@@ -527,65 +498,49 @@ def create_simple_caption(data, dollar_prices, gold_price, gold_yesterday,
     current_time = now.strftime("%Y/%m/%d - %H:%M")
 
     df_funds = data["Fund_df"]
-    total_value = df_funds["value"].sum()
-    total_pol = df_funds["pol_hagigi"].sum()
-    total_avg_monthly = df_funds["avg_monthly_value"].sum()
-    total_net_asset = df_funds["net_asset"].sum()
+    total_value = df_funds["value"].sum() if not df_funds.empty else 0
+    total_pol = df_funds["pol_hagigi"].sum() if not df_funds.empty else 0
+    total_avg_monthly = df_funds["avg_monthly_value"].sum() if not df_funds.empty else 0
+    total_net_asset = df_funds["net_asset"].sum() if not df_funds.empty else 0
 
-    if total_net_asset > 0:
-        avg_price_weighted = (df_funds["close_price"] * df_funds["value"]).sum() / total_value
+    if total_net_asset > 0 and total_value > 0:
         avg_change_percent_weighted = (df_funds["close_price_change_percent"] * df_funds["value"]).sum() / total_value
         avg_bubble_weighted = (df_funds["nominal_bubble"] * df_funds["value"]).sum() / total_value
-        avg_nav_weighted = (df_funds["NAV"] * df_funds["net_asset"]).sum() / total_net_asset
         avg_nav_change_weighted = (df_funds["NAV_change_percent"] * df_funds["net_asset"]).sum() / total_net_asset
     else:
-        avg_price_weighted = avg_change_percent_weighted = avg_bubble_weighted = 0
-        avg_nav_weighted = avg_nav_change_weighted = 0
+        avg_change_percent_weighted = avg_bubble_weighted = avg_nav_change_weighted = 0
 
-    if total_avg_monthly > 0:
-        value_to_avg_ratio = (total_value / total_avg_monthly) * 100
-    else:
-        value_to_avg_ratio = 0
+    value_to_avg_ratio = (total_value / total_avg_monthly * 100) if total_avg_monthly > 0 else 0
 
-    dollar_last = dollar_prices['last_trade']
+    dollar_last = dollar_prices["last_trade"]
 
     low_pct = (low_total - dollar_last) / dollar_last * 100
     value_pct = (value_total - dollar_last) / dollar_last * 100
     high_pct = (high_total - dollar_last) / dollar_last * 100
     dollar_change = ((dollar_last - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
 
+    dollar_from_dirham = None
+    dirham_diff_pct = None
     if dirham_price:
         dollar_from_dirham = int(dirham_price * 3.6727)
         dirham_diff_pct = (dollar_from_dirham - dollar_last) / dollar_last * 100
 
-    gold_change = ((gold_price - gold_yesterday) / gold_yesterday * 100) if gold_yesterday else 0
+    global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
 
     dfp = data["dfp"]
-    shams = dfp.loc["شمش-طلا"]
-    gold_24 = dfp.loc["طلا-گرم-24-عیار"]
-    gold_18 = dfp.loc["طلا-گرم-18-عیار"]
-    sekeh = dfp.loc["سطلا"]
+    pricing_col = f"pricing_{commodity}"
 
-    def calc_diffs(row, d_cur, g_cur):
+    def calc_diffs(row):
         d_calc = row.get("pricing_dollar", 0)
-        o_calc = row.get("pricing_Gold", 0)
-        return d_calc, d_calc - d_cur, o_calc, o_calc - g_cur
-
-    d_shams, diff_shams, o_shams, diff_o_shams = calc_diffs(shams, dollar_last, gold_price)
-    d_24, diff_24, _, _ = calc_diffs(gold_24, dollar_last, gold_price)
-    d_18, diff_18, _, _ = calc_diffs(gold_18, dollar_last, gold_price)
-    d_sekeh, diff_sekeh, _, _ = calc_diffs(sekeh, dollar_last, gold_price)
-
-    gold_24_price = gold_24["close_price"] / 10
-    gold_18_price = gold_18["close_price"] / 10
-    sekeh_price = sekeh["close_price"] / 10
+        o_calc = row.get(pricing_col, 0)
+        return d_calc, d_calc - dollar_last, o_calc, o_calc - global_price
 
     pol_to_value_ratio = (total_pol / total_value * 100) if total_value != 0 else 0
 
     tick = get_trade_tick(
         dollar_prices.get("last_trade_time"),
         dollar_prices.get("bid_time"),
-        dollar_prices.get("ask_time")
+        dollar_prices.get("ask_time"),
     )
 
     caption = f"""
@@ -597,42 +552,43 @@ def create_simple_caption(data, dollar_prices, gold_price, gold_yesterday,
 💵 ارزش دلار: {value_total:,.0f} ({value_pct:.2f}%)
 🟥 کران بالای دلار: {high_total:,.0f} ({high_pct:.2f}%)
 """
-    caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
+    if dollar_from_dirham is not None:
+        caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
+
     caption += f"💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
+    ounce_emoji = "🔆" if commodity == "gold" else "🌕"
     caption += f"""
-<b>🔆 اونس طلا</b> 
-💰 قیمت: ${gold_price:,.0f} ({gold_change:+.2f}%)
+<b>{ounce_emoji} اونس {label}</b>
+💰 قیمت: ${global_price:,.2f} ({global_change:+.2f}%)
 
-<b>📊 آمار صندوق‌های طلا</b>
+<b>📊 آمار صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} م.ت ({value_to_avg_ratio:.0f}%)
 💸 پول حقیقی: {total_pol:,.0f} م.ت ({pol_to_value_ratio:.0f}%)
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
 💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.2f}%)
 🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
-
-<b>✨ شمش طلا بورسی</b>
-💰 قیمت: {shams['close_price']:,.0f} ریال
-📊 تغییر: {shams['close_price_change_percent']:+.2f}% | حباب: {shams['Bubble']:+.2f}%
-💵 دلار محاسباتی: {d_shams:,.0f} ({diff_shams:+,.0f})
-🔆 اونس محاسباتی: ${o_shams:,.0f} ({diff_o_shams:+.0f})
-
-<b>🔸 طلا ۲۴ عیار</b>
-💰 قیمت: {gold_24_price:,.0f} تومان
-📊 تغییر: {gold_24['close_price_change_percent']:+.2f}% | حباب: {gold_24['Bubble']:+.2f}%
-💵 دلار محاسباتی: {d_24:,.0f} ({diff_24:+,.0f})
-
-<b>🔸 طلا ۱۸ عیار</b>
-💰 قیمت: {gold_18_price:,.0f} تومان
-📊 تغییر: {gold_18['close_price_change_percent']:+.2f}% | حباب: {gold_18['Bubble']:+.2f}%
-💵 دلار محاسباتی: {d_18:,.0f} ({diff_18:+,.0f})
-
-<b>🪙 سکه بورسی</b>
-💰 قیمت: {sekeh_price:,.0f} تومان
-📊 تغییر: {sekeh['close_price_change_percent']:+.2f}% | حباب: {sekeh['Bubble']:+.2f}%
-💵 دلار محاسباتی: {d_sekeh:,.0f} ({diff_sekeh:+,.0f})
-
-🔗 {CHANNEL_HANDLE}
 """
+
+    for asset_cfg in assets_config:
+        key = asset_cfg["key"]
+        if key not in dfp.index:
+            logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن حذف شد")
+            continue
+
+        row = dfp.loc[key]
+        d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
+        price = row["close_price"] / asset_cfg["divisor"]
+
+        caption += f"""
+<b>{asset_cfg['title']}</b>
+💰 قیمت: {price:,.0f} {asset_cfg['unit']}
+📊 تغییر: {row['close_price_change_percent']:+.2f}% | حباب: {row['Bubble']:+.2f}%
+💵 دلار محاسباتی: {d_calc:,.0f} ({diff_d:+,.0f})
+"""
+        if asset_cfg["show_ounce_calc"]:
+            caption += f"{ounce_emoji} اونس محاسباتی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
+
+    caption += f"\n🔗 {CHANNEL_HANDLE}\n"
     return caption.strip()
