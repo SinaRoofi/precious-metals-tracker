@@ -241,9 +241,9 @@ async def main():
         tehran_tz = pytz.timezone(TIMEZONE)
         now = datetime.now(tehran_tz)
 
-        #if is_iranian_holiday(now):
-            #logger.info(f"🏖️ امروز {now.strftime('%Y-%m-%d')} تعطیل است.")
-            #return
+        if is_iranian_holiday(now):
+            logger.info(f"🏖️ امروز {now.strftime('%Y-%m-%d')} تعطیل است.")
+            return
 
         logger.info(f"🕐 زمان تهران: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
