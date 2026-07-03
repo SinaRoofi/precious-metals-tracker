@@ -2,6 +2,7 @@
 """اسکریپت اصلی Gold & Silver Market Tracker"""
 
 import sys
+import os
 import logging
 from datetime import datetime
 import pytz
@@ -241,9 +242,17 @@ async def main():
         tehran_tz = pytz.timezone(TIMEZONE)
         now = datetime.now(tehran_tz)
 
+        force_run = os.getenv("FORCE_RUN", "false").lower() == "true"
+
         if is_iranian_holiday(now):
-            logger.info(f"🏖️ امروز {now.strftime('%Y-%m-%d')} تعطیل است.")
-            return
+            if force_run:
+                logger.warning(
+                    f"⚠️ امروز ({now.strftime('%Y-%m-%d')}) طبق تشخیص سیستم تعطیله، "
+                    f"ولی FORCE_RUN=true است — اجرا ادامه پیدا می‌کند (حالت تست)"
+                )
+            else:
+                logger.info(f"🏖️ امروز {now.strftime('%Y-%m-%d')} تعطیل است.")
+                return
 
         logger.info(f"🕐 زمان تهران: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
