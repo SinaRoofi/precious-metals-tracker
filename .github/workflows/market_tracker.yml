@@ -33,8 +33,10 @@ jobs:
       - name: Setup Python 3.11
         run: uv python install 3.11
 
-      - name: Install dependencies
-        run: uv pip install --system -q -r requirements.txt
+      - name: Create venv and install dependencies
+        run: |
+          uv venv --python 3.11
+          uv pip install -q -r requirements.txt
 
       - name: Run Market Tracker
         env:
@@ -49,7 +51,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-        run: python main.py
+        run: .venv/bin/python main.py
 
       - name: Upload logs on failure
         if: failure()
