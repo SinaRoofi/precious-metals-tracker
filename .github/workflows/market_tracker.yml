@@ -2,6 +2,11 @@ name: Gold & Silver Market Tracker
 
 on:
   workflow_dispatch:
+    inputs:
+      force_run:
+        description: "اجرا حتی اگه امروز تعطیل تشخیص داده بشه (فقط برای تست)"
+        type: boolean
+        default: false
 
 concurrency:
   group: market-tracker
@@ -33,6 +38,7 @@ jobs:
 
       - name: Run Market Tracker
         env:
+          FORCE_RUN: ${{ inputs.force_run }}
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
