@@ -1,10 +1,10 @@
-name: Gold Market Tracker
+name: Gold & Silver Market Tracker
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: gold-market-tracker
+  group: market-tracker
   cancel-in-progress: false
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
         run: |
           pip install --disable-pip-version-check -q -r requirements.txt
 
-      - name: Run Gold Tracker
+      - name: Run Market Tracker
         env:
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -38,7 +38,6 @@ jobs:
           TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
           TELETHON_API_ID: ${{ secrets.TELETHON_API_ID }}
           TELETHON_API_HASH: ${{ secrets.TELETHON_API_HASH }}
-          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           SHEETS_SERVICE_ACCOUNT: ${{ secrets.SHEETS_SERVICE_ACCOUNT }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
@@ -49,5 +48,5 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: gold-tracker-logs
-          path: gold_tracker.log
+          name: market-tracker-logs
+          path: market_tracker.log
