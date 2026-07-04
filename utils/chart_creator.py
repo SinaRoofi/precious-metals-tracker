@@ -25,12 +25,12 @@ COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
 
-def round_to_nearest(value, step=50):
+def round_to_nearest(value, step=Y_AXIS_STEP):
     """گرد کردن عدد به نزدیک‌ترین مضرب step"""
     return round(value / step) * step
 
 
-def calculate_y_range_with_steps(data_min, data_max, step=50):
+def calculate_y_range_with_steps(data_min, data_max, step=Y_AXIS_STEP):
     """محاسبه محدوده محور Y با گام‌های مشخص"""
     if data_min == 0 and data_max == 0:
         return -step, step
