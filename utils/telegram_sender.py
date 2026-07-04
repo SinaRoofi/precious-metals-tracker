@@ -38,7 +38,7 @@ CAPTION_ASSETS = {
         {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
     ],
     "silver": [
-        {"key": "شمش-نقره", "title": "⚪ شمش نقره بورسی", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
+        {"key": "شمش-نقره", "title": "⚪ شمش نقره بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "نقره-گرمی-999", "title": "🔸 نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
     ],
 }
@@ -74,15 +74,24 @@ def save_gist_data(commodity, message_id, date):
         url = f"https://api.github.com/gists/{GIST_ID}"
         headers = {"Authorization": f"token {GIST_TOKEN}"}
 
-        # اول کل store رو می‌خونیم تا کالای دیگه رو overwrite نکنیم
-        store = _empty_message_store()
+        # اول کل store رو می‌خونیم تا کالای دیگه رو overwrite نکنیم.
+        # اگه این GET fail بشه، ادامه نمی‌دیم — وگرنه PATCH با یک store خالی
+        # message_id کالای دیگه رو null می‌کنه (باگ واقعی که در چک نهایی پیدا شد).
         try:
             response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
             if response.status_code == 200:
                 content = response.json()["files"][MESSAGE_ID_FILE]["content"]
+                store = _empty_message_store()
                 store.update(json.loads(content))
-        except Exception:
-            pass
+            elif response.status_code == 404:
+                # فایل/گیست هنوز هیچ داده‌ای نداره — این تنها حالتیه که store خالی امنه
+                store = _empty_message_store()
+            else:
+                logger.error(f"[{commodity}] GET گیست با کد {response.status_code} برگشت — ذخیره لغو شد")
+                return
+        except requests.RequestException as e:
+            logger.error(f"[{commodity}] GET گیست fail شد ({e}) — ذخیره لغو شد تا کالای دیگه overwrite نشه")
+            return
 
         store[commodity] = {"message_id": message_id, "date": date}
 
@@ -454,7 +463,6 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     wtext = CHANNEL_HANDLE.replace("@", "")
     bbox = draw.textbbox((0, 0), wtext, font=wfont)
-    text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
 
     padding = 30
