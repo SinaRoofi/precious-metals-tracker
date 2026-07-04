@@ -6,6 +6,7 @@ import os
 import logging
 from datetime import datetime
 import pytz
+import jdatetime
 import asyncio
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -24,13 +25,25 @@ from utils.holidays import is_iranian_holiday
 from utils.sheets_storage import save_to_sheets, read_from_sheets
 from utils.alerts import check_and_send_alerts
 
+class JalaliFormatter(logging.Formatter):
+    """Formatter که %(asctime)s رو با تاریخ و ساعت شمسی (تهران) پر می‌کند"""
+
+    def formatTime(self, record, datefmt=None):
+        tehran_tz = pytz.timezone(TIMEZONE)
+        dt = datetime.fromtimestamp(record.created, tz=tehran_tz)
+        jalali = jdatetime.datetime.fromgregorian(datetime=dt)
+        return jalali.strftime("%Y-%m-%d %H:%M:%S")
+
+
+_formatter = JalaliFormatter(LOG_FORMAT)
+_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+_file_handler.setFormatter(_formatter)
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(_formatter)
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format=LOG_FORMAT,
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=[_file_handler, _stream_handler],
 )
 logger = logging.getLogger(__name__)
 
