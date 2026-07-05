@@ -349,8 +349,11 @@ def check_and_send_alerts(
     if prev["shams_price"] and prev["shams_price"] > 0:
         change = (current_shams - prev["shams_price"]) / prev["shams_price"] * 100
         if abs(change) >= ALERT_THRESHOLD_PERCENT:
+            shams_divisor = 10 if commodity == "silver" else 1
+            shams_unit = "تومان" if commodity == "silver" else "ریال"
             send_price_alert(
-                bot_token, chat_id, f"شمش {label}", current_shams, change, "ریال"
+                bot_token, chat_id, f"شمش {label}",
+                current_shams / shams_divisor, change, shams_unit,
             )
 
     # نوسان ۵ دقیقه‌ای انس جهانی
@@ -391,8 +394,13 @@ def check_and_send_alerts(
     check_sarane_cross_alert(bot_token, chat_id, df_funds, tz, now, commodity, label)
 
     # آستانه‌های قیمتی
+    # نکته: SILVER_SHAMS_HIGH/LOW در config به تومان نوشته می‌شن، ولی current_shams
+    # خام/ریال از dfp میاد (dfp تبدیل نمی‌شه) — پس فقط برای نقره، مقدار مقایسه رو
+    # به تومان تبدیل می‌کنیم. طلا دست‌نخورده (خام/ریال) می‌مونه.
+    shams_for_threshold = current_shams / 10 if commodity == "silver" else current_shams
+
     threshold_checks = [
-        (f"شمش {label}", current_shams, th["shams_high"], th["shams_low"], f"{commodity}_shams"),
+        (f"شمش {label}", shams_for_threshold, th["shams_high"], th["shams_low"], f"{commodity}_shams"),
         (f"اونس {label}", current_ounce, th["ounce_high"], th["ounce_low"], f"{commodity}_ounce"),
     ]
     if check_dollar:
@@ -797,23 +805,34 @@ def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id):
     direction = "بالای" if above else "زیر"
     dir_emoji = "📈" if above else "📉"
 
+    # price_display/threshold_display فقط برای نمایشن — منطق مقایسه با مقدار خام (price/threshold) قبلاً انجام شده
     if asset == "دلار":
-        unit, asset_emoji, price_formatted = "تومان", "💵", f"{int(round(price)):,}"
+        unit, asset_emoji = "تومان", "💵"
+        price_display, threshold_display = price, threshold
     elif asset == "شمش طلا":
-        unit, asset_emoji, price_formatted = "ریال", "✨", f"{int(round(price)):,}"
+        unit, asset_emoji = "ریال", "✨"
+        price_display, threshold_display = price, threshold
     elif asset == "شمش نقره":
-        unit, asset_emoji, price_formatted = "ریال", "⚪", f"{int(round(price)):,}"
+        unit, asset_emoji = "تومان", "⚪"
+        price_display, threshold_display = price, threshold
     elif asset == "اونس طلا":
-        unit, asset_emoji, price_formatted = "دلار", "🔆", f"{price:,.2f}"
+        unit, asset_emoji = "دلار", "🔆"
+        price_display, threshold_display = price, threshold
     elif asset == "اونس نقره":
-        unit, asset_emoji, price_formatted = "دلار", "🌕", f"{price:,.2f}"
+        unit, asset_emoji = "دلار", "🌕"
+        price_display, threshold_display = price, threshold
     else:
-        unit, asset_emoji, price_formatted = "", "", f"{int(round(price)):,}"
+        unit, asset_emoji = "", ""
+        price_display, threshold_display = price, threshold
+
+    is_ounce_asset = "اونس" in asset
+    price_formatted = f"{price_display:,.2f}" if is_ounce_asset else f"{int(round(price_display)):,}"
+    threshold_formatted = f"{threshold_display:,.2f}" if is_ounce_asset else f"{int(round(threshold_display)):,}"
 
     main_text = f"""
 🔔 هشدار قیمتی {dir_emoji} {asset_emoji} {asset}
 
-📈 قیمت به {direction} {threshold:,} رسید.
+📈 قیمت به {direction} {threshold_formatted} رسید.
 💰 قیمت فعلی: {price_formatted} {unit}
 """.strip()
 
