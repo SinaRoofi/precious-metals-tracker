@@ -1,1 +1,1 @@
-# PreciousMetalTracker
+# Precious-Metal-Tracker
