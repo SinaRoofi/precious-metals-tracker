@@ -174,7 +174,7 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
             intrinsic_data = resp1.json()
             logger.info(f"✅ [{commodity}] intrinsic-values دریافت شد")
 
-            time.sleep(2)
+            time.sleep(1)
 
             logger.info(f"📡 [{commodity}] تلاش {attempt}/{max_retries} - درخواست funds...")
             resp2 = session.get(url_funds, timeout=REQUEST_TIMEOUT)
