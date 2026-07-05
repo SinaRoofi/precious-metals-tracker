@@ -29,7 +29,7 @@ EKHTELAF_THRESHOLD = 10
 # 🎯 مقادیر پیش‌فرض (Fallback)
 DEFAULT_GOLD_PRICE = 4180
 DEFAULT_DOLLAR_PRICE = 175_000
-DEFAULT_SILVER_PRICE = 62  # TODO: سینا مقدار دقیق‌تر فال‌بک رو در صورت نیاز عوض کنه
+DEFAULT_SILVER_PRICE = 62  
 
 # 🎈 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 0.5
