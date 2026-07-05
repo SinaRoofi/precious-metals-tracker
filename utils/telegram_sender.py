@@ -7,6 +7,7 @@ import logging
 import requests
 import pytz
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from persiantools.jdatetime import JalaliDateTime
@@ -119,14 +120,17 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
         return False
 
     try:
-        logger.info(f"🎨 [{commodity}] در حال ساخت تصویر Treemap...")
-        img1_bytes = create_combined_image(
-            commodity, data["Fund_df"], dollar_prices["last_trade"],
-            global_price, global_yesterday, data["dfp"], yesterday_close
-        )
+        logger.info(f"🎨 [{commodity}] در حال ساخت هم‌زمان Treemap و نمودارها...")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_treemap = executor.submit(
+                create_combined_image,
+                commodity, data["Fund_df"], dollar_prices["last_trade"],
+                global_price, global_yesterday, data["dfp"], yesterday_close,
+            )
+            future_chart = executor.submit(create_market_charts, commodity)
 
-        logger.info(f"📊 [{commodity}] در حال ساخت نمودارهای بازار...")
-        img2_bytes = create_market_charts(commodity)
+            img1_bytes = future_treemap.result()
+            img2_bytes = future_chart.result()
 
         logger.info(f"📝 [{commodity}] در حال ساخت کپشن...")
         caption = create_simple_caption(
