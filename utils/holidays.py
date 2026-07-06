@@ -16,7 +16,7 @@ API_URL = "https://holidayapi.ir/gregorian"
 API_TIMEOUT = 5
 
 MANUAL_EMERGENCY_HOLIDAYS = {
-    (1405, 4, 13), (1405, 4, 14), (1405, 4, 15), (1405, 4, 16),
+    (1405, 4, 13), (1405, 4, 14), (1405, 4, 15),
 }
 
 # تعطیلات رسمی 1405 (fallback وقتی API در دسترس نیست)
