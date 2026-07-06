@@ -1,7 +1,6 @@
 """
 ماژول مدیریت تعطیلات رسمی ایران
 
-استراتژی: API زنده (holidayapi.ir) اولویت اول -> لیست هاردکد fallback -> fail-safe.
 """
 
 import logging
@@ -33,9 +32,8 @@ IRANIAN_HOLIDAYS_1405 = {
     (1405, 12, 9), (1405, 12, 19), (1405, 12, 20), (1405, 12, 29),
 }
 
-# تعطیلات رسمی 1406 (placeholder)
 IRANIAN_HOLIDAYS_1406 = {
-    # (1406, 1, 1),
+     (1406, 1, 1),(1406, 1, 2),(1406, 1, 3),(1406, 1, 4)
 }
 
 IRANIAN_HOLIDAYS = {
@@ -74,7 +72,11 @@ def _check_holiday_api(year, month, day):
 
 def _check_hardcoded_fallback(jalali_year, date_tuple):
     """
-    بررسی لیست هاردکد
+    بررسی لیست هاردکد.
+
+    Returns:
+        True/False: اگه سال واقعاً در IRANIAN_HOLIDAYS ثبت شده باشه
+        None: اگه سال اصلاً ثبت نشده (سیگنال برای رفتن به fail-safe)
     """
     if jalali_year not in IRANIAN_HOLIDAYS:
         return None
