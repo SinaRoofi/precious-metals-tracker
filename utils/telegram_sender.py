@@ -555,7 +555,16 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         dollar_prices.get("ask_time"),
     )
 
-    caption = f"""
+    if commodity == "silver":
+        caption = f"""
+🔄 آخرین آپدیت: {current_time}
+
+<b>💵 دلار (تومان)</b>
+
+💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}
+"""
+    else:
+        caption = f"""
 🔄 آخرین آپدیت: {current_time}
 
 <b>💵 دلار (تومان)</b>
@@ -564,10 +573,10 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 💵 ارزش دلار: {value_total:,.0f} ({value_pct:.2f}%)
 🟥 کران بالای دلار: {high_total:,.0f} ({high_pct:.2f}%)
 """
-    if dollar_from_dirham is not None:
-        caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
+        if dollar_from_dirham is not None:
+            caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
 
-    caption += f"💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
+        caption += f"💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🔆" if commodity == "gold" else "🌕"
