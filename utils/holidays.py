@@ -6,19 +6,15 @@
 import logging
 import datetime as _dt
 from functools import lru_cache
-import requests
 import jdatetime
 
 logger = logging.getLogger(__name__)
-
-API_URL = "https://holidayapi.ir/gregorian"
-API_TIMEOUT = 5
 
 MANUAL_EMERGENCY_HOLIDAYS = {
     (1405, 4, 13), (1405, 4, 14), (1405, 4, 15),
 }
 
-# تعطیلات رسمی 1405 (fallback وقتی API در دسترس نیست)
+# تعطیلات رسمی 1405 (لیست هاردکد)
 IRANIAN_HOLIDAYS_1405 = {
     (1405, 1, 1), (1405, 1, 2), (1405, 1, 3), (1405, 1, 4),
     (1405, 1, 12), (1405, 1, 13), (1405, 1, 25),
@@ -42,32 +38,6 @@ IRANIAN_HOLIDAYS = {
 }
 
 WEEKEND_WEEKDAY = {3, 4}  # 3=پنج‌شنبه, 4=جمعه
-
-
-def _check_holiday_api(year, month, day):
-    """
-    بررسی تعطیلات رسمی از holidayapi.ir
-    """
-    try:
-        response = requests.get(
-            f"{API_URL}/{year}/{month:02d}/{day:02d}",
-            timeout=API_TIMEOUT
-        )
-        response.raise_for_status()
-        data = response.json()
-        events = data.get("events", [])
-
-        return any(
-            event.get("is_holiday", False) and event.get("description") != "جمعه"
-            for event in events
-        )
-
-    except requests.RequestException as e:
-        logger.warning(f"holidayapi.ir unavailable ({e}) -> fallback")
-        return None
-    except (ValueError, KeyError) as e:
-        logger.warning(f"Invalid response from holidayapi.ir ({e}) -> fallback")
-        return None
 
 
 def _check_hardcoded_fallback(jalali_year, date_tuple):
@@ -103,17 +73,12 @@ def _is_holiday_cached(year, month, day):
     if weekday in WEEKEND_WEEKDAY:
         return True
 
-    # 2) API
-    api_result = _check_holiday_api(year, month, day)
-    if api_result is not None:
-        return api_result
-
-    # 3) fallback
+    # 2) لیست هاردکد
     fallback_result = _check_hardcoded_fallback(jalali_date.year, date_tuple)
     if fallback_result is not None:
         return fallback_result
 
-    # 4) fail-safe
+    # 3) fail-safe
     logger.error(
         f"No data available for year {jalali_date.year} -> fail-safe holiday=True"
     )
