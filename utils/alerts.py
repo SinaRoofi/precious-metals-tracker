@@ -33,7 +33,6 @@ from config import (
 from utils.sheets_storage import read_from_sheets
 
 logger = logging.getLogger(__name__)
-FUND_ALERTS_FILE = "fund_alerts.json"
 
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 
@@ -66,6 +65,7 @@ def _default_alert_status():
         status[f"{c}_ounce"] = "normal"
         status[f"{c}_bubble"] = "normal"
         status[f"{c}_pol_hagigi"] = "normal"
+        status[f"{c}_hard_signal"] = "normal"
     return status
 
 
@@ -138,76 +138,6 @@ def save_alert_status(status):
         logger.error(f"خطا در ذخیره alert_status: {e}")
 
 
-def get_fund_alerts():
-    """دریافت تاریخچه هشدارهای صندوق‌ها (طلا و نقره در یک فایل، namespaced با فیلد commodity)"""
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            return {}
-
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-
-        if r.status_code == 200 and FUND_ALERTS_FILE in r.json()["files"]:
-            return json.loads(r.json()["files"][FUND_ALERTS_FILE]["content"])
-
-    except Exception as e:
-        logger.error(f"خطا در خواندن fund_alerts: {e}")
-
-    return {}
-
-
-def save_fund_alerts(fund_alerts):
-    """ذخیره تاریخچه هشدارهای صندوق‌ها"""
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            return
-
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-
-        requests.patch(
-            url,
-            headers=headers,
-            json={
-                "files": {
-                    FUND_ALERTS_FILE: {
-                        "content": json.dumps(fund_alerts, ensure_ascii=False, indent=2)
-                    }
-                }
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
-
-    except Exception as e:
-        logger.error(f"خطا در ذخیره fund_alerts: {e}")
-
-
-def cleanup_old_alerts(alerts_dict, max_days=7):
-    """پاک‌سازی بهینه‌شده داده‌های قدیمی‌تر از 7 روز"""
-    if not alerts_dict:
-        return {}
-
-    try:
-        tz = pytz.timezone(TIMEZONE)
-        cutoff = (datetime.now(tz) - timedelta(days=max_days)).strftime("%Y-%m-%d")
-
-        if all(d >= cutoff for d in alerts_dict.keys()):
-            return alerts_dict
-
-        cleaned = {d: items for d, items in alerts_dict.items() if d >= cutoff}
-        removed = len(alerts_dict) - len(cleaned)
-
-        if removed > 0:
-            logger.info(f"{removed} روز قدیمی از تاریخچه پاک شد")
-
-        return cleaned
-
-    except Exception as e:
-        logger.error(f"خطا در پاکسازی: {e}")
-        return alerts_dict
-
-
 # ════════════════════════════════════════════════════════════════
 # وضعیت قبلی از شیت (per-commodity — تب Gold یا Silver)
 # ════════════════════════════════════════════════════════════════
@@ -220,7 +150,6 @@ def get_previous_state_from_sheet(commodity):
         "shams_price": None,
         "global_price": None,
         "ekhtelaf_sarane": None,
-        "sarane_kharid": None,
         "bubble_weighted": None,
         "pol_hagigi": None,
     }
@@ -262,9 +191,6 @@ def get_previous_state_from_sheet(commodity):
             ),
             "ekhtelaf_sarane": (
                 float(prev_row[11]) if len(prev_row) > 11 and prev_row[11] else None
-            ),
-            "sarane_kharid": (
-                float(last_row[9]) if len(last_row) > 9 and last_row[9] else None
             ),
             "bubble_weighted": (
                 float(prev_row[8]) if len(prev_row) > 8 and prev_row[8] else None
@@ -389,9 +315,13 @@ def check_and_send_alerts(
     if pol_status_changed:
         changed = True
 
-    # هشدار صندوق‌های فعال و کراس سرانه
-    check_active_funds_alert(bot_token, chat_id, df_funds, tz, now, commodity, label)
-    check_sarane_cross_alert(bot_token, chat_id, df_funds, tz, now, commodity, label)
+    # هشدار سخت خرید/فروش
+    hard_signal_changed = check_hard_signal_alert(
+        bot_token, chat_id, current_bubble, current_pol, current_ekhtelaf,
+        status, tz, now, commodity, label,
+    )
+    if hard_signal_changed:
+        changed = True
 
     # آستانه‌های قیمتی
     # نکته: SILVER_SHAMS_HIGH/LOW در config به تومان نوشته می‌شن، ولی current_shams
@@ -601,166 +531,69 @@ def send_pol_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, chan
 
 
 # ════════════════════════════════════════════════════════════════
-# صندوق‌های فعال و کراس سرانه — namespaced با commodity
+# هشدار سخت خرید / سخت فروش
 # ════════════════════════════════════════════════════════════════
 
 
-def check_active_funds_alert(bot_token, chat_id, df_funds, tz, now, commodity, label):
-    """بررسی و ارسال هشدار صندوق‌های فعال"""
-    try:
-        if df_funds.empty:
-            return
+def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
+                             current_ekhtelaf, status, tz, now, commodity, label):
+    """
+    بررسی و ارسال هشدار سخت خرید/فروش.
 
-        latest_row = read_from_sheets(commodity, limit=1)
-        if not latest_row:
-            logger.warning(f"[{commodity}] هیچ داده‌ای از شیت دریافت نشد")
-            return
+    سخت خرید: حباب، پول حقیقی و اختلاف سرانه‌ی کل هر سه مثبت.
+    سخت فروش: هر سه منفی.
+    state-based (مثل حباب/پول حقیقی) — فقط موقع تغییر وضعیت پیام می‌ره.
+    """
+    status_changed = False
+    status_key = f"{commodity}_hard_signal"
 
-        latest_row = latest_row[-1]
-        sarane_kol = float(latest_row[9]) if len(latest_row) > 9 and latest_row[9] else 0
+    if current_bubble > 0 and current_pol > 0 and current_ekhtelaf > 0:
+        if status[status_key] != "buy":
+            send_hard_signal_alert(bot_token, chat_id, "buy", current_bubble,
+                                    current_pol, current_ekhtelaf, tz, now, label)
+            status[status_key] = "buy"
+            status_changed = True
+            logger.info(
+                f"🟢 [{commodity}] هشدار سخت خرید: حباب {current_bubble:+.2f}% | "
+                f"پول {current_pol:+,.0f} | اختلاف سرانه {current_ekhtelaf:+,.0f}"
+            )
 
-        active_funds = df_funds[
-            (df_funds["value_to_avg_ratio"] >= 150)
-            & (df_funds["pol_to_value_ratio"] >= 0.3)
-            & (df_funds["ekhtelaf_sarane"] > 0)
-            & (df_funds["sarane_kharid"] >= sarane_kol)
-        ].copy()
+    elif current_bubble < 0 and current_pol < 0 and current_ekhtelaf < 0:
+        if status[status_key] != "sell":
+            send_hard_signal_alert(bot_token, chat_id, "sell", current_bubble,
+                                    current_pol, current_ekhtelaf, tz, now, label)
+            status[status_key] = "sell"
+            status_changed = True
+            logger.info(
+                f"🔴 [{commodity}] هشدار سخت فروش: حباب {current_bubble:+.2f}% | "
+                f"پول {current_pol:+,.0f} | اختلاف سرانه {current_ekhtelaf:+,.0f}"
+            )
 
-        if active_funds.empty:
-            logger.debug(f"[{commodity}] هیچ صندوق فعالی با شرایط سخت خرید پیدا نشد")
-            return
+    else:
+        if status[status_key] != "normal":
+            status[status_key] = "normal"
+            status_changed = True
 
-        active_funds = active_funds.sort_values("value", ascending=False)
-        active_funds["sarane_kharid_diff"] = active_funds["sarane_kharid"] - sarane_kol
-
-        fund_alerts = get_fund_alerts()
-        fund_alerts = cleanup_old_alerts(fund_alerts)
-
-        today = now.strftime("%Y-%m-%d")
-        today_list = fund_alerts.get(today, [])
-        already_sent = {
-            item["symbol"] for item in today_list
-            if item.get("commodity") == commodity and item.get("alert_type") == "هشدار سخت خرید"
-        }
-        new_symbols = [s for s in active_funds.index if s not in already_sent]
-
-        if not new_symbols:
-            logger.debug(f"[{commodity}] همه صندوق‌های فعال امروز قبلاً هشدار دادن")
-            return
-
-        for sym in new_symbols:
-            today_list.append({"symbol": sym, "alert_type": "هشدار سخت خرید", "commodity": commodity})
-        fund_alerts[today] = today_list
-        save_fund_alerts(fund_alerts)
-
-        logger.info(f"[{commodity}] هشدار سخت خرید: {len(new_symbols)} صندوق جدید → {', '.join(new_symbols)}")
-
-        funds_text = ""
-        for symbol, row in active_funds.loc[new_symbols].iterrows():
-            value_str = f"{row['value']:.0f} م.ت ({row['value_to_avg_ratio']:.0f}%)"
-            pol_str = f"{row['pol_hagigi']:+.0f} م.ت ({row['pol_to_value_ratio']*100:+.1f}%)"
-            sarane_str = f"{row['sarane_kharid']:.0f}M (+{row['sarane_kharid_diff']:.0f}M)"
-            ekhtelaf_str = f"{row['ekhtelaf_sarane']:+.0f}M"
-
-            funds_text += f"""
-📌 {symbol}
-💰 ارزش معاملات: {value_str}
-💸 ورود پول حقیقی: {pol_str}
-🟢 سرانه خرید: {sarane_str}
-📊 اختلاف سرانه: {ekhtelaf_str}
-🎈 حباب: {row['nominal_bubble']:+.1f}%
-
-"""
-
-        main_text = f"🚨 هشدار سخت خرید — {label}\n\n{funds_text}".strip()
-        footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
-        send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
-
-    except Exception as e:
-        logger.error(f"[{commodity}] خطا در بررسی صندوق‌های فعال: {e}")
+    return status_changed
 
 
-def check_sarane_cross_alert(bot_token, chat_id, df_funds, tz, now, commodity, label):
-    """بررسی و ارسال هشدار کراس سرانه"""
-    try:
-        if df_funds.empty:
-            return
+def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz, now, label):
+    """ارسال هشدار سخت خرید/فروش"""
+    if signal == "buy":
+        title, dir_emoji = "هشدار سخت خرید", "🟢"
+    else:
+        title, dir_emoji = "هشدار سخت فروش", "🔴"
 
-        positive_cross = df_funds[df_funds["sarane_kharid"] > df_funds["sarane_forosh"]].copy()
-        negative_cross = df_funds[df_funds["sarane_forosh"] > df_funds["sarane_kharid"]].copy()
+    main_text = f"""
+🚨 {title} — {label} {dir_emoji}
 
-        fund_alerts = get_fund_alerts()
-        fund_alerts = cleanup_old_alerts(fund_alerts)
+🎈 حباب: {bubble:+.2f}%
+💸 پول حقیقی: {pol:+,.0f} میلیارد تومان
+📊 اختلاف سرانه: {ekhtelaf:+,.0f}
+""".strip()
 
-        today = now.strftime("%Y-%m-%d")
-        today_list = fund_alerts.get(today, [])
-
-        already_sent_positive = {
-            item["symbol"] for item in today_list
-            if item.get("commodity") == commodity and item.get("alert_type") == "کراس مثبت"
-        }
-        already_sent_negative = {
-            item["symbol"] for item in today_list
-            if item.get("commodity") == commodity and item.get("alert_type") == "کراس منفی"
-        }
-
-        new_positive = [s for s in positive_cross.index if s not in already_sent_positive]
-        new_negative = [s for s in negative_cross.index if s not in already_sent_negative]
-
-        if new_positive:
-            positive_cross = positive_cross.loc[new_positive].sort_values("value", ascending=False)
-            for sym in new_positive:
-                today_list.append({"symbol": sym, "alert_type": "کراس مثبت", "commodity": commodity})
-
-            logger.info(f"🟢 [{commodity}] کراس مثبت: {len(new_positive)} صندوق → {', '.join(new_positive)}")
-
-            funds_text = ""
-            for symbol, row in positive_cross.iterrows():
-                pol_ratio = (row["pol_hagigi"] / row["value"] * 100) if row["value"] > 0 else 0
-                funds_text += f"""
-📌 {symbol}
-💹 تغییر قیمت: {row["close_price_change_percent"]:+.1f}%
-🎈 حباب: {row["nominal_bubble"]:+.1f}%
-🟢 سرانه خرید: {row["sarane_kharid"]:,.0f}M
-🔴 سرانه فروش: {row["sarane_forosh"]:,.0f}M
-💰 ارزش معاملات: {row["value"]:.0f} م.ت ({row["value_to_avg_ratio"]*100:.0f}%)
-💸 پول حقیقی: {row["pol_hagigi"]:+,.0f} م.ت ({pol_ratio:+.1f}%)
-
-"""
-            main_text = f"🟢 هشدار کراس مثبت سرانه — {label}\n{funds_text}".strip()
-            footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
-            send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
-
-        if new_negative:
-            negative_cross = negative_cross.loc[new_negative].sort_values("value", ascending=False)
-            for sym in new_negative:
-                today_list.append({"symbol": sym, "alert_type": "کراس منفی", "commodity": commodity})
-
-            logger.info(f"🔴 [{commodity}] کراس منفی: {len(new_negative)} صندوق → {', '.join(new_negative)}")
-
-            funds_text = ""
-            for symbol, row in negative_cross.iterrows():
-                pol_ratio = (row["pol_hagigi"] / row["value"] * 100) if row["value"] > 0 else 0
-                funds_text += f"""
-📌 {symbol}
-💹 تغییر قیمت: {row["close_price_change_percent"]:+.1f}%
-🎈 حباب: {row["nominal_bubble"]:+.1f}%
-🔴 سرانه فروش: {row["sarane_forosh"]:,.0f}M
-🟢 سرانه خرید: {row["sarane_kharid"]:,.0f}M
-💰 ارزش معاملات: {row["value"]:,.0f} م.ت ({row["value_to_avg_ratio"]*100:.1f}%)
-💸 پول حقیقی: {row["pol_hagigi"]:+,.0f} م.ت ({pol_ratio:+.1f}%)
-
-"""
-            main_text = f"🔴 هشدار کراس منفی سرانه — {label}\n{funds_text}".strip()
-            footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
-            send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
-
-        if new_positive or new_negative:
-            fund_alerts[today] = today_list
-            save_fund_alerts(fund_alerts)
-
-    except Exception as e:
-        logger.error(f"[{commodity}] خطا در بررسی کراس سرانه: {e}")
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
 # ════════════════════════════════════════════════════════════════
