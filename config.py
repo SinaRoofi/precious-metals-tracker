@@ -26,7 +26,7 @@ SILVER_LOW = 50
 ALERT_THRESHOLD_PERCENT = {
     "dollar": 0.5,
     "gold": 0.5,
-    "silver": 1.0,   # ۲ برابر آستانه قبلی (۰.۵ → ۱.۰)
+    "silver": 1.0,
 }
 EKHTELAF_THRESHOLD = 10
 
