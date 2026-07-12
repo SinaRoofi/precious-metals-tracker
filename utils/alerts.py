@@ -268,13 +268,13 @@ def check_and_send_alerts(
     # نوسان ۵ دقیقه‌ای دلار — فقط یک‌بار در کل ران
     if check_dollar and prev["dollar_price"] and prev["dollar_price"] > 0:
         change = (current_dollar - prev["dollar_price"]) / prev["dollar_price"] * 100
-        if abs(change) >= ALERT_THRESHOLD_PERCENT:
+        if abs(change) >= ALERT_THRESHOLD_PERCENT["dollar"]:
             send_price_alert(bot_token, chat_id, "دلار", current_dollar, change, "تومان")
 
     # نوسان ۵ دقیقه‌ای شمش
     if prev["shams_price"] and prev["shams_price"] > 0:
         change = (current_shams - prev["shams_price"]) / prev["shams_price"] * 100
-        if abs(change) >= ALERT_THRESHOLD_PERCENT:
+        if abs(change) >= ALERT_THRESHOLD_PERCENT[commodity]:
             shams_divisor = 10 if commodity == "silver" else 1
             shams_unit = "تومان" if commodity == "silver" else "ریال"
             send_price_alert(
@@ -285,7 +285,7 @@ def check_and_send_alerts(
     # نوسان ۵ دقیقه‌ای انس جهانی
     if prev["global_price"] and prev["global_price"] > 0:
         change = (current_ounce - prev["global_price"]) / prev["global_price"] * 100
-        if abs(change) >= ALERT_THRESHOLD_PERCENT:
+        if abs(change) >= ALERT_THRESHOLD_PERCENT[commodity]:
             send_price_alert(
                 bot_token, chat_id, f"اونس {label}", current_ounce, change,
                 "دلار", is_ounce=True,
