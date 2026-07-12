@@ -23,7 +23,11 @@ SILVER_SHAMS_LOW = 300_000
 SILVER_HIGH = 65
 SILVER_LOW = 50
 
-ALERT_THRESHOLD_PERCENT = 0.5
+ALERT_THRESHOLD_PERCENT = {
+    "dollar": 0.5,
+    "gold": 0.5,
+    "silver": 1.0,   # ۲ برابر آستانه قبلی (۰.۵ → ۱.۰)
+}
 EKHTELAF_THRESHOLD = 10
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
