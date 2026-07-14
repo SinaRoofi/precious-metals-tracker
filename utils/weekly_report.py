@@ -1,17 +1,4 @@
 # utils/weekly_report.py
-"""ماژول ساخت گزارش هفتگی (شنبه تا چهارشنبه) برای طلا/نقره.
-
-برخلاف utils/chart_creator.py (که هر بار روی داده‌ی *همان روز* کار می‌کند)،
-این ماژول چند روز از Sheet را می‌خواند، هر روز را به یک نقطه‌ی خلاصه
-(آخرین snapshot آن روز) تقلیل می‌دهد و روی محور X روزهای هفته را نشان می‌دهد.
-
-⚠️ نکته‌ی مهم درباره‌ی pol_hagigi:
-    ستون pol_hagigi در Sheet یک مقدار لحظه‌ای (snapshot) در هر اجراست، نه
-    incremental. اگر ربات روزی چند بار اجرا شود، همان مقدار روزانه چند بار
-    در Sheet تکرار می‌شود. برای همین قبل از هر محاسبه‌ای، داده‌ها را با
-    گروه‌بندی روزانه (آخرین ردیف هر روز) collapse می‌کنیم — در غیر این صورت
-    مجموع هفتگی به‌شدت بیش از واقعیت محاسبه می‌شود (double counting).
-"""
 
 import io
 import logging
@@ -169,10 +156,7 @@ def _render_weekly_chart(commodity, daily):
         fund_padding = 0.5 if fund_min == fund_max else (fund_max - fund_min) * 0.3
         fig.update_yaxes(range=[fund_min - fund_padding, fund_max + fund_padding], row=2, col=1)
 
-        fig.update_layout(showlegend=True, legend=dict(
-            orientation="h", yanchor="bottom", y=1.0 - 0.02, xanchor="right", x=1,
-            font=dict(size=20, family=chart_font_family), bgcolor="rgba(0,0,0,0)",
-        ))
+        fig.update_layout(showlegend=False)
 
         # ─── ردیف ۳: پول حقیقی تجمعی ───
         add_conditional_line(fig, daily, "pol_hagigi_cumulative", 3)
