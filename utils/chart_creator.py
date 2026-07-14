@@ -66,7 +66,7 @@ def create_market_charts(commodity):
             'fund_weighted_change_percent', 'fund_final_price_avg',
             'fund_weighted_bubble_percent', 'sarane_kharid_weighted',
             'sarane_forosh_weighted', 'ekhtelaf_sarane_weighted',
-            'pol_hagigi'
+            'pol_hagigi', 'shams_bubble_percent'
         ])
 
         df['timestamp'] = pd.to_datetime(df['timestamp'])
