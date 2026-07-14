@@ -1,0 +1,60 @@
+name: Weekly Market Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "اجرا حتی اگه امروز تعطیل تشخیص داده بشه (فقط برای تست)"
+        type: boolean
+        default: false
+  schedule:
+    # هر چهارشنبه، ساعت 19:00 به وقت تهران (UTC+3:30 — ایران DST نداره)
+    # این cron بومیِ خودِ GitHub Actions است؛ به هیچ trigger بیرونی
+    # (Cloudflare Worker یا هر چیز دیگری) وابسته نیست — خودش اجرا و ارسال می‌شود.
+    - cron: "30 15 * * 3"
+
+concurrency:
+  group: weekly-report
+  cancel-in-progress: false
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Tehran
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
+
+      - name: Setup Python 3.11
+        run: uv python install 3.11
+
+      - name: Create venv and install dependencies
+        run: |
+          uv venv --python 3.11
+          uv pip install -q -r requirements.txt
+
+      - name: Run Weekly Report
+        env:
+          FORCE_RUN: ${{ inputs.force_run }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SHEETS_SERVICE_ACCOUNT: ${{ secrets.SHEETS_SERVICE_ACCOUNT }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: .venv/bin/python weekly_report_main.py
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-logs
+          path: market_tracker.log
