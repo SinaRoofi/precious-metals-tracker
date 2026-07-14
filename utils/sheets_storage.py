@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 if not SHEET_ID or not SERVICE_ACCOUNT_JSON:
     raise Exception("⚠️ SHEET_ID یا SHEETS_SERVICE_ACCOUNT در Secrets تنظیم نشده!")
 
-NUM_COLS = len(STANDARD_HEADER)  # 13
-LAST_COL_LETTER = "M"  # ستون سیزدهم — اگه STANDARD_HEADER عوض شد باید این هم عوض بشه
+NUM_COLS = len(STANDARD_HEADER)  # 14
+LAST_COL_LETTER = "N"  # ستون چهاردهم — اگه STANDARD_HEADER عوض شد باید این هم عوض بشه
+LEGACY_NUM_COLS = NUM_COLS - 1  # 13 — طرح قدیمی، قبل از اضافه‌شدن shams_bubble_percent
 
 
 def _sheet_name(commodity):
@@ -129,6 +130,7 @@ def save_to_sheets(commodity, row_dict):
             - sarane_forosh_w: سرانه فروش
             - ekhtelaf_sarane_w: اختلاف سرانه
             - pol_hagigi: پول حقیقی (میلیارد تومان، اختیاری، پیش‌فرض 0)
+            - shams_bubble: درصد حباب شمش (dfp.loc[bullion_key, "Bubble"]، اختیاری، پیش‌فرض 0)
     """
     sheet_name = _sheet_name(commodity)
     try:
@@ -158,6 +160,7 @@ def save_to_sheets(commodity, row_dict):
             round(row_dict['sarane_forosh_w'], 2),
             round(row_dict['ekhtelaf_sarane_w'], 2),
             round(row_dict.get('pol_hagigi', 0), 2),
+            round(row_dict.get('shams_bubble', 0), 2),
         ]
 
         service.spreadsheets().values().append(
@@ -200,10 +203,20 @@ def read_from_sheets(commodity, limit=1000):
             return []
 
         data_rows = values[1:]
-        valid_rows = [row for row in data_rows if len(row) == NUM_COLS]
+        valid_rows = []
+        invalid_count = 0
 
-        if len(valid_rows) < len(data_rows):
-            invalid_count = len(data_rows) - len(valid_rows)
+        for row in data_rows:
+            if len(row) == NUM_COLS:
+                valid_rows.append(row)
+            elif len(row) == LEGACY_NUM_COLS:
+                # ردیف قدیمی (قبل از اضافه‌شدن shams_bubble_percent) — به‌جای دور انداختن،
+                # با مقدار خنثی پد می‌کنیم تا تاریخچه‌ی گزارش هفتگی از دست نره.
+                valid_rows.append(row + [""])
+            else:
+                invalid_count += 1
+
+        if invalid_count > 0:
             logger.warning(f"⚠️ [{commodity}] {invalid_count} ردیف نامعتبر نادیده گرفته شد")
 
         if len(valid_rows) > limit:
