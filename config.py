@@ -108,6 +108,7 @@ TIMEZONE = 'Asia/Tehran'
 CHART_WIDTH = 1400
 CHART_HEIGHT = 2200
 CHART_SCALE = 2
+WEEKLY_CHART_HEIGHT = 2000  # 4 subplot (حباب شمش، حباب صندوق‌ها، پول حقیقی تجمعی، سرانه)
 
 TREEMAP_WIDTH = 1350
 TREEMAP_HEIGHT = 1350
@@ -235,6 +236,7 @@ STANDARD_HEADER = [
     'sarane_forosh_weighted',
     'ekhtelaf_sarane_weighted',
     'pol_hagigi',
+    'shams_bubble_percent',  # ⚠️ ستون جدید — همیشه در انتها اضافه شود، نه وسط (سازگاری با ردیف‌های قدیمی ۱۳ ستونی)
 ]
 
 KEEP_DAYS = 30
