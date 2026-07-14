@@ -184,8 +184,9 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         shams_change = dfp.loc[bullion_key, "close_price_change_percent"]
         shams_price = dfp.loc[bullion_key, "close_price"]
         shams_date = dfp.loc[bullion_key, "trade_date"]
+        shams_bubble = dfp.loc[bullion_key, "Bubble"]
     else:
-        shams_change, shams_price, shams_date = 0, 0, None
+        shams_change, shams_price, shams_date, shams_bubble = 0, 0, None, 0
         logger.warning(f"⚠️ [{commodity}] دارایی شمش ('{bullion_key}') در dfp پیدا نشد")
 
     logger.info(f"📈 [{commodity}] دلار: {dollar_change:+.2f}% | انس: {global_change:+.2f}% | شمش: {shams_change:+.2f}%")
@@ -207,6 +208,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "sarane_forosh_w": -sarane_forosh_w,
         "ekhtelaf_sarane_w": ekhtelaf_sarane_w,
         "pol_hagigi": pol_hagigi_weighted,
+        "shams_bubble": shams_bubble,
     })
 
     logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام...")
