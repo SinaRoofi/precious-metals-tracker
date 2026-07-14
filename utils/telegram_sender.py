@@ -148,10 +148,10 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
             saved_message_id = None
 
         if saved_message_id:
-            logger.info(f"🔄 [{commodity}] در حال آپدیت پیام پین‌شده (ID: {saved_message_id})...")
+            logger.info(f"🔄 [{commodity}] در حال آپدیت پیام امروز (ID: {saved_message_id})...")
             if update_media_group_correctly(bot_token, chat_id, saved_message_id,
                                              img1_bytes, img2_bytes, caption):
-                logger.info(f"✅ [{commodity}] پیام پین‌شده آپدیت شد")
+                logger.info(f"✅ [{commodity}] پیام امروز آپدیت شد")
                 return True
             logger.warning(f"⚠️ [{commodity}] آپدیت پیام ناموفق بود، پیام جدید ارسال می‌شود")
 
@@ -159,8 +159,7 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
         new_message_id = send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption)
         if new_message_id:
             save_gist_data(commodity, new_message_id, today)
-            pin_message(bot_token, chat_id, new_message_id)
-            logger.info(f"✅ [{commodity}] پیام جدید ارسال و پین شد (ID: {new_message_id})")
+            logger.info(f"✅ [{commodity}] پیام جدید ارسال شد (ID: {new_message_id})")
             return True
 
         logger.error(f"❌ [{commodity}] ارسال پیام ناموفق بود")
@@ -264,6 +263,8 @@ def update_media_group_correctly(bot_token, chat_id, first_message_id, img1_byte
 
 
 def pin_message(bot_token, chat_id, message_id):
+    """⚠️ دیگه توسط send_to_telegram صدا زده نمی‌شه (طبق درخواست: گزارش روزانه پین نشه).
+    تابع رو نگه داشتم، نه حذف، برای اینکه اگه بعداً جای دیگه‌ای پین لازم شد آماده باشه."""
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{bot_token}/pinChatMessage",
