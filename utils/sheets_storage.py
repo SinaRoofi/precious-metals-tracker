@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 if not SHEET_ID or not SERVICE_ACCOUNT_JSON:
     raise Exception("⚠️ SHEET_ID یا SHEETS_SERVICE_ACCOUNT در Secrets تنظیم نشده!")
 
-NUM_COLS = len(STANDARD_HEADER)  # 14
-LAST_COL_LETTER = "N"  # ستون چهاردهم — اگه STANDARD_HEADER عوض شد باید این هم عوض بشه
-LEGACY_NUM_COLS = NUM_COLS - 1  # 13 — طرح قدیمی، قبل از اضافه‌شدن shams_bubble_percent
+NUM_COLS = len(STANDARD_HEADER)  # 15
+LAST_COL_LETTER = "O"  # ستون پانزدهم — اگه STANDARD_HEADER عوض شد باید این هم عوض بشه
+LEGACY_NUM_COLS = NUM_COLS - 1  # 14 — طرح قبلی، قبل از اضافه‌شدن trade_value
+LEGACY_NUM_COLS_V0 = NUM_COLS - 2  # 13 — طرح اولیه، قبل از اضافه‌شدن shams_bubble_percent
 
 
 def _sheet_name(commodity):
@@ -131,6 +132,7 @@ def save_to_sheets(commodity, row_dict):
             - ekhtelaf_sarane_w: اختلاف سرانه
             - pol_hagigi: پول حقیقی (میلیارد تومان، اختیاری، پیش‌فرض 0)
             - shams_bubble: درصد حباب شمش (dfp.loc[bullion_key, "Bubble"]، اختیاری، پیش‌فرض 0)
+            - trade_value: ارزش معاملات (Fund_df["value"].sum()، اختیاری، پیش‌فرض 0)
     """
     sheet_name = _sheet_name(commodity)
     try:
@@ -161,6 +163,7 @@ def save_to_sheets(commodity, row_dict):
             round(row_dict['ekhtelaf_sarane_w'], 2),
             round(row_dict.get('pol_hagigi', 0), 2),
             round(row_dict.get('shams_bubble', 0), 2),
+            round(row_dict.get('trade_value', 0), 2),
         ]
 
         service.spreadsheets().values().append(
@@ -210,9 +213,12 @@ def read_from_sheets(commodity, limit=1000):
             if len(row) == NUM_COLS:
                 valid_rows.append(row)
             elif len(row) == LEGACY_NUM_COLS:
-                # ردیف قدیمی (قبل از اضافه‌شدن shams_bubble_percent) — به‌جای دور انداختن،
+                # ردیف قدیمی (قبل از اضافه‌شدن trade_value) — به‌جای دور انداختن،
                 # با مقدار خنثی پد می‌کنیم تا تاریخچه‌ی گزارش هفتگی از دست نره.
                 valid_rows.append(row + [""])
+            elif len(row) == LEGACY_NUM_COLS_V0:
+                # ردیف خیلی قدیمی (قبل از shams_bubble_percent و trade_value)
+                valid_rows.append(row + ["", ""])
             else:
                 invalid_count += 1
 
