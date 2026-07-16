@@ -168,12 +168,13 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
     dfp = processed["dfp"]
     logger.info(f"✅ [{commodity}] پردازش کامل شد - {len(Fund_df)} صندوق")
 
-    total_value = Fund_df["value"].sum() or 1
-    fund_change_weighted = (Fund_df["close_price_change_percent"] * Fund_df["value"]).sum() / total_value
-    fund_bubble_weighted = (Fund_df["nominal_bubble"] * Fund_df["value"]).sum() / total_value
+    total_value = Fund_df["value"].sum()  # ارزش معاملات واقعی (برای ذخیره‌سازی) — می‌تواند صفر باشد
+    weighting_denominator = total_value or 1  # فقط برای جلوگیری از تقسیم بر صفر در میانگین‌های وزنی
+    fund_change_weighted = (Fund_df["close_price_change_percent"] * Fund_df["value"]).sum() / weighting_denominator
+    fund_bubble_weighted = (Fund_df["nominal_bubble"] * Fund_df["value"]).sum() / weighting_denominator
     fund_final_price_avg = Fund_df["final_price_change"].mean()
-    sarane_kharid_w = (Fund_df["sarane_kharid"] * Fund_df["value"]).sum() / total_value
-    sarane_forosh_w = (Fund_df["sarane_forosh"] * Fund_df["value"]).sum() / total_value
+    sarane_kharid_w = (Fund_df["sarane_kharid"] * Fund_df["value"]).sum() / weighting_denominator
+    sarane_forosh_w = (Fund_df["sarane_forosh"] * Fund_df["value"]).sum() / weighting_denominator
     ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
     pol_hagigi_weighted = Fund_df["pol_hagigi"].sum()
 
@@ -209,6 +210,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "ekhtelaf_sarane_w": ekhtelaf_sarane_w,
         "pol_hagigi": pol_hagigi_weighted,
         "shams_bubble": shams_bubble,
+        "trade_value": total_value,
     })
 
     logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام...")
