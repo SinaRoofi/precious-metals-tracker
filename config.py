@@ -6,14 +6,14 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 190_000
-DOLLAR_LOW = 185_000
+DOLLAR_HIGH = 193_000
+DOLLAR_LOW = 190_000
 
 # --- طلا ---
 SHAMS_HIGH = 25_000_000
 SHAMS_LOW = 24_000_000
 
-GOLD_HIGH = 4100
+GOLD_HIGH = 4065
 GOLD_LOW = 4000
 
 # --- نقره ---
@@ -31,9 +31,9 @@ ALERT_THRESHOLD_PERCENT = {
 EKHTELAF_THRESHOLD = 10
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4078
-DEFAULT_DOLLAR_PRICE = 180_000
-DEFAULT_SILVER_PRICE = 60
+DEFAULT_GOLD_PRICE = 4016
+DEFAULT_DOLLAR_PRICE = 192_500
+DEFAULT_SILVER_PRICE = 57
 
 # 🎈 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 0.5
