@@ -21,7 +21,7 @@ SILVER_SHAMS_HIGH = 400_000
 SILVER_SHAMS_LOW = 300_000
 
 SILVER_HIGH = 60
-SILVER_LOW = 501
+SILVER_LOW = 50
 
 ALERT_THRESHOLD_PERCENT = {
     "dollar": 0.5,
@@ -47,9 +47,9 @@ ALERT_CHANNEL_HANDLE = "@ALERT_METALS"
 
 # ارزش روزانه دلار تومان
 VALUE_DIFF = 111_000
-LOW_VALUE = 186
-VALUE = 315
-HIGH_VALUE = 564
+LOW_VALUE = 162
+VALUE = 285
+HIGH_VALUE = 581
 
 # ════════════════════════════════════════════════════════════════
 # 🔐 متغیرهای محیطی (Environment Variables)
