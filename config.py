@@ -205,9 +205,9 @@ FONT_REGULAR_PATH = "assets/fonts/Vazirmatn-Regular.ttf"
 # 🔄 تنظیمات Retry و Network
 # ════════════════════════════════════════════════════════════════
 
-MAX_RETRIES = 3
-RETRY_DELAY = 5
-REQUEST_TIMEOUT = 90
+MAX_RETRIES = 2
+RETRY_DELAY = 3
+REQUEST_TIMEOUT = (5, 15)
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
