@@ -15,6 +15,7 @@ concurrency:
 jobs:
   track-market:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     env:
       TZ: Asia/Tehran
 
