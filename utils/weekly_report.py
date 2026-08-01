@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytz
 from PIL import Image, ImageDraw, ImageFont
-from persiantools.jdatetime import JalaliDateTime
+from persiantools.jdatetime import JalaliDate, JalaliDateTime
 from plotly.subplots import make_subplots
 
 from config import (
@@ -49,6 +49,38 @@ MA_SHORT_WINDOW = 5
 MA_LONG_WINDOW = 22
 # حداقل تعداد روز تاریخچه که برای میانگین ۲۲ روزه واکشی می‌کنیم (روزهای هفته جاری + حاشیه تعطیلات)
 TRADE_VALUE_HISTORY_LOOKBACK_ROWS = 3000
+
+
+def _jalali_day_label(d):
+    """برچسب محور X: نام روز هفته + تاریخ خورشیدی (ماه/روز)"""
+    weekday_name = PERSIAN_WEEKDAY_NAME.get(d.weekday(), str(d))
+    jalali_date = JalaliDate(d)
+    return f"{weekday_name}<br>{jalali_date.strftime('%m/%d')}"
+
+
+def _resolve_label_overlap(values, y_min, y_max, min_gap_fraction=0.07, push_px=42):
+    """
+    وقتی چند برچسب در یک subplot به هم نزدیک باشن (فاصله‌ی نرمالایزشده‌شون روی محور Y
+    کمتر از min_gap_fraction باشه)، این تابع یک yshift پیکسلی برای هرکدوم حساب می‌کنه
+    تا از هم فاصله بگیرن و روی هم نیفتن. ترتیب خروجی مطابق ترتیب ورودی values است.
+    """
+    span = (y_max - y_min) or 1e-9
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    shifts = [0.0] * len(values)
+    prev_norm = None
+    cum_push = 0.0
+    for idx in order:
+        norm = (values[idx] - y_min) / span
+        if prev_norm is not None and (norm - prev_norm) < min_gap_fraction:
+            cum_push += push_px
+        else:
+            cum_push = 0.0
+        shifts[idx] = cum_push
+        prev_norm = norm
+    if any(shifts):
+        avg = sum(shifts) / len(shifts)
+        shifts = [s - avg for s in shifts]
+    return shifts
 
 
 def _current_trading_week_range(now=None):
@@ -105,7 +137,7 @@ def _load_week_dataframe(commodity):
         return None
 
     daily["pol_hagigi_cumulative"] = daily["pol_hagigi"].cumsum()
-    daily["day_label"] = daily["date"].apply(lambda d: PERSIAN_WEEKDAY_NAME.get(d.weekday(), str(d)))
+    daily["day_label"] = daily["date"].apply(_jalali_day_label)
 
     return daily.reset_index(drop=True)
 
@@ -310,52 +342,60 @@ def _render_weekly_chart(commodity, daily):
 
         label_font = dict(size=28, color="#8B949E", family=chart_font_family)
 
-        # ردیف ۱: ارزش معاملات + میانگین ۵ و ۲۲ روزه
+        # ردیف ۱: ارزش معاملات + میانگین ۵ و ۲۲ روزه (با رفع تداخل وقتی مقادیر به‌هم نزدیک‌اند)
+        trade_yshifts = _resolve_label_overlap(
+            [last_trade_value, last_ma5, last_ma22],
+            trade_value_series.min(), trade_value_series.max(),
+        )
         fig.add_annotation(
             text=f"<b>{last_trade_value:,.0f}</b>",
             x=1.01, y=last_trade_value, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
-            xanchor="left", yanchor="middle",
+            xanchor="left", yanchor="middle", yshift=trade_yshifts[0],
             font=dict(size=28, color="#2196F3", family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
             text=f"<b>MA{MA_SHORT_WINDOW}: {last_ma5:,.0f}</b>",
             x=1.01, y=last_ma5, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
-            xanchor="left", yanchor="middle",
+            xanchor="left", yanchor="middle", yshift=trade_yshifts[1],
             font=dict(size=26, color=COLOR_POSITIVE, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
             text=f"<b>MA{MA_LONG_WINDOW}: {last_ma22:,.0f}</b>",
             x=1.01, y=last_ma22, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
-            xanchor="left", yanchor="middle",
+            xanchor="left", yanchor="middle", yshift=trade_yshifts[2],
             font=dict(size=26, color="#FFA726", family=chart_font_family), showarrow=False,
         )
 
-        # ردیف ۲: حباب شمش (مقدار آخر + میانگین هفته)
+        # ردیف ۲: حباب شمش (مقدار آخر + میانگین هفته) — با رفع تداخل
+        shams_yshifts = _resolve_label_overlap([last_shams, shams_avg], shams_min, shams_max)
         shams_color = COLOR_POSITIVE if last_shams >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
             text=f"<b>{last_shams:+.2f}%</b>",
             x=1.01, y=last_shams, xref="paper", yref=f"y{ROW_SHAMS_BUBBLE}",
-            xanchor="left", yanchor="middle",
+            xanchor="left", yanchor="middle", yshift=shams_yshifts[0],
             font=dict(size=28, color=shams_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
             text=f"<b>میانگین: {shams_avg:+.2f}%</b>",
             x=1.01, y=shams_avg, xref="paper", yref=f"y{ROW_SHAMS_BUBBLE}",
-            xanchor="left", yanchor="middle", font=label_font, showarrow=False,
+            xanchor="left", yanchor="middle", yshift=shams_yshifts[1],
+            font=label_font, showarrow=False,
         )
 
-        # ردیف ۳: حباب صندوق‌ها (مقدار آخر + میانگین هفته)
+        # ردیف ۳: حباب صندوق‌ها (مقدار آخر + میانگین هفته) — با رفع تداخل
+        fund_yshifts = _resolve_label_overlap([last_fund, fund_avg], fund_min, fund_max)
         fund_color = COLOR_POSITIVE if last_fund >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
             text=f"<b>{last_fund:+.2f}%</b>",
             x=1.01, y=last_fund, xref="paper", yref=f"y{ROW_FUND_BUBBLE}",
-            xanchor="left", yanchor="middle",
+            xanchor="left", yanchor="middle", yshift=fund_yshifts[0],
             font=dict(size=28, color=fund_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
             text=f"<b>میانگین: {fund_avg:+.2f}%</b>",
             x=1.01, y=fund_avg, xref="paper", yref=f"y{ROW_FUND_BUBBLE}",
-            xanchor="left", yanchor="middle", font=label_font, showarrow=False,
+            xanchor="left", yanchor="middle", yshift=fund_yshifts[1],
+            font=label_font, showarrow=False,
         )
 
         # ردیف ۴: پول حقیقی تجمعی
@@ -474,9 +514,12 @@ def build_weekly_caption(commodity, daily_df):
     avg_bubble_fund = daily_df["fund_weighted_bubble_percent"].mean()
     avg_bubble_shams = daily_df["shams_bubble_percent"].mean()
 
+    jalali_week_start = JalaliDate(week_start).strftime("%Y/%m/%d")
+    jalali_week_end = JalaliDate(week_end).strftime("%Y/%m/%d")
+
     return f"""
 📅 <b>گزارش هفتگی بازار {label}</b>
-🗓 {week_start.strftime('%Y-%m-%d')} تا {week_end.strftime('%Y-%m-%d')} ({len(daily_df)} روز کاری)
+🗓 {jalali_week_start} تا {jalali_week_end} ({len(daily_df)} روز کاری)
 
 🎈 میانگین حباب شمش: {avg_bubble_shams:+.2f}%
 🎈 میانگین حباب صندوق‌ها: {avg_bubble_fund:+.2f}%
