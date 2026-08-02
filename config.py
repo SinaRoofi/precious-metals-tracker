@@ -23,7 +23,7 @@ SILVER_SHAMS_LOW = 350_000
 SILVER_HIGH = 60
 SILVER_LOW = 50
 
-# --- هشدار قیمتی نمادهای صندوق (بر اساس close_price خام Fund_df) ---
+# --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
     "عیار": {"high": 600_000, "low": 550_000},
 }
