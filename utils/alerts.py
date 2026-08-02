@@ -22,6 +22,7 @@ from config import (
     ALERT_THRESHOLD_PERCENT,
     EKHTELAF_THRESHOLD,
     BUBBLE_SHARP_CHANGE_THRESHOLD,
+    FUND_PRICE_ALERTS,
     GIST_ID,
     GIST_TOKEN,
     ALERT_STATUS_FILE,
@@ -66,6 +67,8 @@ def _default_alert_status():
         status[f"{c}_bubble"] = "normal"
         status[f"{c}_pol_hagigi"] = "normal"
         status[f"{c}_hard_signal"] = "normal"
+    for symbol in FUND_PRICE_ALERTS:
+        status[f"fund_{symbol}"] = "normal"
     return status
 
 
@@ -358,6 +361,13 @@ def check_and_send_alerts(
                 status[key] = "normal"
                 changed = True
 
+    # هشدار قیمتی نمادهای صندوق
+    fund_changed = check_fund_price_alerts(
+        bot_token, chat_id, df_funds, status,
+    )
+    if fund_changed:
+        changed = True
+
     if changed or bubble_status_changed or pol_status_changed:
         save_alert_status(status)
 
@@ -597,6 +607,53 @@ def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz
 
 
 # ════════════════════════════════════════════════════════════════
+# هشدار قیمتی نمادهای صندوق (FUND_PRICE_ALERTS در config)
+# ════════════════════════════════════════════════════════════════
+
+
+def check_fund_price_alerts(bot_token, chat_id, df_funds, status):
+    """بررسی و ارسال هشدار سقف/کف قیمت برای نمادهای صندوق تنظیم‌شده در config."""
+    status_changed = False
+
+    if df_funds is None or df_funds.empty:
+        return status_changed
+
+    for symbol, thresholds in FUND_PRICE_ALERTS.items():
+        high = thresholds.get("high")
+        low = thresholds.get("low")
+        key = f"fund_{symbol}"
+
+        if symbol not in df_funds.index:
+            logger.debug(f"⚠️ نماد صندوق '{symbol}' در Fund_df پیدا نشد — رد شد")
+            continue
+
+        price = df_funds.loc[symbol, "close_price"]
+
+        if high is None or low is None:
+            logger.debug(f"آستانه‌ی نماد '{symbol}' تنظیم نشده — رد شد")
+            continue
+
+        if price > high:
+            if status[key] != "above":
+                send_alert_threshold(symbol, price, high, above=True,
+                                      bot_token=bot_token, chat_id=chat_id)
+                status[key] = "above"
+                status_changed = True
+        elif price < low:
+            if status[key] != "below":
+                send_alert_threshold(symbol, price, low, above=False,
+                                      bot_token=bot_token, chat_id=chat_id)
+                status[key] = "below"
+                status_changed = True
+        else:
+            if status[key] != "normal":
+                status[key] = "normal"
+                status_changed = True
+
+    return status_changed
+
+
+# ════════════════════════════════════════════════════════════════
 # پیام‌های هشدار قیمتی عمومی
 # ════════════════════════════════════════════════════════════════
 
@@ -655,7 +712,8 @@ def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id):
         unit, asset_emoji = "دلار", "🌕"
         price_display, threshold_display = price, threshold
     else:
-        unit, asset_emoji = "", ""
+        # نمادهای صندوق (FUND_PRICE_ALERTS) هم از همین مسیر رد می‌شوند
+        unit, asset_emoji = "ریال", "📌"
         price_display, threshold_display = price, threshold
 
     is_ounce_asset = "اونس" in asset
