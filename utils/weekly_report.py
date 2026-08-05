@@ -52,10 +52,16 @@ TRADE_VALUE_HISTORY_LOOKBACK_ROWS = 3000
 
 
 def _jalali_day_label(d):
-    """برچسب محور X: نام روز هفته + تاریخ خورشیدی (ماه/روز)"""
+    """برچسب محور X: نام روز هفته + تاریخ خورشیدی (ماه/روز)
+
+    نکته: عمداً روی یک خط (بدون <br>) ساخته می‌شود. وقتی متن فارسی (راست‌به‌چپ) و
+    ارقام لاتین (چپ‌به‌راست) به‌صورت دو-خطی به Kaleido داده می‌شوند، موتور
+    bidi/wrap آن رشته را اشتباه می‌شکند (مثلاً «05/10» به «05/1» و «0» تقسیم
+    و به خط بعد می‌چسبد). تک‌خطی‌کردن این باگ رندر را کاملاً دور می‌زند.
+    """
     weekday_name = PERSIAN_WEEKDAY_NAME.get(d.weekday(), str(d))
     jalali_date = JalaliDate(d)
-    return f"{weekday_name}<br>{jalali_date.strftime('%m/%d')}"
+    return f"{weekday_name} {jalali_date.strftime('%m/%d')}"
 
 
 def _resolve_label_overlap(values, y_min, y_max, min_gap_fraction=0.07, push_px=42):
