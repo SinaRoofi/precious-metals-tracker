@@ -141,6 +141,9 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         global_price = light_chart["price"]
         logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
 
+    tether_price = light_chart.get("tether_price") if light_chart else None
+    tether_change_percent = light_chart.get("tether_change_percent") if light_chart else None
+
     if not market_data:
         logger.error(f"❌ [{commodity}] داده‌های بازار گرفته نشد — این کالا رد می‌شود")
         return
@@ -225,6 +228,8 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         global_time=None,
         yesterday_close=yesterday_close,
         dirham_price=dirham_price,
+        tether_price=tether_price,
+        tether_change_percent=tether_change_percent,
     )
     logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
 
