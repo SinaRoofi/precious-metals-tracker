@@ -102,13 +102,12 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
     """
     دریافت قیمت جهانی انس (طلا یا نقره) از رهاورد.
 
-    ساختار پاسخ رهاورد: data["data"][0] = انس کالا، data["data"][3] = دلار مبنا.
-    هشدار: دلار این endpoint نیمایی/مبناست، نه دلار بازار آزاد — در این پروژه
-    مصرف نمی‌شود (دلار بازار آزاد از fetch_dollar_prices/تلگرام می‌آید).
-    فقط global_price این تابع استفاده می‌شود.
+    ساختار پاسخ رهاورد: data["data"][0] = انس کالا، data["data"][3] = دلار تتر/مبنا.
+    هشدار: دلار این endpoint نیمایی/مبناست، نه دلار بازار آزاد — برای دلار بازار آزاد
+    از fetch_dollar_prices/تلگرام استفاده می‌شود؛ دلار تتر فقط برای نمایش مرجع در کپشن است.
 
     Returns:
-        dict {'price': float, 'change_percent': float} یا None در صورت شکست
+        dict {'price', 'change_percent', 'tether_price', 'tether_change_percent'} یا None در صورت شکست
     """
     if commodity not in API_URLS:
         raise ValueError(f"کالای نامعتبر: {commodity}")
@@ -125,8 +124,16 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
             global_price = data[0]["close_price"]
             global_change_percent = round(data[0]["close_price_change_percent"] * 100, 2)
 
+            tether_price = data[3]["close_price"] / 10
+            tether_change_percent = round(data[3]["close_price_change_percent"] * 100, 2)
+
             logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
-            return {"price": global_price, "change_percent": global_change_percent}
+            return {
+                "price": global_price,
+                "change_percent": global_change_percent,
+                "tether_price": tether_price,
+                "tether_change_percent": tether_change_percent,
+            }
 
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ [{commodity}] تلاش {attempt}: خطای درخواست light-charts - {e}")
