@@ -562,6 +562,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     else:
         avg_change_percent_weighted = avg_bubble_weighted = avg_nav_change_weighted = 0
 
+    median_bubble = df_funds["nominal_bubble"].median() if not df_funds.empty else 0
+
     value_to_avg_ratio = (total_value / total_avg_monthly * 100) if total_avg_monthly > 0 else 0
 
     dollar_last = dollar_prices["last_trade"]
@@ -633,6 +635,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
 💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.2f}%)
 🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
+🎯 میانه حباب: {median_bubble:+.2f}%
 """
 
     for asset_cfg in assets_config:
