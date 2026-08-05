@@ -110,7 +110,8 @@ def get_today_date():
 # ────────────────── ارسال اصلی به تلگرام ──────────────────
 
 def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_price,
-                      global_yesterday, global_time, yesterday_close, dirham_price=None):
+                      global_yesterday, global_time, yesterday_close, dirham_price=None,
+                      tether_price=None, tether_change_percent=None):
     """ارسال گزارش یک کالا (gold یا silver) به کانال تلگرام مشترک، به‌صورت پیام مستقل"""
     if commodity not in CAPTION_ASSETS:
         raise ValueError(f"کالای نامعتبر: {commodity}")
@@ -135,7 +136,8 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
         logger.info(f"📝 [{commodity}] در حال ساخت کپشن...")
         caption = create_simple_caption(
             commodity, data, dollar_prices, global_price,
-            global_yesterday, yesterday_close, global_time, dirham_price
+            global_yesterday, yesterday_close, global_time, dirham_price,
+            tether_price, tether_change_percent,
         )
 
         gist_data = get_gist_data(commodity)
@@ -521,7 +523,8 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 # ────────────────── کپشن ──────────────────
 
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
-                           yesterday_close, global_time, dirham_price=None):
+                           yesterday_close, global_time, dirham_price=None,
+                           tether_price=None, tether_change_percent=None):
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
 
@@ -610,6 +613,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 💵 ارزش دلار: {value_total:,.0f} ({value_pct:.2f}%)
 🟥 کران بالای دلار: {high_total:,.0f} ({high_pct:.2f}%)
 """
+        if tether_price is not None:
+            caption += f"\u200F💲 دلار تتر: {tether_price:,.0f} ({tether_change_percent:+.2f}%)\n"
+
         if dollar_from_dirham is not None:
             caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
 
