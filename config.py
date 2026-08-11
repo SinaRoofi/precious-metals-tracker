@@ -113,7 +113,7 @@ TIMEZONE = 'Asia/Tehran'
 CHART_WIDTH = 1400
 CHART_HEIGHT = 2200
 CHART_SCALE = 2
-WEEKLY_CHART_HEIGHT = 2500  # 5 subplot (حباب شمش، حباب صندوق‌ها، پول حقیقی تجمعی، سرانه، ارزش معاملات)
+WEEKLY_CHART_HEIGHT = 3000  # 6 subplot (بازده دلار/اونس/شمش، ارزش معاملات، حباب شمش، حباب صندوق‌ها، پول حقیقی تجمعی، سرانه)
 
 TREEMAP_WIDTH = 1350
 TREEMAP_HEIGHT = 1350
