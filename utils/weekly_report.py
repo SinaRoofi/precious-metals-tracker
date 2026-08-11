@@ -38,12 +38,24 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 PERSIAN_WEEKDAY_NAME = {5: "شنبه", 6: "یک‌شنبه", 0: "دوشنبه", 1: "سه‌شنبه", 2: "چهارشنبه"}
 
 # ─── ایندکس ردیف‌های subplot (به‌جای عدد ثابت، برای خوانایی و جلوگیری از خطا هنگام تغییر ترتیب) ───
-ROW_TRADE_VALUE = 1
-ROW_SHAMS_BUBBLE = 2
-ROW_FUND_BUBBLE = 3
-ROW_POL_HAGIGI = 4
-ROW_SARANE = 5
-WEEKLY_ROW_COUNT = 5
+ROW_RETURNS = 1
+ROW_TRADE_VALUE = 2
+ROW_SHAMS_BUBBLE = 3
+ROW_FUND_BUBBLE = 4
+ROW_POL_HAGIGI = 5
+ROW_SARANE = 6
+WEEKLY_ROW_COUNT = 6
+
+# رنگ خط «بازده دلار» در پنل بازده هفته (اونس/شمش از رنگ خود کالا مشتق می‌شوند، نه اینجا)
+COLOR_DOLLAR_RETURN = "#85BB65"  # سبز دلاری (رنگ کلاسیک اسکناس دلار)
+
+
+def _darken_hex(hex_color, factor=0.55):
+    """رنگ hex را تیره‌تر می‌کند (برای ساختن یک سایه‌ی قابل‌تمایز از همون رنگ پایه)."""
+    hex_color = hex_color.lstrip("#")
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (max(0, int(c * factor)) for c in (r, g, b))
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 MA_SHORT_WINDOW = 5
 MA_LONG_WINDOW = 22
@@ -145,11 +157,20 @@ def _load_week_dataframe(commodity):
     daily["pol_hagigi_cumulative"] = daily["pol_hagigi"].cumsum()
     daily["day_label"] = daily["date"].apply(_jalali_day_label)
 
+    # بازده تجمعی هفته (%) نسبت به قیمت اولین روز هفته، برای دلار/اونس جهانی/شمش
+    for col, ret_col in (
+        ("dollar_price", "dollar_return_cum"),
+        ("global_price_usd", "ounce_return_cum"),
+        ("shams_price", "shams_return_cum"),
+    ):
+        base = daily[col].iloc[0]
+        daily[ret_col] = (daily[col] / base - 1) * 100 if base else 0.0
+
     return daily.reset_index(drop=True)
 
 
 def _render_weekly_chart(commodity, daily):
-    """ساخت نمودار هفتگی (5 subplot) از یک DataFrame روزانه‌ی از‌پیش‌بارگذاری‌شده؛ خروجی PNG bytes یا None."""
+    """ساخت نمودار هفتگی (6 subplot) از یک DataFrame روزانه‌ی از‌پیش‌بارگذاری‌شده؛ خروجی PNG bytes یا None."""
     label = COMMODITY_LABEL[commodity]
     accent_color = COMMODITY_COLOR[commodity]
 
@@ -167,6 +188,7 @@ def _render_weekly_chart(commodity, daily):
         fig = make_subplots(
             rows=WEEKLY_ROW_COUNT, cols=1,
             subplot_titles=(
+                f"<b>بازده هفته: دلار، اونس و شمش {label} (%)</b>",
                 "<b>ارزش معاملات و میانگین ۵ و ۲۲ روزه</b>",
                 f"<b>حباب شمش {label} و میانگینش (%)</b>",
                 "<b>حباب صندوق‌ها و میانگینش (%)</b>",
@@ -180,7 +202,46 @@ def _render_weekly_chart(commodity, daily):
         for annotation in fig["layout"]["annotations"]:
             annotation.font = dict(size=32, color="#8B949E", family=chart_font_family)
 
-        # ─── ردیف ۱: ارزش معاملات + میانگین ۵ و ۲۲ روزه ───
+        # ─── ردیف ۱: بازده هفته دلار + اونس جهانی + شمش (%) ───
+        # اونس و شمش هر دو از رنگ خود کالا (accent_color) مشتق می‌شوند تا خانواده‌ی رنگی
+        # یکسان باشد (زرد برای طلا، نقره‌ای برای نقره)؛ برای تمایز، شمش سایه‌ی تیره‌تر +
+        # خط‌چین + نماد لوزی می‌گیرد، در حالی که اونس خط‌توپر + نماد دایره دارد.
+        ounce_color = accent_color
+        shams_return_color = _darken_hex(accent_color, factor=0.55)
+
+        fig.add_trace(dict(
+            type="scatter", x=daily["timestamp"], y=daily["dollar_return_cum"],
+            name="بازده دلار", mode="lines+markers",
+            line=dict(color=COLOR_DOLLAR_RETURN, width=5, shape="spline"),
+            marker=dict(size=10, symbol="circle"),
+            hovertemplate="دلار: <b>%{y:+.2f}%</b><extra></extra>",
+        ), row=ROW_RETURNS, col=1)
+
+        fig.add_trace(dict(
+            type="scatter", x=daily["timestamp"], y=daily["ounce_return_cum"],
+            name=f"بازده اونس {label}", mode="lines+markers",
+            line=dict(color=ounce_color, width=5, shape="spline"),
+            marker=dict(size=10, symbol="circle"),
+            hovertemplate=f"اونس {label}: <b>%{{y:+.2f}}%</b><extra></extra>",
+        ), row=ROW_RETURNS, col=1)
+
+        fig.add_trace(dict(
+            type="scatter", x=daily["timestamp"], y=daily["shams_return_cum"],
+            name=f"بازده شمش {label}", mode="lines+markers",
+            line=dict(color=shams_return_color, width=5, dash="dash", shape="spline"),
+            marker=dict(size=11, symbol="diamond"),
+            hovertemplate=f"شمش {label}: <b>%{{y:+.2f}}%</b><extra></extra>",
+        ), row=ROW_RETURNS, col=1)
+
+        returns_series = pd.concat([
+            daily["dollar_return_cum"], daily["ounce_return_cum"], daily["shams_return_cum"],
+        ])
+        returns_min, returns_max = returns_series.min(), returns_series.max()
+        returns_min, returns_max = min(returns_min, 0), max(returns_max, 0)
+        returns_padding = 0.5 if returns_min == returns_max else (returns_max - returns_min) * 0.3
+        fig.update_yaxes(range=[returns_min - returns_padding, returns_max + returns_padding], row=ROW_RETURNS, col=1)
+
+        # ─── ردیف ۲: ارزش معاملات + میانگین ۵ و ۲۲ روزه ───
         fig.add_trace(dict(
             type="bar", x=daily["timestamp"], y=daily["trade_value"],
             name="ارزش معاملات", marker=dict(color="rgba(33,150,243,0.55)"),
@@ -206,7 +267,7 @@ def _render_weekly_chart(commodity, daily):
         ])
         set_y_range_for_series(fig, trade_value_series, ROW_TRADE_VALUE)
 
-        # ─── ردیف ۲: حباب شمش + میانگینش ───
+        # ─── ردیف ۳: حباب شمش + میانگینش ───
         shams_avg = daily["shams_bubble_percent"].mean()
         fund_avg = daily["fund_weighted_bubble_percent"].mean()
         x_range = [daily["timestamp"].min(), daily["timestamp"].max()]
@@ -231,7 +292,7 @@ def _render_weekly_chart(commodity, daily):
         shams_padding = 0.5 if shams_min == shams_max else (shams_max - shams_min) * 0.3
         fig.update_yaxes(range=[shams_min - shams_padding, shams_max + shams_padding], row=ROW_SHAMS_BUBBLE, col=1)
 
-        # ─── ردیف ۳: حباب صندوق‌ها + میانگینش ───
+        # ─── ردیف ۴: حباب صندوق‌ها + میانگینش ───
         fig.add_trace(dict(
             type="scatter", x=daily["timestamp"], y=daily["fund_weighted_bubble_percent"],
             name="حباب صندوق‌ها", mode="lines+markers",
@@ -254,11 +315,11 @@ def _render_weekly_chart(commodity, daily):
 
         fig.update_layout(showlegend=False)
 
-        # ─── ردیف ۴: پول حقیقی تجمعی ───
+        # ─── ردیف ۵: پول حقیقی تجمعی ───
         add_conditional_line(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
         set_y_range(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
 
-        # ─── ردیف ۵: سرانه خرید/فروش + اختلاف ───
+        # ─── ردیف ۶: سرانه خرید/فروش + اختلاف ───
         fig.add_trace(dict(
             type="scatter", x=daily["timestamp"], y=daily["sarane_kharid_weighted"],
             name="خرید حقیقی", mode="lines+markers",
@@ -345,10 +406,36 @@ def _render_weekly_chart(commodity, daily):
         last_trade_value = daily["trade_value"].iloc[-1]
         last_ma5 = daily["trade_value_ma5"].iloc[-1]
         last_ma22 = daily["trade_value_ma22"].iloc[-1]
+        last_dollar_return = daily["dollar_return_cum"].iloc[-1]
+        last_ounce_return = daily["ounce_return_cum"].iloc[-1]
+        last_shams_return = daily["shams_return_cum"].iloc[-1]
 
         label_font = dict(size=28, color="#8B949E", family=chart_font_family)
 
-        # ردیف ۱: ارزش معاملات + میانگین ۵ و ۲۲ روزه (با رفع تداخل وقتی مقادیر به‌هم نزدیک‌اند)
+        # ردیف ۱: بازده دلار/اونس/شمش (مقدار آخر هرکدام) — با رفع تداخل
+        returns_yshifts = _resolve_label_overlap(
+            [last_dollar_return, last_ounce_return, last_shams_return], returns_min, returns_max,
+        )
+        fig.add_annotation(
+            text=f"<b>دلار: {last_dollar_return:+.2f}%</b>",
+            x=1.01, y=last_dollar_return, xref="paper", yref=f"y{ROW_RETURNS}",
+            xanchor="left", yanchor="middle", yshift=returns_yshifts[0],
+            font=dict(size=28, color=COLOR_DOLLAR_RETURN, family=chart_font_family), showarrow=False,
+        )
+        fig.add_annotation(
+            text=f"<b>اونس: {last_ounce_return:+.2f}%</b>",
+            x=1.01, y=last_ounce_return, xref="paper", yref=f"y{ROW_RETURNS}",
+            xanchor="left", yanchor="middle", yshift=returns_yshifts[1],
+            font=dict(size=28, color=ounce_color, family=chart_font_family), showarrow=False,
+        )
+        fig.add_annotation(
+            text=f"<b>شمش: {last_shams_return:+.2f}%</b>",
+            x=1.01, y=last_shams_return, xref="paper", yref=f"y{ROW_RETURNS}",
+            xanchor="left", yanchor="middle", yshift=returns_yshifts[2],
+            font=dict(size=28, color=shams_return_color, family=chart_font_family), showarrow=False,
+        )
+
+        # ردیف ۲: ارزش معاملات + میانگین ۵ و ۲۲ روزه (با رفع تداخل وقتی مقادیر به‌هم نزدیک‌اند)
         trade_yshifts = _resolve_label_overlap(
             [last_trade_value, last_ma5, last_ma22],
             trade_value_series.min(), trade_value_series.max(),
@@ -372,7 +459,7 @@ def _render_weekly_chart(commodity, daily):
             font=dict(size=26, color="#FFA726", family=chart_font_family), showarrow=False,
         )
 
-        # ردیف ۲: حباب شمش (مقدار آخر + میانگین هفته) — با رفع تداخل
+        # ردیف ۳: حباب شمش (مقدار آخر + میانگین هفته) — با رفع تداخل
         shams_yshifts = _resolve_label_overlap([last_shams, shams_avg], shams_min, shams_max)
         shams_color = COLOR_POSITIVE if last_shams >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
@@ -388,7 +475,7 @@ def _render_weekly_chart(commodity, daily):
             font=label_font, showarrow=False,
         )
 
-        # ردیف ۳: حباب صندوق‌ها (مقدار آخر + میانگین هفته) — با رفع تداخل
+        # ردیف ۴: حباب صندوق‌ها (مقدار آخر + میانگین هفته) — با رفع تداخل
         fund_yshifts = _resolve_label_overlap([last_fund, fund_avg], fund_min, fund_max)
         fund_color = COLOR_POSITIVE if last_fund >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
@@ -404,7 +491,7 @@ def _render_weekly_chart(commodity, daily):
             font=label_font, showarrow=False,
         )
 
-        # ردیف ۴: پول حقیقی تجمعی
+        # ردیف ۵: پول حقیقی تجمعی
         pol_color = COLOR_POSITIVE if last_pol_cum >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
             text=f"<b>{int(last_pol_cum):+,}</b>".replace(",", "٬"),
@@ -413,7 +500,7 @@ def _render_weekly_chart(commodity, daily):
             font=dict(size=28, color=pol_color, family=chart_font_family), showarrow=False,
         )
 
-        # ردیف ۵: سرانه خرید/فروش/اختلاف
+        # ردیف ۶: سرانه خرید/فروش/اختلاف
         lines_range = lines_max - lines_min
         kharid_y = lines_max - (lines_range * 0.05)
         forosh_y = lines_min + (lines_range * 0.05)
