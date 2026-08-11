@@ -6,11 +6,11 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 185_500
-DOLLAR_LOW = 184_000
+DOLLAR_HIGH = 188_000
+DOLLAR_LOW = 187_000
 
 # --- طلا ---
-SHAMS_HIGH = 25_000_000
+SHAMS_HIGH = 25_500_000
 SHAMS_LOW = 24_000_000
 
 GOLD_HIGH = 4400
@@ -25,7 +25,7 @@ SILVER_LOW = 55
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "عیار": {"high": 520_000, "low": 500_000},
+    "عیار": {"high": 520_000, "low": 515_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
