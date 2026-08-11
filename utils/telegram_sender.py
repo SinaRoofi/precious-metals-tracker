@@ -48,29 +48,34 @@ CAPTION_ASSETS = {
 # ────────────────── توابع Gist (message_id) — per-commodity ──────────────────
 
 def _empty_message_store():
-    return {"gold": {"message_id": None, "date": None},
-            "silver": {"message_id": None, "date": None}}
+    return {"gold": {"message_id": None, "message_id2": None, "date": None},
+            "silver": {"message_id": None, "message_id2": None, "date": None}}
 
 
 def get_gist_data(commodity):
-    """دریافت message_id یک کالا از GitHub Gist"""
+    """دریافت message_id های یک کالا از GitHub Gist"""
     try:
         if not GIST_ID or not GIST_TOKEN:
-            return {"message_id": None, "date": None}
+            return {"message_id": None, "message_id2": None, "date": None}
         url = f"https://api.github.com/gists/{GIST_ID}"
         headers = {"Authorization": f"token {GIST_TOKEN}"}
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         if response.status_code == 200:
             content = response.json()["files"][MESSAGE_ID_FILE]["content"]
             store = json.loads(content)
-            return store.get(commodity, {"message_id": None, "date": None})
+            return store.get(commodity, {"message_id": None, "message_id2": None, "date": None})
     except Exception as e:
         logger.error(f"[{commodity}] خطا در خواندن Gist: {e}")
-    return {"message_id": None, "date": None}
+    return {"message_id": None, "message_id2": None, "date": None}
 
 
-def save_gist_data(commodity, message_id, date):
-    """ذخیره message_id یک کالا در GitHub Gist (بدون بازنویسی کالای دیگر)"""
+def save_gist_data(commodity, message_id, message_id2, date):
+    """ذخیره هر دو message_id واقعی یک کالا در GitHub Gist (بدون بازنویسی کالای دیگر)
+
+    message_id/message_id2 باید همون IDهایی باشن که خودِ تلگرام برای هر عکس برگردونده،
+    نه یک عدد فرض‌شده (مثل message_id+1) — چون این فرض تضمین‌شده نیست و باعث خطای
+    'message to edit not found' می‌شه.
+    """
     try:
         url = f"https://api.github.com/gists/{GIST_ID}"
         headers = {"Authorization": f"token {GIST_TOKEN}"}
@@ -94,7 +99,7 @@ def save_gist_data(commodity, message_id, date):
             logger.error(f"[{commodity}] GET گیست fail شد ({e}) — ذخیره لغو شد تا کالای دیگه overwrite نشه")
             return
 
-        store[commodity] = {"message_id": message_id, "date": date}
+        store[commodity] = {"message_id": message_id, "message_id2": message_id2, "date": date}
 
         data = {"files": {MESSAGE_ID_FILE: {"content": json.dumps(store, ensure_ascii=False)}}}
         requests.patch(url, headers=headers, json=data, timeout=REQUEST_TIMEOUT)
@@ -142,26 +147,30 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
 
         gist_data = get_gist_data(commodity)
         saved_message_id = gist_data.get("message_id")
+        saved_message_id2 = gist_data.get("message_id2")
         saved_date = gist_data.get("date")
         today = get_today_date()
 
         if saved_date != today:
             logger.info(f"📅 [{commodity}] روز جدید ({today}) - ریست message_id")
             saved_message_id = None
+            saved_message_id2 = None
 
-        if saved_message_id:
-            logger.info(f"🔄 [{commodity}] در حال آپدیت پیام امروز (ID: {saved_message_id})...")
-            if update_media_group_correctly(bot_token, chat_id, saved_message_id,
+        if saved_message_id and saved_message_id2:
+            logger.info(f"🔄 [{commodity}] در حال آپدیت پیام امروز (ID: {saved_message_id}, {saved_message_id2})...")
+            if update_media_group_correctly(bot_token, chat_id, saved_message_id, saved_message_id2,
                                              img1_bytes, img2_bytes, caption):
                 logger.info(f"✅ [{commodity}] پیام امروز آپدیت شد")
                 return True
             logger.warning(f"⚠️ [{commodity}] آپدیت پیام ناموفق بود، پیام جدید ارسال می‌شود")
+        elif saved_message_id:
+            logger.warning(f"⚠️ [{commodity}] فقط message_id اول ذخیره شده بود (داده‌ی قدیمی) - پیام جدید ارسال می‌شود")
 
         logger.info(f"📤 [{commodity}] ارسال پیام جدید...")
-        new_message_id = send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption)
-        if new_message_id:
-            save_gist_data(commodity, new_message_id, today)
-            logger.info(f"✅ [{commodity}] پیام جدید ارسال شد (ID: {new_message_id})")
+        new_id1, new_id2 = send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption)
+        if new_id1 and new_id2:
+            save_gist_data(commodity, new_id1, new_id2, today)
+            logger.info(f"✅ [{commodity}] پیام جدید ارسال شد (ID: {new_id1}, {new_id2})")
             return True
 
         logger.error(f"❌ [{commodity}] ارسال پیام ناموفق بود")
@@ -211,6 +220,7 @@ def send_weekly_report(commodity, bot_token, chat_id):
 # ────────────────── MediaGroup ──────────────────
 
 def send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption):
+    """ارسال media group و برگردوندن ID واقعیِ هر دو عکس (نه یکی + فرض شده)."""
     try:
         url = f"https://api.telegram.org/bot{bot_token}/sendMediaGroup"
         files = {
@@ -225,14 +235,16 @@ def send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption):
             url, files=files, data={"chat_id": chat_id, "media": json.dumps(media)}, timeout=60
         )
         if response.status_code == 200:
-            return response.json()["result"][0]["message_id"]
+            result = response.json()["result"]
+            return result[0]["message_id"], result[1]["message_id"]
         logger.error(f"خطای ارسال MediaGroup: {response.status_code} - {response.text}")
     except Exception as e:
         logger.error(f"خطا در sendMediaGroup: {e}")
-    return None
+    return None, None
 
 
-def update_media_group_correctly(bot_token, chat_id, first_message_id, img1_bytes, img2_bytes, caption):
+def update_media_group_correctly(bot_token, chat_id, message_id1, message_id2, img1_bytes, img2_bytes, caption):
+    """آپدیت هر دو عکس با IDهای واقعی‌شون (بدون فرض message_id+1 برای عکس دوم)."""
     try:
         url = f"https://api.telegram.org/bot{bot_token}/editMessageMedia"
 
@@ -240,7 +252,7 @@ def update_media_group_correctly(bot_token, chat_id, first_message_id, img1_byte
         files1 = {"photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png")}
         r1 = requests.post(
             url,
-            data={"chat_id": chat_id, "message_id": first_message_id, "media": json.dumps(media1)},
+            data={"chat_id": chat_id, "message_id": message_id1, "media": json.dumps(media1)},
             files=files1, timeout=REQUEST_TIMEOUT,
         )
 
@@ -248,7 +260,7 @@ def update_media_group_correctly(bot_token, chat_id, first_message_id, img1_byte
         files2 = {"photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png")}
         r2 = requests.post(
             url,
-            data={"chat_id": chat_id, "message_id": first_message_id + 1, "media": json.dumps(media2)},
+            data={"chat_id": chat_id, "message_id": message_id2, "media": json.dumps(media2)},
             files=files2, timeout=REQUEST_TIMEOUT,
         )
 
