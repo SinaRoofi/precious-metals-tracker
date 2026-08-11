@@ -4,6 +4,7 @@
 import io
 import json
 import logging
+import time
 import requests
 import pytz
 from datetime import datetime
@@ -243,33 +244,63 @@ def send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption):
     return None, None
 
 
+# آپلود عکس گاهی بیشتر از timeout کوتاه (5,15) طول می‌کشه، به‌خصوص روی شبکه‌ی کند.
+# sendMediaGroup (ارسال پیام جدید) از قبل timeout=60 داشت؛ editMessageMedia نداشت — همین
+# فرق باعث می‌شد آپدیت بیشتر از ارسال جدید تایم‌اوت بخوره. اینجا هم زیادش می‌کنیم.
+EDIT_MEDIA_TIMEOUT = 60
+EDIT_MEDIA_MAX_ATTEMPTS = 2  # تلاش اول + یک retry روی خطای گذرا (تایم‌اوت/شبکه)
+
+
+def _edit_single_photo(url, chat_id, message_id, media, files_factory, label):
+    """یک عکس رو با retry روی خطای شبکه/تایم‌اوت (نه روی خطای منطقی مثل 400) ادیت می‌کنه."""
+    last_error = None
+    for attempt in range(1, EDIT_MEDIA_MAX_ATTEMPTS + 1):
+        try:
+            r = requests.post(
+                url,
+                data={"chat_id": chat_id, "message_id": message_id, "media": json.dumps(media)},
+                files=files_factory(), timeout=EDIT_MEDIA_TIMEOUT,
+            )
+            if r.ok:
+                return True
+            # خطای منطقی تلگرام (مثل 400 message to edit not found) با retry حل نمی‌شه
+            logger.warning(f"خطای آپدیت {label} (تلاش {attempt}/{EDIT_MEDIA_MAX_ATTEMPTS}): {r.status_code} - {r.text}")
+            if r.status_code != 429:
+                return False
+            last_error = f"{r.status_code} - {r.text}"
+        except requests.RequestException as e:
+            # خطای شبکه/تایم‌اوت - گذراست، ارزش retry داره
+            logger.warning(f"خطای شبکه در آپدیت {label} (تلاش {attempt}/{EDIT_MEDIA_MAX_ATTEMPTS}): {e}")
+            last_error = str(e)
+
+        if attempt < EDIT_MEDIA_MAX_ATTEMPTS:
+            time.sleep(2)
+
+    logger.warning(f"آپدیت {label} بعد از {EDIT_MEDIA_MAX_ATTEMPTS} تلاش ناموفق ماند: {last_error}")
+    return False
+
+
 def update_media_group_correctly(bot_token, chat_id, message_id1, message_id2, img1_bytes, img2_bytes, caption):
-    """آپدیت هر دو عکس با IDهای واقعی‌شون (بدون فرض message_id+1 برای عکس دوم)."""
+    """آپدیت هر دو عکس با IDهای واقعی‌شون (بدون فرض message_id+1 برای عکس دوم)،
+    با timeout بزرگ‌تر و یک retry روی خطای گذرای شبکه/تایم‌اوت."""
     try:
         url = f"https://api.telegram.org/bot{bot_token}/editMessageMedia"
 
         media1 = {"type": "photo", "media": "attach://photo1", "caption": caption, "parse_mode": "HTML"}
-        files1 = {"photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png")}
-        r1 = requests.post(
-            url,
-            data={"chat_id": chat_id, "message_id": message_id1, "media": json.dumps(media1)},
-            files=files1, timeout=REQUEST_TIMEOUT,
+        ok1 = _edit_single_photo(
+            url, chat_id, message_id1, media1,
+            lambda: {"photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png")},
+            "عکس اول",
         )
 
         media2 = {"type": "photo", "media": "attach://photo2"}
-        files2 = {"photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png")}
-        r2 = requests.post(
-            url,
-            data={"chat_id": chat_id, "message_id": message_id2, "media": json.dumps(media2)},
-            files=files2, timeout=REQUEST_TIMEOUT,
+        ok2 = _edit_single_photo(
+            url, chat_id, message_id2, media2,
+            lambda: {"photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png")},
+            "عکس دوم",
         )
 
-        if not r1.ok:
-            logger.warning(f"خطای آپدیت عکس اول: {r1.status_code} - {r1.text}")
-        if not r2.ok:
-            logger.warning(f"خطای آپدیت عکس دوم: {r2.status_code} - {r2.text}")
-
-        return r1.ok and r2.ok
+        return ok1 and ok2
 
     except Exception as e:
         logger.error(f"خطا در آپدیت عکس‌ها: {e}")
