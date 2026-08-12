@@ -552,26 +552,16 @@ def _render_weekly_chart(commodity, daily):
         img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
         try:
-            font = ImageFont.truetype(FONT_REGULAR_PATH, 38)
+            draw = ImageDraw.Draw(img)
+            font = ImageFont.truetype(FONT_REGULAR_PATH, 40)
             text = CHANNEL_HANDLE.replace("@", "")
-
-            # واترمارک مورب و تکرارشونده روی کل تصویر (نه فقط یک گوشه) تا با کراپ‌کردن
-            # قسمتی از عکس نتونن حذفش کنن؛ خیلی کم‌رنگه که مزاحم خواندن نمودار نشه.
-            tile_w, tile_h = 480, 220
-            tile = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
-            ImageDraw.Draw(tile).text((20, 80), text, fill=(201, 209, 217, 46), font=font)
-            tile = tile.rotate(28, expand=True, resample=Image.BICUBIC)
-
-            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            step_x, step_y = tile.width, tile.height
-            row = 0
-            for y in range(-step_y, img.height + step_y, step_y):
-                offset_x = 0 if row % 2 == 0 else step_x // 2
-                for x in range(-step_x, img.width + step_x, step_x):
-                    overlay.alpha_composite(tile, (x + offset_x, y))
-                row += 1
-
-            img = Image.alpha_composite(img, overlay)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            w = bbox[2] - bbox[0]
+            h = bbox[3] - bbox[1]
+            # پایین‌سمت‌راست، کمی بالاتر و کمی چپ‌تر از لبه‌ی تصویر تا زیر هیچ برچسبی نره
+            x = img.width - w - 70
+            y = img.height - h - 55
+            draw.text((x, y), text, fill=(201, 209, 217, 140), font=font)
         except Exception as e:
             logger.warning(f"⚠️ خطا در واترمارک: {e}")
 
