@@ -32,6 +32,7 @@ from utils.sheets_storage import read_from_sheets
 logger = logging.getLogger(__name__)
 
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
+COMMODITY_SHAMS_BOURSE_LABEL = {"gold": "شمش طلای بورسی", "silver": "شمش نقره بورسی"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
 # datetime.date.weekday(): شنبه=5, یکشنبه=6, دوشنبه=0, سه‌شنبه=1, چهارشنبه=2
@@ -47,7 +48,7 @@ ROW_SARANE = 6
 WEEKLY_ROW_COUNT = 6
 
 # رنگ خط «بازده دلار» در پنل بازده هفته (اونس/شمش از رنگ خود کالا مشتق می‌شوند، نه اینجا)
-COLOR_DOLLAR_RETURN = "#85BB65"  # سبز دلاری (رنگ کلاسیک اسکناس دلار)
+COLOR_DOLLAR_RETURN = "#4E7A38"  # سبز تیره‌ی دلاری
 
 
 def _darken_hex(hex_color, factor=0.55):
@@ -76,25 +77,29 @@ def _jalali_day_label(d):
     return f"{weekday_name} {jalali_date.strftime('%m/%d')}"
 
 
-def _resolve_label_overlap(values, y_min, y_max, min_gap_fraction=0.07, push_px=42):
+def _resolve_label_overlap(values, y_min, y_max, row_height_px=280, min_gap_px=42, push_px=52):
     """
-    وقتی چند برچسب در یک subplot به هم نزدیک باشن (فاصله‌ی نرمالایزشده‌شون روی محور Y
-    کمتر از min_gap_fraction باشه)، این تابع یک yshift پیکسلی برای هرکدوم حساب می‌کنه
-    تا از هم فاصله بگیرن و روی هم نیفتن. ترتیب خروجی مطابق ترتیب ورودی values است.
+    وقتی چند برچسب در یک subplot به‌هم نزدیک باشن، این تابع یک yshift پیکسلی برای هرکدوم
+    حساب می‌کنه تا از هم فاصله بگیرن و روی هم نیفتن. ترتیب خروجی مطابق ترتیب ورودی values است.
+
+    نکته: آستانه‌ی تشخیص تداخل بر مبنای فاصله‌ی تخمینی «پیکسلی» است (نه کسری از بازه‌ی
+    محور Y) — چون یک بازه‌ی Y بزرگ روی یک subplot کوتاه، در پیکسل خیلی به‌هم نزدیک‌تر از
+    چیزیه که یک آستانه‌ی نسبی به بازه‌ی Y نشون می‌ده؛ row_height_px تخمینی از ارتفاع واقعی
+    ناحیه‌ی رسم هر subplot در WEEKLY_CHART_HEIGHT است.
     """
     span = (y_max - y_min) or 1e-9
     order = sorted(range(len(values)), key=lambda i: values[i])
     shifts = [0.0] * len(values)
-    prev_norm = None
+    prev_px = None
     cum_push = 0.0
     for idx in order:
-        norm = (values[idx] - y_min) / span
-        if prev_norm is not None and (norm - prev_norm) < min_gap_fraction:
+        px = (values[idx] - y_min) / span * row_height_px
+        if prev_px is not None and (px - prev_px) < min_gap_px:
             cum_push += push_px
         else:
             cum_push = 0.0
         shifts[idx] = cum_push
-        prev_norm = norm
+        prev_px = px + cum_push
     if any(shifts):
         avg = sum(shifts) / len(shifts)
         shifts = [s - avg for s in shifts]
@@ -188,10 +193,10 @@ def _render_weekly_chart(commodity, daily):
         fig = make_subplots(
             rows=WEEKLY_ROW_COUNT, cols=1,
             subplot_titles=(
-                f"<b>بازده هفته: دلار، اونس و شمش {label} (%)</b>",
+                f"<b>(%) بازده هفته: دلار، اونس و {COMMODITY_SHAMS_BOURSE_LABEL[commodity]}</b>",
                 "<b>ارزش معاملات و میانگین ۵ و ۲۲ روزه</b>",
-                f"<b>حباب شمش {label} و میانگینش (%)</b>",
-                "<b>حباب صندوق‌ها و میانگینش (%)</b>",
+                f"<b>(%) حباب شمش {label} و میانگینش</b>",
+                "<b>(%) حباب صندوق‌ها و میانگینش</b>",
                 "<b>ورود پول حقیقی تجمعی هفته</b>",
                 "<b>سرانه خرید و فروش و اختلاف آن</b>",
             ),
@@ -375,7 +380,7 @@ def _render_weekly_chart(commodity, daily):
             plot_bgcolor=COLOR_BACKGROUND,
             font=dict(color="#C9D1D9", family=chart_font_family, size=25),
             hovermode="x unified",
-            margin=dict(l=60, r=120, t=140, b=60),
+            margin=dict(l=60, r=280, t=140, b=60),
             barmode="overlay",
         )
 
@@ -411,27 +416,28 @@ def _render_weekly_chart(commodity, daily):
         last_shams_return = daily["shams_return_cum"].iloc[-1]
 
         label_font = dict(size=28, color="#8B949E", family=chart_font_family)
+        LRM = "\u200E"  # Left-to-Right Mark: مانع جابه‌جایی «%»/ارقام بعد از «:» فارسی در bidi می‌شود
 
         # ردیف ۱: بازده دلار/اونس/شمش (مقدار آخر هرکدام) — با رفع تداخل
         returns_yshifts = _resolve_label_overlap(
             [last_dollar_return, last_ounce_return, last_shams_return], returns_min, returns_max,
         )
         fig.add_annotation(
-            text=f"<b>دلار: {last_dollar_return:+.2f}%</b>",
-            x=1.01, y=last_dollar_return, xref="paper", yref=f"y{ROW_RETURNS}",
-            xanchor="left", yanchor="middle", yshift=returns_yshifts[0],
+            text=f"<b>دلار:{LRM} {last_dollar_return:+.2f}%</b>",
+            x=1.0, y=last_dollar_return, xref="paper", yref=f"y{ROW_RETURNS}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=returns_yshifts[0],
             font=dict(size=28, color=COLOR_DOLLAR_RETURN, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>اونس: {last_ounce_return:+.2f}%</b>",
-            x=1.01, y=last_ounce_return, xref="paper", yref=f"y{ROW_RETURNS}",
-            xanchor="left", yanchor="middle", yshift=returns_yshifts[1],
+            text=f"<b>اونس:{LRM} {last_ounce_return:+.2f}%</b>",
+            x=1.0, y=last_ounce_return, xref="paper", yref=f"y{ROW_RETURNS}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=returns_yshifts[1],
             font=dict(size=28, color=ounce_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>شمش: {last_shams_return:+.2f}%</b>",
-            x=1.01, y=last_shams_return, xref="paper", yref=f"y{ROW_RETURNS}",
-            xanchor="left", yanchor="middle", yshift=returns_yshifts[2],
+            text=f"<b>شمش:{LRM} {last_shams_return:+.2f}%</b>",
+            x=1.0, y=last_shams_return, xref="paper", yref=f"y{ROW_RETURNS}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=returns_yshifts[2],
             font=dict(size=28, color=shams_return_color, family=chart_font_family), showarrow=False,
         )
 
@@ -442,20 +448,20 @@ def _render_weekly_chart(commodity, daily):
         )
         fig.add_annotation(
             text=f"<b>{last_trade_value:,.0f}</b>",
-            x=1.01, y=last_trade_value, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
-            xanchor="left", yanchor="middle", yshift=trade_yshifts[0],
+            x=1.0, y=last_trade_value, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=trade_yshifts[0],
             font=dict(size=28, color="#2196F3", family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>MA{MA_SHORT_WINDOW}: {last_ma5:,.0f}</b>",
-            x=1.01, y=last_ma5, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
-            xanchor="left", yanchor="middle", yshift=trade_yshifts[1],
+            text=f"<b>MA{MA_SHORT_WINDOW}:{LRM} {last_ma5:,.0f}</b>",
+            x=1.0, y=last_ma5, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=trade_yshifts[1],
             font=dict(size=26, color=COLOR_POSITIVE, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>MA{MA_LONG_WINDOW}: {last_ma22:,.0f}</b>",
-            x=1.01, y=last_ma22, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
-            xanchor="left", yanchor="middle", yshift=trade_yshifts[2],
+            text=f"<b>MA{MA_LONG_WINDOW}:{LRM} {last_ma22:,.0f}</b>",
+            x=1.0, y=last_ma22, xref="paper", yref=f"y{ROW_TRADE_VALUE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=trade_yshifts[2],
             font=dict(size=26, color="#FFA726", family=chart_font_family), showarrow=False,
         )
 
@@ -464,14 +470,14 @@ def _render_weekly_chart(commodity, daily):
         shams_color = COLOR_POSITIVE if last_shams >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
             text=f"<b>{last_shams:+.2f}%</b>",
-            x=1.01, y=last_shams, xref="paper", yref=f"y{ROW_SHAMS_BUBBLE}",
-            xanchor="left", yanchor="middle", yshift=shams_yshifts[0],
+            x=1.0, y=last_shams, xref="paper", yref=f"y{ROW_SHAMS_BUBBLE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=shams_yshifts[0],
             font=dict(size=28, color=shams_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>میانگین: {shams_avg:+.2f}%</b>",
-            x=1.01, y=shams_avg, xref="paper", yref=f"y{ROW_SHAMS_BUBBLE}",
-            xanchor="left", yanchor="middle", yshift=shams_yshifts[1],
+            text=f"<b>میانگین:{LRM} {shams_avg:+.2f}%</b>",
+            x=1.0, y=shams_avg, xref="paper", yref=f"y{ROW_SHAMS_BUBBLE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=shams_yshifts[1],
             font=label_font, showarrow=False,
         )
 
@@ -480,14 +486,14 @@ def _render_weekly_chart(commodity, daily):
         fund_color = COLOR_POSITIVE if last_fund >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
             text=f"<b>{last_fund:+.2f}%</b>",
-            x=1.01, y=last_fund, xref="paper", yref=f"y{ROW_FUND_BUBBLE}",
-            xanchor="left", yanchor="middle", yshift=fund_yshifts[0],
+            x=1.0, y=last_fund, xref="paper", yref=f"y{ROW_FUND_BUBBLE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=fund_yshifts[0],
             font=dict(size=28, color=fund_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>میانگین: {fund_avg:+.2f}%</b>",
-            x=1.01, y=fund_avg, xref="paper", yref=f"y{ROW_FUND_BUBBLE}",
-            xanchor="left", yanchor="middle", yshift=fund_yshifts[1],
+            text=f"<b>میانگین:{LRM} {fund_avg:+.2f}%</b>",
+            x=1.0, y=fund_avg, xref="paper", yref=f"y{ROW_FUND_BUBBLE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=fund_yshifts[1],
             font=label_font, showarrow=False,
         )
 
@@ -495,8 +501,8 @@ def _render_weekly_chart(commodity, daily):
         pol_color = COLOR_POSITIVE if last_pol_cum >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
             text=f"<b>{int(last_pol_cum):+,}</b>".replace(",", "٬"),
-            x=1.01, y=last_pol_cum, xref="paper", yref=f"y{ROW_POL_HAGIGI}",
-            xanchor="left", yanchor="middle",
+            x=1.0, y=last_pol_cum, xref="paper", yref=f"y{ROW_POL_HAGIGI}",
+            xanchor="left", yanchor="middle", xshift=10,
             font=dict(size=28, color=pol_color, family=chart_font_family), showarrow=False,
         )
 
@@ -507,22 +513,23 @@ def _render_weekly_chart(commodity, daily):
         ekhtelaf_y = (lines_max + lines_min) / 2
         ekhtelaf_color = COLOR_POSITIVE if last_ekhtelaf >= 0 else COLOR_NEGATIVE
 
+        sarane_yshifts = _resolve_label_overlap([kharid_y, ekhtelaf_y, forosh_y], lines_min, lines_max)
         fig.add_annotation(
-            text=f"<b>خ: {int(last_kharid):,}</b>".replace(",", "٬"),
-            x=1.01, y=kharid_y, xref="paper", yref=f"y{ROW_SARANE}",
-            xanchor="left", yanchor="middle",
+            text=f"<b>خ:{LRM} {int(last_kharid):,}</b>".replace(",", "٬"),
+            x=1.0, y=kharid_y, xref="paper", yref=f"y{ROW_SARANE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=sarane_yshifts[0],
             font=dict(size=28, color=COLOR_POSITIVE, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>اخ: {int(last_ekhtelaf):+,}</b>".replace(",", "٬"),
-            x=1.01, y=ekhtelaf_y, xref="paper", yref=f"y{ROW_SARANE}",
-            xanchor="left", yanchor="middle",
+            text=f"<b>اخ:{LRM} {int(last_ekhtelaf):+,}</b>".replace(",", "٬"),
+            x=1.0, y=ekhtelaf_y, xref="paper", yref=f"y{ROW_SARANE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=sarane_yshifts[1],
             font=dict(size=28, color=ekhtelaf_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>ف: {int(last_forosh):,}</b>".replace(",", "٬"),
-            x=1.01, y=forosh_y, xref="paper", yref=f"y{ROW_SARANE}",
-            xanchor="left", yanchor="middle",
+            text=f"<b>ف:{LRM} {int(last_forosh):,}</b>".replace(",", "٬"),
+            x=1.0, y=forosh_y, xref="paper", yref=f"y{ROW_SARANE}",
+            xanchor="left", yanchor="middle", xshift=10, yshift=sarane_yshifts[2],
             font=dict(size=28, color=COLOR_NEGATIVE, family=chart_font_family), showarrow=False,
         )
 
