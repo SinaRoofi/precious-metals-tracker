@@ -380,7 +380,7 @@ def _render_weekly_chart(commodity, daily):
             plot_bgcolor=COLOR_BACKGROUND,
             font=dict(color="#C9D1D9", family=chart_font_family, size=25),
             hovermode="x unified",
-            margin=dict(l=60, r=280, t=140, b=60),
+            margin=dict(l=60, r=260, t=140, b=60),
             barmode="overlay",
         )
 
@@ -418,29 +418,25 @@ def _render_weekly_chart(commodity, daily):
         label_font = dict(size=28, color="#8B949E", family=chart_font_family)
         LRM = "\u200E"  # Left-to-Right Mark: مانع جابه‌جایی «%»/ارقام بعد از «:» فارسی در bidi می‌شود
 
-        # ردیف ۱: بازده دلار/اونس/شمش (مقدار آخر هرکدام) — با رفع تداخل
-        returns_yshifts = _resolve_label_overlap(
-            [last_dollar_return, last_ounce_return, last_shams_return], returns_min, returns_max,
+        # ردیف ۱: بازده دلار/اونس/شمش — سه برچسب زیر هم با فاصله‌ی ثابت، از بزرگ به کوچک
+        # (دیگه به مقدار y خط روی نمودار وصل نیستن، چون با فاصله‌ی نامنظم و تداخل همراه بود)
+        returns_items = sorted(
+            [
+                ("دلار", last_dollar_return, COLOR_DOLLAR_RETURN),
+                ("اونس", last_ounce_return, ounce_color),
+                ("شمش", last_shams_return, shams_return_color),
+            ],
+            key=lambda item: item[1], reverse=True,
         )
-        fig.add_annotation(
-            text=f"<b>دلار:{LRM} {last_dollar_return:+.2f}%</b>",
-            x=1.0, y=last_dollar_return, xref="paper", yref=f"y{ROW_RETURNS}",
-            xanchor="left", yanchor="middle", xshift=10, yshift=returns_yshifts[0],
-            font=dict(size=28, color=COLOR_DOLLAR_RETURN, family=chart_font_family), showarrow=False,
-        )
-        fig.add_annotation(
-            text=f"<b>اونس:{LRM} {last_ounce_return:+.2f}%</b>",
-            x=1.0, y=last_ounce_return, xref="paper", yref=f"y{ROW_RETURNS}",
-            xanchor="left", yanchor="middle", xshift=10, yshift=returns_yshifts[1],
-            font=dict(size=28, color=ounce_color, family=chart_font_family), showarrow=False,
-        )
-        fig.add_annotation(
-            text=f"<b>شمش:{LRM} {last_shams_return:+.2f}%</b>",
-            x=1.0, y=last_shams_return, xref="paper", yref=f"y{ROW_RETURNS}",
-            xanchor="left", yanchor="middle", xshift=10, yshift=returns_yshifts[2],
-            font=dict(size=28, color=shams_return_color, family=chart_font_family), showarrow=False,
-        )
-
+        returns_anchor_y = (returns_min + returns_max) / 2
+        returns_gap = 60  # پیکسل ثابت بین برچسب‌ها، پیش از اعمال CHART_SCALE
+        for (name, value, color), yshift in zip(returns_items, (returns_gap, 0, -returns_gap)):
+            fig.add_annotation(
+                text=f"<b>{name}:{LRM} {value:+.2f}%</b>",
+                x=1.0, y=returns_anchor_y, xref="paper", yref=f"y{ROW_RETURNS}",
+                xanchor="left", yanchor="middle", xshift=10, yshift=yshift,
+                font=dict(size=28, color=color, family=chart_font_family), showarrow=False,
+            )
         # ردیف ۲: ارزش معاملات + میانگین ۵ و ۲۲ روزه (با رفع تداخل وقتی مقادیر به‌هم نزدیک‌اند)
         trade_yshifts = _resolve_label_overlap(
             [last_trade_value, last_ma5, last_ma22],
@@ -515,19 +511,19 @@ def _render_weekly_chart(commodity, daily):
 
         sarane_yshifts = _resolve_label_overlap([kharid_y, ekhtelaf_y, forosh_y], lines_min, lines_max)
         fig.add_annotation(
-            text=f"<b>خ:{LRM} {int(last_kharid):,}</b>".replace(",", "٬"),
+            text=f"<b>سرانه خرید:{LRM} {int(last_kharid):,}</b>".replace(",", "٬"),
             x=1.0, y=kharid_y, xref="paper", yref=f"y{ROW_SARANE}",
             xanchor="left", yanchor="middle", xshift=10, yshift=sarane_yshifts[0],
             font=dict(size=28, color=COLOR_POSITIVE, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>اخ:{LRM} {int(last_ekhtelaf):+,}</b>".replace(",", "٬"),
+            text=f"<b>اختلاف:{LRM} {int(last_ekhtelaf):+,}</b>".replace(",", "٬"),
             x=1.0, y=ekhtelaf_y, xref="paper", yref=f"y{ROW_SARANE}",
             xanchor="left", yanchor="middle", xshift=10, yshift=sarane_yshifts[1],
             font=dict(size=28, color=ekhtelaf_color, family=chart_font_family), showarrow=False,
         )
         fig.add_annotation(
-            text=f"<b>ف:{LRM} {int(last_forosh):,}</b>".replace(",", "٬"),
+            text=f"<b>سرانه فروش:{LRM} {int(last_forosh):,}</b>".replace(",", "٬"),
             x=1.0, y=forosh_y, xref="paper", yref=f"y{ROW_SARANE}",
             xanchor="left", yanchor="middle", xshift=10, yshift=sarane_yshifts[2],
             font=dict(size=28, color=COLOR_NEGATIVE, family=chart_font_family), showarrow=False,
@@ -556,14 +552,26 @@ def _render_weekly_chart(commodity, daily):
         img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
         try:
-            draw = ImageDraw.Draw(img)
-            font = ImageFont.truetype(FONT_REGULAR_PATH, 46)
+            font = ImageFont.truetype(FONT_REGULAR_PATH, 38)
             text = CHANNEL_HANDLE.replace("@", "")
-            bbox = draw.textbbox((0, 0), text, font=font)
-            w = bbox[2] - bbox[0]
-            x = img.width - w - 25
-            y = int(img.height * 0.9)
-            draw.text((x, y), text, fill=(201, 209, 217, 160), font=font)
+
+            # واترمارک مورب و تکرارشونده روی کل تصویر (نه فقط یک گوشه) تا با کراپ‌کردن
+            # قسمتی از عکس نتونن حذفش کنن؛ خیلی کم‌رنگه که مزاحم خواندن نمودار نشه.
+            tile_w, tile_h = 480, 220
+            tile = Image.new("RGBA", (tile_w, tile_h), (0, 0, 0, 0))
+            ImageDraw.Draw(tile).text((20, 80), text, fill=(201, 209, 217, 46), font=font)
+            tile = tile.rotate(28, expand=True, resample=Image.BICUBIC)
+
+            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            step_x, step_y = tile.width, tile.height
+            row = 0
+            for y in range(-step_y, img.height + step_y, step_y):
+                offset_x = 0 if row % 2 == 0 else step_x // 2
+                for x in range(-step_x, img.width + step_x, step_x):
+                    overlay.alpha_composite(tile, (x + offset_x, y))
+                row += 1
+
+            img = Image.alpha_composite(img, overlay)
         except Exception as e:
             logger.warning(f"⚠️ خطا در واترمارک: {e}")
 
