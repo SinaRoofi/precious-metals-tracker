@@ -1,0 +1,82 @@
+name: Monthly Market Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "اجرا حتی اگه امروز روز اول ماه شمسی نباشه (فقط برای تست)"
+        type: boolean
+        default: false
+  schedule:
+    # هر روز، ساعت 19:15 به وقت تهران (UTC+3:30). چون cron فقط تاریخ میلادی می‌فهمه
+    # و اول ماه شمسی روی یک تاریخ میلادی ثابت نمی‌افته، هر روز چک می‌شه؛ ولی برخلاف
+    # نسخه‌ی قبلی، این چک توی یه job سبک و جدا انجام می‌شه (بدون نصب کل پروژه) تا
+    # ۲۹ روز از ۳۰ روزِ ماه، وقت/منابع CI برای venv ساختن هدر نره.
+    - cron: "45 15 * * *"
+
+concurrency:
+  group: monthly-report
+  cancel-in-progress: false
+
+jobs:
+  check-date:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Tehran
+    outputs:
+      is_first_day: ${{ steps.check.outputs.is_first_day }}
+    steps:
+      - name: Check if today is day 1 of the Jalali month (via jdatetime — همون کتابخونه‌ای که main.py و monthly_report_main.py استفاده می‌کنن)
+        id: check
+        run: |
+          pip install --quiet jdatetime
+          DAY=$(python3 -c "import jdatetime; print(jdatetime.date.today().day)")
+          echo "Persian day: $DAY"
+          if [ "$DAY" = "1" ]; then
+            echo "is_first_day=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_first_day=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  monthly-report:
+    needs: check-date
+    if: needs.check-date.outputs.is_first_day == 'true' || github.event.inputs.force_run == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Tehran
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
+
+      - name: Setup Python 3.11
+        run: uv python install 3.11
+
+      - name: Create venv and install dependencies
+        run: |
+          uv venv --python 3.11
+          uv pip install -q -r requirements.txt
+
+      - name: Run Monthly Report
+        env:
+          FORCE_RUN: ${{ inputs.force_run }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SHEETS_SERVICE_ACCOUNT: ${{ secrets.SHEETS_SERVICE_ACCOUNT }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: .venv/bin/python monthly_report_main.py
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-report-logs
+          path: market_tracker.log
