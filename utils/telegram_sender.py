@@ -218,6 +218,42 @@ def send_weekly_report(commodity, bot_token, chat_id):
         return False
 
 
+def send_monthly_report(commodity, bot_token, chat_id):
+    """
+    ساخت و ارسال گزارش ماهانه‌ی یک کالا (دقیقاً مثل send_weekly_report، فقط برای ماه قبلی).
+
+    Returns:
+        True در صورت ارسال موفق، False در غیر این صورت (از جمله وقتی داده‌ی
+        کافی برای ماه قبلی وجود نداشته باشد).
+    """
+    from utils.monthly_report import build_monthly_package  # جلوگیری از import چرخه‌ای
+
+    if commodity not in CAPTION_ASSETS:
+        raise ValueError(f"کالای نامعتبر: {commodity}")
+
+    package = build_monthly_package(commodity)
+    if package is None:
+        logger.warning(f"⚠️ [{commodity}] داده‌ی کافی برای گزارش ماهانه وجود ندارد — ارسال لغو شد")
+        return False
+
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+        files = {"photo": ("monthly_report.png", io.BytesIO(package["image_bytes"]), "image/png")}
+        data = {"chat_id": chat_id, "caption": package["caption"], "parse_mode": "HTML"}
+        response = requests.post(url, files=files, data=data, timeout=REQUEST_TIMEOUT)
+
+        if response.status_code == 200:
+            logger.info(f"✅ [{commodity}] گزارش ماهانه ارسال شد")
+            return True
+
+        logger.error(f"❌ [{commodity}] خطای ارسال گزارش ماهانه: {response.status_code} - {response.text}")
+        return False
+
+    except Exception as e:
+        logger.error(f"❌ [{commodity}] خطا در ارسال گزارش ماهانه: {e}", exc_info=True)
+        return False
+
+
 # ────────────────── MediaGroup ──────────────────
 
 def send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption):
