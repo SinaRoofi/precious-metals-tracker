@@ -156,16 +156,37 @@ def _load_daily_history(commodity):
     return daily
 
 
+MIN_MONTHLY_TRADING_DAYS = 15  # اگه «ماه قبلی» کمتر از این روز داده داشت، یعنی تاریخچه هنوز به‌اندازه‌ی کافی عقب نمی‌ره
+
+
 def _load_month_dataframe(commodity):
-    """تاریخچه‌ی کامل را می‌خواند (برای میانگین‌های متحرک) و فقط ماه قبلی را برای نمایش برمی‌گرداند."""
-    daily = _load_daily_history(commodity)
-    if daily is None:
+    """
+    تاریخچه‌ی کامل را می‌خواند (برای میانگین‌های متحرک) و بازه‌ی نمایش را برمی‌گرداند.
+
+    بازه‌ی هدف «ماه شمسی قبلی» است؛ ولی اگه تاریخچه‌ی موجود در Sheets هنوز به‌اندازه‌ی
+    کافی عقب نره (مثلاً چون ردیابی به‌تازگی شروع شده)، به‌جای یه نمودار خیلی خالی/ناقص،
+    آخرین ۳۰ روز از هر داده‌ای که موجوده رو نشون می‌ده. وقتی چند ماه تاریخچه جمع بشه،
+    این fallback خودش دیگه فعال نمی‌شه و به ماه تقویمی واقعی برمی‌گرده.
+    """
+    daily_full = _load_daily_history(commodity)
+    if daily_full is None:
         return None
 
     month_start, month_end = _current_trading_month_range()
-    daily = daily[(daily["date"] >= month_start) & (daily["date"] <= month_end)].copy()
+    daily = daily_full[(daily_full["date"] >= month_start) & (daily_full["date"] <= month_end)].copy()
+
+    if len(daily) < MIN_MONTHLY_TRADING_DAYS:
+        fallback_start = daily_full["date"].max() - timedelta(days=30)
+        fallback = daily_full[daily_full["date"] >= fallback_start].copy()
+        if len(fallback) > len(daily):
+            logger.warning(
+                f"⚠️ [{commodity}] ماه قبلی ({month_start}..{month_end}) فقط {len(daily)} روز داده داشت "
+                f"— به‌جاش آخرین ۳۰ روز موجود ({len(fallback)} روز) نمایش داده می‌شه"
+            )
+            daily = fallback
+
     if daily.empty:
-        logger.info(f"ℹ️ [{commodity}] داده‌ای برای ماه قبلی ({month_start}..{month_end}) پیدا نشد")
+        logger.info(f"ℹ️ [{commodity}] هیچ داده‌ای برای گزارش ماهانه پیدا نشد")
         return None
 
     daily["pol_hagigi_cumulative"] = daily["pol_hagigi"].cumsum()
@@ -612,10 +633,15 @@ def build_monthly_package(commodity):
 
 
 def build_monthly_caption(commodity, daily_df):
-    """کپشن متنی خلاصه‌ی ماه برای ارسال همراه عکس."""
+    """کپشن متنی خلاصه‌ی ماه برای ارسال همراه عکس.
+
+    بازه‌ی تاریخ از خودِ داده‌ی واقعاً نمایش‌داده‌شده (min/max تاریخ daily_df) گرفته می‌شه،
+    نه با فراخوانی دوباره‌ی _current_trading_month_range — چون وقتی fallback به «آخرین
+    ۳۰ روز موجود» فعال شده باشه، اون تابع دیگه بازه‌ی واقعیِ نمایش‌داده‌شده رو نشون نمی‌ده.
+    """
     label = COMMODITY_LABEL[commodity]
     last = daily_df.iloc[-1]
-    month_start, month_end = _current_trading_month_range()
+    month_start, month_end = daily_df["date"].min(), daily_df["date"].max()
 
     total_pol = daily_df["pol_hagigi"].sum()
     avg_bubble_fund = daily_df["fund_weighted_bubble_percent"].mean()
