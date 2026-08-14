@@ -32,7 +32,7 @@ from config import (
     STANDARD_HEADER,
     TIMEZONE,
 )
-from utils.chart_creator import add_conditional_line, set_y_range, set_y_range_for_series
+from utils.chart_creator import set_y_range, set_y_range_for_series
 from utils.sheets_storage import read_from_sheets
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,37 @@ def _jalali_month_day_label(d):
     محور در یک ماه شمسی است.
     """
     return JalaliDate(d).strftime("%d")
+
+
+def _add_conditional_line_categorical(fig, df, column, row):
+    """
+    نسخه‌ی سازگار با محور دسته‌ای (category) از add_conditional_line در chart_creator.py.
+
+    نسخه‌ی اصلی از df['timestamp'] برای درون‌یابیِ نقطه‌ی دقیق عبور از صفر استفاده می‌کنه
+    (یه x بین دو نقطه‌ی موجود می‌سازه). این روی محور category کار نمی‌کنه — محور category
+    فقط دسته‌های از‌پیش‌تعریف‌شده رو می‌شناسه، نه هر «مقدار بینابینی» رو؛ دادن x خارج از اون
+    دسته‌ها کل axis رو به‌هم می‌ریزه (تمام subplotها روی هم می‌افتن، چون shared_xaxes=True).
+    این نسخه به‌جای درون‌یابی، فقط رنگ هر پاره‌خط رو بر اساس علامت مقدار ابتدای همون
+    پاره‌خط تعیین می‌کنه — عبور از صفر یه‌کم زبرتر دیده می‌شه ولی هیچ x نامعتبری نمی‌سازه.
+    """
+    labels = df["day_label"].tolist()
+    values = df[column].tolist()
+
+    for i in range(len(labels) - 1):
+        curr_val, next_val = values[i], values[i + 1]
+        color = COLOR_POSITIVE if curr_val >= 0 else COLOR_NEGATIVE
+        fig.add_trace(dict(
+            type="scatter", x=[labels[i], labels[i + 1]], y=[curr_val, next_val],
+            mode="lines",
+            line=dict(color=color, width=5, shape="spline"),
+            showlegend=False, hoverinfo="skip",
+        ), row=row, col=1)
+
+    fig.add_trace(dict(
+        type="scatter", x=labels, y=values, mode="markers",
+        marker=dict(size=10, color=[COLOR_POSITIVE if v >= 0 else COLOR_NEGATIVE for v in values]),
+        showlegend=False, hovertemplate="<b>%{y:+,.0f}</b><extra></extra>",
+    ), row=row, col=1)
 
 
 def _resolve_label_overlap(values, y_min, y_max, row_height_px=280, min_gap_px=42, push_px=52):
@@ -231,7 +262,7 @@ def _render_monthly_chart(commodity, daily):
                 "<b>سرانه خرید و فروش و اختلاف آن</b>",
             ),
             vertical_spacing=0.08,
-            shared_xaxes=True,
+            shared_xaxes=False,
         )
 
         for annotation in fig["layout"]["annotations"]:
@@ -245,7 +276,7 @@ def _render_monthly_chart(commodity, daily):
         shams_return_color = _darken_hex(accent_color, factor=0.55)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["dollar_return_cum"],
+            type="scatter", x=daily["day_label"], y=daily["dollar_return_cum"],
             name="بازده دلار", mode="lines+markers",
             line=dict(color=COLOR_DOLLAR_RETURN, width=5, shape="spline"),
             marker=dict(size=10, symbol="circle"),
@@ -253,7 +284,7 @@ def _render_monthly_chart(commodity, daily):
         ), row=ROW_RETURNS, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["ounce_return_cum"],
+            type="scatter", x=daily["day_label"], y=daily["ounce_return_cum"],
             name=f"بازده اونس {label}", mode="lines+markers",
             line=dict(color=ounce_color, width=5, shape="spline"),
             marker=dict(size=10, symbol="circle"),
@@ -261,7 +292,7 @@ def _render_monthly_chart(commodity, daily):
         ), row=ROW_RETURNS, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["shams_return_cum"],
+            type="scatter", x=daily["day_label"], y=daily["shams_return_cum"],
             name=f"بازده شمش {label}", mode="lines+markers",
             line=dict(color=shams_return_color, width=5, dash="dash", shape="spline"),
             marker=dict(size=11, symbol="diamond"),
@@ -278,20 +309,20 @@ def _render_monthly_chart(commodity, daily):
 
         # ─── ردیف ۲: ارزش معاملات + میانگین ۵ و ۲۲ روزه ───
         fig.add_trace(dict(
-            type="bar", x=daily["timestamp"], y=daily["trade_value"],
+            type="bar", x=daily["day_label"], y=daily["trade_value"],
             name="ارزش معاملات", marker=dict(color="rgba(33,150,243,0.55)"),
             hovertemplate="ارزش معاملات: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["trade_value_ma5"],
+            type="scatter", x=daily["day_label"], y=daily["trade_value_ma5"],
             name=f"میانگین {MA_SHORT_WINDOW} روزه", mode="lines",
             line=dict(color=COLOR_POSITIVE, width=4, dash="dot", shape="spline"),
             hovertemplate="MA5: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["trade_value_ma22"],
+            type="scatter", x=daily["day_label"], y=daily["trade_value_ma22"],
             name=f"میانگین {MA_LONG_WINDOW} روزه", mode="lines",
             line=dict(color="#FFA726", width=4, dash="dash", shape="spline"),
             hovertemplate="MA22: <b>%{y:,.0f}</b><extra></extra>",
@@ -305,10 +336,10 @@ def _render_monthly_chart(commodity, daily):
         # ─── ردیف ۳: حباب شمش + میانگینش ───
         shams_avg = daily["shams_bubble_percent"].mean()
         fund_avg = daily["fund_weighted_bubble_percent"].mean()
-        x_range = [daily["timestamp"].min(), daily["timestamp"].max()]
+        x_range = [daily["day_label"].iloc[0], daily["day_label"].iloc[-1]]
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["shams_bubble_percent"],
+            type="scatter", x=daily["day_label"], y=daily["shams_bubble_percent"],
             name=f"حباب شمش {label}", mode="lines+markers",
             line=dict(color=accent_color, width=5, shape="spline"),
             marker=dict(size=10),
@@ -329,7 +360,7 @@ def _render_monthly_chart(commodity, daily):
 
         # ─── ردیف ۴: حباب صندوق‌ها + میانگینش ───
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["fund_weighted_bubble_percent"],
+            type="scatter", x=daily["day_label"], y=daily["fund_weighted_bubble_percent"],
             name="حباب صندوق‌ها", mode="lines+markers",
             line=dict(color="#2196F3", width=5, shape="spline"),
             marker=dict(size=10),
@@ -351,12 +382,12 @@ def _render_monthly_chart(commodity, daily):
         fig.update_layout(showlegend=False)
 
         # ─── ردیف ۵: پول حقیقی تجمعی ───
-        add_conditional_line(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
+        _add_conditional_line_categorical(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
         set_y_range(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
 
         # ─── ردیف ۶: سرانه خرید/فروش + اختلاف ───
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["sarane_kharid_weighted"],
+            type="scatter", x=daily["day_label"], y=daily["sarane_kharid_weighted"],
             name="خرید حقیقی", mode="lines+markers",
             line=dict(color=COLOR_POSITIVE, width=5, shape="spline"),
             marker=dict(size=10),
@@ -365,7 +396,7 @@ def _render_monthly_chart(commodity, daily):
         ), row=ROW_SARANE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["sarane_forosh_weighted"],
+            type="scatter", x=daily["day_label"], y=daily["sarane_forosh_weighted"],
             name="فروش حقیقی", mode="lines+markers",
             line=dict(color=COLOR_NEGATIVE, width=5, shape="spline"),
             marker=dict(size=10),
@@ -379,8 +410,8 @@ def _render_monthly_chart(commodity, daily):
         ]
         ekhtelaf_axis = "y" + str(ROW_SARANE + 10)
         fig.add_trace(dict(
-            type="bar", x=daily["timestamp"], y=daily["ekhtelaf_sarane_weighted"],
-            name="اختلاف سرانه", width=1000 * 60 * 60 * 20,
+            type="bar", x=daily["day_label"], y=daily["ekhtelaf_sarane_weighted"],
+            name="اختلاف سرانه", width=0.6,  # روی محور category عدد نسبی (کسری از عرض دسته)، نه میلی‌ثانیه
             marker=dict(color=colors_fill, line=dict(color=colors_fill, width=4)),
             hovertemplate="اختلاف: <b>%{y:.2f}</b><extra></extra>",
             yaxis=ekhtelaf_axis,
@@ -561,10 +592,9 @@ def _render_monthly_chart(commodity, daily):
 
         # محور X: یک تیک به‌ازای هر روز (فقط عدد روز، بدون اسم روز هفته)
         fig.update_xaxes(
-            type="date",
-            tickmode="array",
-            tickvals=daily["timestamp"].tolist(),
-            ticktext=daily["day_label"].tolist(),
+            type="category",
+            categoryorder="array",
+            categoryarray=daily["day_label"].tolist(),
             tickfont=dict(size=26),
             gridcolor=COLOR_GRID, showgrid=True, zeroline=False,
             showline=True, linewidth=1, linecolor="#30363D",
@@ -576,6 +606,10 @@ def _render_monthly_chart(commodity, daily):
                 showline=True, linewidth=1, linecolor="#30363D",
                 row=i, col=1,
             )
+            # چون shared_xaxes=False است (به‌خاطر یه باگ رندر در Kaleido با ترکیب
+            # shared_xaxes=True + محور category که کل نمودار رو جمع می‌کرد)، باید
+            # دستی مطمئن بشیم فقط ردیف آخر برچسب محور X رو نشون می‌ده.
+            fig.update_xaxes(showticklabels=(i == MONTHLY_ROW_COUNT), row=i, col=1)
             fig.add_hline(y=0, line_dash="dot", line_color="#484F58", line_width=2, row=i, col=1)
 
         img_bytes = fig.to_image(format="png", width=MONTHLY_CHART_WIDTH, height=MONTHLY_CHART_HEIGHT, scale=CHART_SCALE)
