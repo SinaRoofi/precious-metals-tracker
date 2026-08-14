@@ -1,9 +1,15 @@
-# utils/weekly_report.py
+# utils/monthly_report.py
+#
+# این ماژول عمداً کپی-و-تطبیق‌شده‌ی utils/weekly_report.py است، نه بازنویسیِ مشترک.
+# چون منطق weekly_report.py طی چند دور تنظیم دقیق (رنگ‌ها، مارجین، جای برچسب‌ها، bidi،
+# واترمارک) تأیید شده، رفتن به یک تابع مشترک ریسک شکستن اون رو داشت. پنل‌ها/رنگ‌ها/
+# استایل دقیقاً همونن؛ فقط بازه‌ی زمانی (ماه شمسی به‌جای هفته) و عرض نمودار فرق داره.
 
 import io
 import logging
 from datetime import datetime, timedelta
 
+import jdatetime
 import pandas as pd
 import pytz
 from PIL import Image, ImageDraw, ImageFont
@@ -13,7 +19,6 @@ from plotly.subplots import make_subplots
 from config import (
     CHANNEL_HANDLE,
     CHART_SCALE,
-    CHART_WIDTH,
     COLOR_BACKGROUND,
     COLOR_GOLD,
     COLOR_GRID,
@@ -22,11 +27,12 @@ from config import (
     COLOR_SILVER,
     FONT_MEDIUM_PATH,
     FONT_REGULAR_PATH,
+    MONTHLY_CHART_HEIGHT,
+    MONTHLY_CHART_WIDTH,
     STANDARD_HEADER,
     TIMEZONE,
-    WEEKLY_CHART_HEIGHT,
 )
-from utils.chart_creator import add_conditional_line, set_y_range, set_y_range_for_series
+from utils.chart_creator import set_y_range, set_y_range_for_series
 from utils.sheets_storage import read_from_sheets
 
 logger = logging.getLogger(__name__)
@@ -35,19 +41,16 @@ COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_SHAMS_BOURSE_LABEL = {"gold": "شمش طلای بورسی", "silver": "شمش نقره بورسی"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
-# datetime.date.weekday(): شنبه=5, یکشنبه=6, دوشنبه=0, سه‌شنبه=1, چهارشنبه=2
-PERSIAN_WEEKDAY_NAME = {5: "شنبه", 6: "یک‌شنبه", 0: "دوشنبه", 1: "سه‌شنبه", 2: "چهارشنبه"}
-
-# ─── ایندکس ردیف‌های subplot (به‌جای عدد ثابت، برای خوانایی و جلوگیری از خطا هنگام تغییر ترتیب) ───
+# ─── ایندکس ردیف‌های subplot (دقیقاً مثل weekly_report.py) ───
 ROW_RETURNS = 1
 ROW_TRADE_VALUE = 2
 ROW_SHAMS_BUBBLE = 3
 ROW_FUND_BUBBLE = 4
 ROW_POL_HAGIGI = 5
 ROW_SARANE = 6
-WEEKLY_ROW_COUNT = 6
+MONTHLY_ROW_COUNT = 6
 
-# رنگ خط «بازده دلار» در پنل بازده هفته (اونس/شمش از رنگ خود کالا مشتق می‌شوند، نه اینجا)
+# رنگ خط «بازده دلار» در پنل بازده ماه (اونس/شمش از رنگ خود کالا مشتق می‌شوند، نه اینجا)
 COLOR_DOLLAR_RETURN = "#4E7A38"  # سبز تیره‌ی دلاری
 
 
@@ -60,21 +63,50 @@ def _darken_hex(hex_color, factor=0.55):
 
 MA_SHORT_WINDOW = 5
 MA_LONG_WINDOW = 22
-# حداقل تعداد روز تاریخچه که برای میانگین ۲۲ روزه واکشی می‌کنیم (روزهای هفته جاری + حاشیه تعطیلات)
-TRADE_VALUE_HISTORY_LOOKBACK_ROWS = 3000
+# یک ماه شمسی تا ۳۱ روزه؛ چون ممکنه در روزهای پرکار چند اجرا در روز هم رخ بده،
+# سقف واکشی رو بیشتر از حد نیاز هفتگی می‌گیریم تا کل ماه + حاشیه‌ی میانگین ۲۲روزه جا بشه.
+TRADE_VALUE_HISTORY_LOOKBACK_ROWS = 6000
 
 
-def _jalali_day_label(d):
-    """برچسب محور X: نام روز هفته + تاریخ خورشیدی (ماه/روز)
+def _jalali_month_day_label(d):
+    """برچسب محور X گزارش ماهانه: فقط روز از ماه شمسی (بدون اسم روز هفته).
 
-    نکته: عمداً روی یک خط (بدون <br>) ساخته می‌شود. وقتی متن فارسی (راست‌به‌چپ) و
-    ارقام لاتین (چپ‌به‌راست) به‌صورت دو-خطی به Kaleido داده می‌شوند، موتور
-    bidi/wrap آن رشته را اشتباه می‌شکند (مثلاً «05/10» به «05/1» و «0» تقسیم
-    و به خط بعد می‌چسبد). تک‌خطی‌کردن این باگ رندر را کاملاً دور می‌زند.
+    برخلاف weekly_report که اسم روز هفته رو هم نشون می‌ده، اینجا با ~۲۲-۲۶ تیک روی
+    محور، نشون‌دادن اسم روز هفته باعث شلوغی/تداخل می‌شد؛ فقط عدد روز کافیه چون کل
+    محور در یک ماه شمسی است.
     """
-    weekday_name = PERSIAN_WEEKDAY_NAME.get(d.weekday(), str(d))
-    jalali_date = JalaliDate(d)
-    return f"{weekday_name} {jalali_date.strftime('%m/%d')}"
+    return JalaliDate(d).strftime("%d")
+
+
+def _add_conditional_line_categorical(fig, df, column, row):
+    """
+    نسخه‌ی سازگار با محور دسته‌ای (category) از add_conditional_line در chart_creator.py.
+
+    نسخه‌ی اصلی از df['timestamp'] برای درون‌یابیِ نقطه‌ی دقیق عبور از صفر استفاده می‌کنه
+    (یه x بین دو نقطه‌ی موجود می‌سازه). این روی محور category کار نمی‌کنه — محور category
+    فقط دسته‌های از‌پیش‌تعریف‌شده رو می‌شناسه، نه هر «مقدار بینابینی» رو؛ دادن x خارج از اون
+    دسته‌ها کل axis رو به‌هم می‌ریزه (تمام subplotها روی هم می‌افتن، چون shared_xaxes=True).
+    این نسخه به‌جای درون‌یابی، فقط رنگ هر پاره‌خط رو بر اساس علامت مقدار ابتدای همون
+    پاره‌خط تعیین می‌کنه — عبور از صفر یه‌کم زبرتر دیده می‌شه ولی هیچ x نامعتبری نمی‌سازه.
+    """
+    labels = df["day_label"].tolist()
+    values = df[column].tolist()
+
+    for i in range(len(labels) - 1):
+        curr_val, next_val = values[i], values[i + 1]
+        color = COLOR_POSITIVE if curr_val >= 0 else COLOR_NEGATIVE
+        fig.add_trace(dict(
+            type="scatter", x=[labels[i], labels[i + 1]], y=[curr_val, next_val],
+            mode="lines",
+            line=dict(color=color, width=5, shape="spline"),
+            showlegend=False, hoverinfo="skip",
+        ), row=row, col=1)
+
+    fig.add_trace(dict(
+        type="scatter", x=labels, y=values, mode="markers",
+        marker=dict(size=10, color=[COLOR_POSITIVE if v >= 0 else COLOR_NEGATIVE for v in values]),
+        showlegend=False, hovertemplate="<b>%{y:+,.0f}</b><extra></extra>",
+    ), row=row, col=1)
 
 
 def _resolve_label_overlap(values, y_min, y_max, row_height_px=280, min_gap_px=42, push_px=52):
@@ -85,7 +117,7 @@ def _resolve_label_overlap(values, y_min, y_max, row_height_px=280, min_gap_px=4
     نکته: آستانه‌ی تشخیص تداخل بر مبنای فاصله‌ی تخمینی «پیکسلی» است (نه کسری از بازه‌ی
     محور Y) — چون یک بازه‌ی Y بزرگ روی یک subplot کوتاه، در پیکسل خیلی به‌هم نزدیک‌تر از
     چیزیه که یک آستانه‌ی نسبی به بازه‌ی Y نشون می‌ده؛ row_height_px تخمینی از ارتفاع واقعی
-    ناحیه‌ی رسم هر subplot در WEEKLY_CHART_HEIGHT است.
+    ناحیه‌ی رسم هر subplot در MONTHLY_CHART_HEIGHT است.
     """
     span = (y_max - y_min) or 1e-9
     order = sorted(range(len(values)), key=lambda i: values[i])
@@ -106,20 +138,28 @@ def _resolve_label_overlap(values, y_min, y_max, row_height_px=280, min_gap_px=4
     return shifts
 
 
-def _current_trading_week_range(now=None):
-    """بازه‌ی شنبه تا امروز (حداکثر چهارشنبه) هفته‌ی جاری را برمی‌گرداند."""
+def _current_trading_month_range(now=None):
+    """بازه‌ی ماه شمسیِ کامل *قبلی* را برمی‌گرداند (نه ماه جاری).
+
+    گزارش ماهانه روز ۱ام هر ماه شمسی ارسال می‌شود؛ در اون لحظه ماه جاری صفر/یک روز
+    داده داره (بی‌معنیه)، پس چیزی که واقعاً باید گزارش بشه ماهِ قبلی‌ایه که تازه
+    کامل شده. از jdatetime برای محاسبه استفاده می‌شه چون rollover سال/ماه کبیسه رو
+    درست حساب می‌کنه (تست شده: ۱۴۰۵/۰۱/۰۱ - ۱ روز = ۱۴۰۴/۱۲/۲۹).
+    """
     tz = pytz.timezone(TIMEZONE)
-    today = (now or datetime.now(tz)).date()
-    days_since_saturday = (today.weekday() - 5) % 7
-    week_start = today - timedelta(days=days_since_saturday)
-    return week_start, today
+    today_g = (now or datetime.now(tz)).date()
+    today_j = jdatetime.date.fromgregorian(date=today_g)
+    this_month_start_j = today_j.replace(day=1)
+    prev_month_end_j = this_month_start_j - jdatetime.timedelta(days=1)
+    prev_month_start_j = prev_month_end_j.replace(day=1)
+    return prev_month_start_j.togregorian(), prev_month_end_j.togregorian()
 
 
 def _load_daily_history(commodity):
     """
     کل تاریخچه‌ی موجود در Sheets را می‌خواند و به یک ردیف در روز (آخرین snapshot) تقلیل می‌دهد،
     سپس میانگین‌های متحرک ۵ و ۲۲ روزه‌ی ارزش معاملات را روی کل تاریخچه محاسبه می‌کند —
-    این کار لازم است چون در ابتدای هفته باید میانگین با داده‌ی روزهای هفته‌ی قبل هم حساب شود.
+    این کار لازم است چون در ابتدای ماه باید میانگین با داده‌ی روزهای ماه قبل هم حساب شود.
     """
     rows = read_from_sheets(commodity, limit=TRADE_VALUE_HISTORY_LOOKBACK_ROWS)
     if not rows:
@@ -140,29 +180,50 @@ def _load_daily_history(commodity):
 
     # میانگین متحرک روی کمترین تعداد روز موجود هم محاسبه می‌شود (min_periods=1)؛
     # یعنی در ابتدای تاریخچه (کمتر از ۵ یا ۲۲ روز داده) میانگین روی همان چند روز موجود است،
-    # نه NaN — تا خط نمودار از همون هفته‌ی اول رسم بشه.
+    # نه NaN — تا خط نمودار از همون ابتدای ماه رسم بشه.
     daily["trade_value_ma5"] = daily["trade_value"].rolling(window=MA_SHORT_WINDOW, min_periods=1).mean()
     daily["trade_value_ma22"] = daily["trade_value"].rolling(window=MA_LONG_WINDOW, min_periods=1).mean()
 
     return daily
 
 
-def _load_week_dataframe(commodity):
-    """تاریخچه‌ی کامل را می‌خواند (برای میانگین‌های متحرک) و فقط هفته‌ی جاری را برای نمایش برمی‌گرداند."""
-    daily = _load_daily_history(commodity)
-    if daily is None:
+MIN_MONTHLY_TRADING_DAYS = 15  # اگه «ماه قبلی» کمتر از این روز داده داشت، یعنی تاریخچه هنوز به‌اندازه‌ی کافی عقب نمی‌ره
+
+
+def _load_month_dataframe(commodity):
+    """
+    تاریخچه‌ی کامل را می‌خواند (برای میانگین‌های متحرک) و بازه‌ی نمایش را برمی‌گرداند.
+
+    بازه‌ی هدف «ماه شمسی قبلی» است؛ ولی اگه تاریخچه‌ی موجود در Sheets هنوز به‌اندازه‌ی
+    کافی عقب نره (مثلاً چون ردیابی به‌تازگی شروع شده)، به‌جای یه نمودار خیلی خالی/ناقص،
+    آخرین ۳۰ روز از هر داده‌ای که موجوده رو نشون می‌ده. وقتی چند ماه تاریخچه جمع بشه،
+    این fallback خودش دیگه فعال نمی‌شه و به ماه تقویمی واقعی برمی‌گرده.
+    """
+    daily_full = _load_daily_history(commodity)
+    if daily_full is None:
         return None
 
-    week_start, week_end = _current_trading_week_range()
-    daily = daily[(daily["date"] >= week_start) & (daily["date"] <= week_end)].copy()
+    month_start, month_end = _current_trading_month_range()
+    daily = daily_full[(daily_full["date"] >= month_start) & (daily_full["date"] <= month_end)].copy()
+
+    if len(daily) < MIN_MONTHLY_TRADING_DAYS:
+        fallback_start = daily_full["date"].max() - timedelta(days=30)
+        fallback = daily_full[daily_full["date"] >= fallback_start].copy()
+        if len(fallback) > len(daily):
+            logger.warning(
+                f"⚠️ [{commodity}] ماه قبلی ({month_start}..{month_end}) فقط {len(daily)} روز داده داشت "
+                f"— به‌جاش آخرین ۳۰ روز موجود ({len(fallback)} روز) نمایش داده می‌شه"
+            )
+            daily = fallback
+
     if daily.empty:
-        logger.info(f"ℹ️ [{commodity}] داده‌ای برای هفته‌ی جاری ({week_start}..{week_end}) پیدا نشد")
+        logger.info(f"ℹ️ [{commodity}] هیچ داده‌ای برای گزارش ماهانه پیدا نشد")
         return None
 
     daily["pol_hagigi_cumulative"] = daily["pol_hagigi"].cumsum()
-    daily["day_label"] = daily["date"].apply(_jalali_day_label)
+    daily["day_label"] = daily["date"].apply(_jalali_month_day_label)
 
-    # بازده تجمعی هفته (%) نسبت به قیمت اولین روز هفته، برای دلار/اونس جهانی/شمش
+    # بازده تجمعی ماه (%) نسبت به قیمت اولین روز ماه، برای دلار/اونس جهانی/شمش
     for col, ret_col in (
         ("dollar_price", "dollar_return_cum"),
         ("global_price_usd", "ounce_return_cum"),
@@ -174,8 +235,8 @@ def _load_week_dataframe(commodity):
     return daily.reset_index(drop=True)
 
 
-def _render_weekly_chart(commodity, daily):
-    """ساخت نمودار هفتگی (6 subplot) از یک DataFrame روزانه‌ی از‌پیش‌بارگذاری‌شده؛ خروجی PNG bytes یا None."""
+def _render_monthly_chart(commodity, daily):
+    """ساخت نمودار ماهانه (6 subplot) از یک DataFrame روزانه‌ی از‌پیش‌بارگذاری‌شده؛ خروجی PNG bytes یا None."""
     label = COMMODITY_LABEL[commodity]
     accent_color = COMMODITY_COLOR[commodity]
 
@@ -191,23 +252,23 @@ def _render_weekly_chart(commodity, daily):
             chart_font_family = "Vazirmatn, Arial, sans-serif"
 
         fig = make_subplots(
-            rows=WEEKLY_ROW_COUNT, cols=1,
+            rows=MONTHLY_ROW_COUNT, cols=1,
             subplot_titles=(
-                f"<b>(%) بازده هفته: دلار، اونس و {COMMODITY_SHAMS_BOURSE_LABEL[commodity]}</b>",
+                f"<b>(%) بازده ماه: دلار، اونس و {COMMODITY_SHAMS_BOURSE_LABEL[commodity]}</b>",
                 "<b>ارزش معاملات و میانگین ۵ و ۲۲ روزه</b>",
                 f"<b>(%) حباب شمش {label} و میانگینش</b>",
                 "<b>(%) حباب صندوق‌ها و میانگینش</b>",
-                "<b>ورود پول حقیقی تجمعی هفته</b>",
+                "<b>ورود پول حقیقی تجمعی ماه</b>",
                 "<b>سرانه خرید و فروش و اختلاف آن</b>",
             ),
             vertical_spacing=0.08,
-            shared_xaxes=True,
+            shared_xaxes=False,
         )
 
         for annotation in fig["layout"]["annotations"]:
             annotation.font = dict(size=32, color="#8B949E", family=chart_font_family)
 
-        # ─── ردیف ۱: بازده هفته دلار + اونس جهانی + شمش (%) ───
+        # ─── ردیف ۱: بازده ماه دلار + اونس جهانی + شمش (%) ───
         # اونس و شمش هر دو از رنگ خود کالا (accent_color) مشتق می‌شوند تا خانواده‌ی رنگی
         # یکسان باشد (زرد برای طلا، نقره‌ای برای نقره)؛ برای تمایز، شمش سایه‌ی تیره‌تر +
         # خط‌چین + نماد لوزی می‌گیرد، در حالی که اونس خط‌توپر + نماد دایره دارد.
@@ -215,7 +276,7 @@ def _render_weekly_chart(commodity, daily):
         shams_return_color = _darken_hex(accent_color, factor=0.55)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["dollar_return_cum"],
+            type="scatter", x=daily["day_label"], y=daily["dollar_return_cum"],
             name="بازده دلار", mode="lines+markers",
             line=dict(color=COLOR_DOLLAR_RETURN, width=5, shape="spline"),
             marker=dict(size=10, symbol="circle"),
@@ -223,7 +284,7 @@ def _render_weekly_chart(commodity, daily):
         ), row=ROW_RETURNS, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["ounce_return_cum"],
+            type="scatter", x=daily["day_label"], y=daily["ounce_return_cum"],
             name=f"بازده اونس {label}", mode="lines+markers",
             line=dict(color=ounce_color, width=5, shape="spline"),
             marker=dict(size=10, symbol="circle"),
@@ -231,7 +292,7 @@ def _render_weekly_chart(commodity, daily):
         ), row=ROW_RETURNS, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["shams_return_cum"],
+            type="scatter", x=daily["day_label"], y=daily["shams_return_cum"],
             name=f"بازده شمش {label}", mode="lines+markers",
             line=dict(color=shams_return_color, width=5, dash="dash", shape="spline"),
             marker=dict(size=11, symbol="diamond"),
@@ -248,20 +309,20 @@ def _render_weekly_chart(commodity, daily):
 
         # ─── ردیف ۲: ارزش معاملات + میانگین ۵ و ۲۲ روزه ───
         fig.add_trace(dict(
-            type="bar", x=daily["timestamp"], y=daily["trade_value"],
+            type="bar", x=daily["day_label"], y=daily["trade_value"],
             name="ارزش معاملات", marker=dict(color="rgba(33,150,243,0.55)"),
             hovertemplate="ارزش معاملات: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["trade_value_ma5"],
+            type="scatter", x=daily["day_label"], y=daily["trade_value_ma5"],
             name=f"میانگین {MA_SHORT_WINDOW} روزه", mode="lines",
             line=dict(color=COLOR_POSITIVE, width=4, dash="dot", shape="spline"),
             hovertemplate="MA5: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["trade_value_ma22"],
+            type="scatter", x=daily["day_label"], y=daily["trade_value_ma22"],
             name=f"میانگین {MA_LONG_WINDOW} روزه", mode="lines",
             line=dict(color="#FFA726", width=4, dash="dash", shape="spline"),
             hovertemplate="MA22: <b>%{y:,.0f}</b><extra></extra>",
@@ -275,10 +336,10 @@ def _render_weekly_chart(commodity, daily):
         # ─── ردیف ۳: حباب شمش + میانگینش ───
         shams_avg = daily["shams_bubble_percent"].mean()
         fund_avg = daily["fund_weighted_bubble_percent"].mean()
-        x_range = [daily["timestamp"].min(), daily["timestamp"].max()]
+        x_range = [daily["day_label"].iloc[0], daily["day_label"].iloc[-1]]
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["shams_bubble_percent"],
+            type="scatter", x=daily["day_label"], y=daily["shams_bubble_percent"],
             name=f"حباب شمش {label}", mode="lines+markers",
             line=dict(color=accent_color, width=5, shape="spline"),
             marker=dict(size=10),
@@ -299,7 +360,7 @@ def _render_weekly_chart(commodity, daily):
 
         # ─── ردیف ۴: حباب صندوق‌ها + میانگینش ───
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["fund_weighted_bubble_percent"],
+            type="scatter", x=daily["day_label"], y=daily["fund_weighted_bubble_percent"],
             name="حباب صندوق‌ها", mode="lines+markers",
             line=dict(color="#2196F3", width=5, shape="spline"),
             marker=dict(size=10),
@@ -321,12 +382,12 @@ def _render_weekly_chart(commodity, daily):
         fig.update_layout(showlegend=False)
 
         # ─── ردیف ۵: پول حقیقی تجمعی ───
-        add_conditional_line(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
+        _add_conditional_line_categorical(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
         set_y_range(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
 
         # ─── ردیف ۶: سرانه خرید/فروش + اختلاف ───
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["sarane_kharid_weighted"],
+            type="scatter", x=daily["day_label"], y=daily["sarane_kharid_weighted"],
             name="خرید حقیقی", mode="lines+markers",
             line=dict(color=COLOR_POSITIVE, width=5, shape="spline"),
             marker=dict(size=10),
@@ -335,7 +396,7 @@ def _render_weekly_chart(commodity, daily):
         ), row=ROW_SARANE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["timestamp"], y=daily["sarane_forosh_weighted"],
+            type="scatter", x=daily["day_label"], y=daily["sarane_forosh_weighted"],
             name="فروش حقیقی", mode="lines+markers",
             line=dict(color=COLOR_NEGATIVE, width=5, shape="spline"),
             marker=dict(size=10),
@@ -349,8 +410,8 @@ def _render_weekly_chart(commodity, daily):
         ]
         ekhtelaf_axis = "y" + str(ROW_SARANE + 10)
         fig.add_trace(dict(
-            type="bar", x=daily["timestamp"], y=daily["ekhtelaf_sarane_weighted"],
-            name="اختلاف سرانه", width=1000 * 60 * 60 * 20,
+            type="bar", x=daily["day_label"], y=daily["ekhtelaf_sarane_weighted"],
+            name="اختلاف سرانه", width=0.6,  # روی محور category عدد نسبی (کسری از عرض دسته)، نه میلی‌ثانیه
             marker=dict(color=colors_fill, line=dict(color=colors_fill, width=4)),
             hovertemplate="اختلاف: <b>%{y:.2f}</b><extra></extra>",
             yaxis=ekhtelaf_axis,
@@ -375,7 +436,7 @@ def _render_weekly_chart(commodity, daily):
 
         # ─── Layout کلی ───
         fig.update_layout(
-            height=WEEKLY_CHART_HEIGHT,
+            height=MONTHLY_CHART_HEIGHT,
             paper_bgcolor=COLOR_BACKGROUND,
             plot_bgcolor=COLOR_BACKGROUND,
             font=dict(color="#C9D1D9", family=chart_font_family, size=25),
@@ -385,7 +446,7 @@ def _render_weekly_chart(commodity, daily):
         )
 
         fig.add_annotation(
-            text=f"<b>📅 گزارش هفتگی بازار {label}</b>",
+            text=f"<b>📅 گزارش ماهانه بازار {label}</b>",
             x=0.98, y=1.05, xref="paper", yref="paper",
             xanchor="right", yanchor="top",
             font=dict(size=40, color=accent_color, family=chart_font_family),
@@ -461,7 +522,7 @@ def _render_weekly_chart(commodity, daily):
             font=dict(size=26, color="#FFA726", family=chart_font_family), showarrow=False,
         )
 
-        # ردیف ۳: حباب شمش (مقدار آخر + میانگین هفته) — با رفع تداخل
+        # ردیف ۳: حباب شمش (مقدار آخر + میانگین ماه) — با رفع تداخل
         shams_yshifts = _resolve_label_overlap([last_shams, shams_avg], shams_min, shams_max)
         shams_color = COLOR_POSITIVE if last_shams >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
@@ -477,7 +538,7 @@ def _render_weekly_chart(commodity, daily):
             font=label_font, showarrow=False,
         )
 
-        # ردیف ۴: حباب صندوق‌ها (مقدار آخر + میانگین هفته) — با رفع تداخل
+        # ردیف ۴: حباب صندوق‌ها (مقدار آخر + میانگین ماه) — با رفع تداخل
         fund_yshifts = _resolve_label_overlap([last_fund, fund_avg], fund_min, fund_max)
         fund_color = COLOR_POSITIVE if last_fund >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
@@ -529,26 +590,29 @@ def _render_weekly_chart(commodity, daily):
             font=dict(size=28, color=COLOR_NEGATIVE, family=chart_font_family), showarrow=False,
         )
 
-        # محور X: یک تیک به‌ازای هر روز، با اسم روز هفته
+        # محور X: یک تیک به‌ازای هر روز (فقط عدد روز، بدون اسم روز هفته)
         fig.update_xaxes(
-            type="date",
-            tickmode="array",
-            tickvals=daily["timestamp"].tolist(),
-            ticktext=daily["day_label"].tolist(),
+            type="category",
+            categoryorder="array",
+            categoryarray=daily["day_label"].tolist(),
             tickfont=dict(size=26),
             gridcolor=COLOR_GRID, showgrid=True, zeroline=False,
             showline=True, linewidth=1, linecolor="#30363D",
         )
-        for i in range(1, WEEKLY_ROW_COUNT + 1):
+        for i in range(1, MONTHLY_ROW_COUNT + 1):
             fig.update_yaxes(
                 tickfont=dict(size=25), gridcolor=COLOR_GRID, showgrid=True,
                 zeroline=True, zerolinecolor="#30363D", zerolinewidth=2,
                 showline=True, linewidth=1, linecolor="#30363D",
                 row=i, col=1,
             )
+            # چون shared_xaxes=False است (به‌خاطر یه باگ رندر در Kaleido با ترکیب
+            # shared_xaxes=True + محور category که کل نمودار رو جمع می‌کرد)، باید
+            # دستی مطمئن بشیم فقط ردیف آخر برچسب محور X رو نشون می‌ده.
+            fig.update_xaxes(showticklabels=(i == MONTHLY_ROW_COUNT), row=i, col=1)
             fig.add_hline(y=0, line_dash="dot", line_color="#484F58", line_width=2, row=i, col=1)
 
-        img_bytes = fig.to_image(format="png", width=CHART_WIDTH, height=WEEKLY_CHART_HEIGHT, scale=CHART_SCALE)
+        img_bytes = fig.to_image(format="png", width=MONTHLY_CHART_WIDTH, height=MONTHLY_CHART_HEIGHT, scale=CHART_SCALE)
         img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
 
         try:
@@ -568,60 +632,65 @@ def _render_weekly_chart(commodity, daily):
         output = io.BytesIO()
         img.save(output, format="PNG", optimize=True, quality=92)
         output.seek(0)
-        logger.info(f"✅ [{commodity}] گزارش هفتگی ساخته شد ({len(daily)} روز)")
+        logger.info(f"✅ [{commodity}] گزارش ماهانه ساخته شد ({len(daily)} روز)")
         return output.getvalue()
 
     except Exception as e:
-        logger.error(f"❌ [{commodity}] خطا در ساخت گزارش هفتگی: {e}", exc_info=True)
+        logger.error(f"❌ [{commodity}] خطا در ساخت گزارش ماهانه: {e}", exc_info=True)
         return None
 
 
-def build_weekly_package(commodity):
+def build_monthly_package(commodity):
     """
-    نقطه‌ی ورود عمومی ماژول. داده‌ی هفته را یک‌بار می‌خواند و هم عکس هم کپشن را برمی‌گرداند.
+    نقطه‌ی ورود عمومی ماژول. داده‌ی ماه قبلی را یک‌بار می‌خواند و هم عکس هم کپشن را برمی‌گرداند.
 
     Returns:
         dict با کلیدهای 'image_bytes' و 'caption'، یا None اگر داده‌ی کافی نبود
-        (حداقل ۲ روز کاری لازم است تا نمودار روند معنا داشته باشد).
+        (حداقل ۱۰ روز کاری لازم است تا نمودار ماهانه معنا داشته باشد).
     """
     if commodity not in COMMODITY_LABEL:
         raise ValueError(f"کالای نامعتبر: {commodity}")
 
-    daily = _load_week_dataframe(commodity)
-    if daily is None or len(daily) < 2:
-        logger.warning(f"⚠️ [{commodity}] برای گزارش هفتگی حداقل ۲ روز داده لازم است")
+    daily = _load_month_dataframe(commodity)
+    if daily is None or len(daily) < 10:
+        logger.warning(f"⚠️ [{commodity}] برای گزارش ماهانه حداقل ۱۰ روز داده لازم است")
         return None
 
-    image_bytes = _render_weekly_chart(commodity, daily)
+    image_bytes = _render_monthly_chart(commodity, daily)
     if image_bytes is None:
         return None
 
     return {
         "image_bytes": image_bytes,
-        "caption": build_weekly_caption(commodity, daily),
+        "caption": build_monthly_caption(commodity, daily),
     }
 
 
-def build_weekly_caption(commodity, daily_df):
-    """کپشن متنی خلاصه‌ی هفته برای ارسال همراه عکس."""
+def build_monthly_caption(commodity, daily_df):
+    """کپشن متنی خلاصه‌ی ماه برای ارسال همراه عکس.
+
+    بازه‌ی تاریخ از خودِ داده‌ی واقعاً نمایش‌داده‌شده (min/max تاریخ daily_df) گرفته می‌شه،
+    نه با فراخوانی دوباره‌ی _current_trading_month_range — چون وقتی fallback به «آخرین
+    ۳۰ روز موجود» فعال شده باشه، اون تابع دیگه بازه‌ی واقعیِ نمایش‌داده‌شده رو نشون نمی‌ده.
+    """
     label = COMMODITY_LABEL[commodity]
     last = daily_df.iloc[-1]
-    week_start, week_end = _current_trading_week_range()
+    month_start, month_end = daily_df["date"].min(), daily_df["date"].max()
 
     total_pol = daily_df["pol_hagigi"].sum()
     avg_bubble_fund = daily_df["fund_weighted_bubble_percent"].mean()
     avg_bubble_shams = daily_df["shams_bubble_percent"].mean()
 
-    jalali_week_start = JalaliDate(week_start).strftime("%Y/%m/%d")
-    jalali_week_end = JalaliDate(week_end).strftime("%Y/%m/%d")
+    jalali_month_start = JalaliDate(month_start).strftime("%Y/%m/%d")
+    jalali_month_end = JalaliDate(month_end).strftime("%Y/%m/%d")
 
     return f"""
-📅 <b>گزارش هفتگی بازار {label}</b>
-🗓 {jalali_week_start} تا {jalali_week_end} ({len(daily_df)} روز کاری)
+📅 <b>گزارش ماهانه بازار {label}</b>
+🗓 {jalali_month_start} تا {jalali_month_end} ({len(daily_df)} روز کاری)
 
 🎈 میانگین حباب شمش: {avg_bubble_shams:+.2f}%
 🎈 میانگین حباب صندوق‌ها: {avg_bubble_fund:+.2f}%
-💸 پول حقیقی تجمعی هفته: {total_pol:+,.0f} م.ت
+💸 پول حقیقی تجمعی ماه: {total_pol:+,.0f} م.ت
 📊 سرانه خرید آخرین روز: {last['sarane_kharid_weighted']:,.0f}
 📊 سرانه فروش آخرین روز: {last['sarane_forosh_weighted']:,.0f}
 ⚖️ اختلاف سرانه آخرین روز: {last['ekhtelaf_sarane_weighted']:+,.0f}
