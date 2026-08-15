@@ -110,42 +110,76 @@ def flatten_entities(df, list_col="related_entities"):
 
 
 # ==============================================================================
-# صندوق‌ها (تریدرآرنا) — column_mapping مشترک بین طلا/نقره (تأیید‌شده)
+# صندوق‌ها (تریدرآرنا) — snapshot API جدید (تودرتو، از ۲۰۲۶/۰۵ به بعد)
 # ==============================================================================
 
-def process_funds_data(data, commodity):
-    """پردازش داده‌ی صندوق‌های یک کالا از تریدرآرنا با mapping ثابت ایندکس→نام."""
+def _dig(d, *path, default=None):
+    """دسترسی امن به کلیدهای تودرتو؛ اگر هرجای مسیر None/غایب بود، default برمی‌گرداند."""
+    cur = d
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    return cur if cur is not None else default
 
-    if not data or len(data) == 0:
+
+def process_funds_data(data, commodity):
+    """
+    پردازش داده‌ی صندوق‌های یک کالا از تریدرآرنا.
+
+    ⚠️ از ۲۰۲۶/۰۵ اندپوینت قدیمی (CSV آرایه‌ای ایندکس‌محور) با یک snapshot
+    JSON تودرتو جایگزین شد: {"rows": [{"symbol":..., "static":{...},
+    "risk":{...}, "live":{...}}, ...]}. این تابع همان نام‌ستون‌های قبلی را
+    تولید می‌کند تا main.py / alerts.py بدون تغییر کار کنند.
+    """
+    rows = data.get("rows") if isinstance(data, dict) else data
+
+    if not rows:
         logger.warning(f"⚠️ [{commodity}] داده‌ی صندوق‌ها خالی است")
         return pd.DataFrame()
 
-    column_mapping = {
-        0: "id", 1: "symbol", 2: "volume", 3: "value",
-        4: "first_price", 5: "first_price_change_percent",
-        6: "high_price", 7: "high_price_change_percent",
-        8: "low_price", 9: "low_price_change_percent",
-        10: "close_price", 11: "close_price_change_percent",
-        12: "final_price", 13: "final_price_change_percent",
-        14: "close_final_diff", 15: "volitility",
-        16: "sarane_kharid", 17: "sarane_forosh", 18: "buy_power",
-        19: "pol_hagigi", 20: "buy_order_value", 21: "sell_order_value",
-        22: "buy_sell_order_sum", 23: "5day_avg_pol_hagigi",
-        24: "20day_avg_pol_hagigi", 25: "60day_avg_pol_hagigi",
-        26: "5day_pol_hagigi", 27: "20day_pol_hagigi", 28: "60day_pol_hagigi",
-        29: "5day_buy_power", 30: "20day_buy_power",
-        31: "avg_monthly_value", 32: "value_to_avg_ratio",
-        35: "weekly_return", 36: "monthly_return", 37: "3_month_return",
-        38: "net_asset", 40: "NAV", 41: "nominal_bubble",
-        42: "NAV_change_percent", 43: "avg_monthly_bubble",
-        49: "category", 50: "isin",
-    }
-
     extracted_data = []
-    for row in data:
-        extracted_row = {}
-        for idx, col_name in column_mapping.items():
-            extracted_row[col_name] = row[idx] if idx < len(row) else None
+    for row in rows:
+        extracted_row = {
+            "symbol": row.get("symbol"),
+            "id": row.get("id"),
+            "isin": _dig(row, "static", "identity", "cisin"),
+            "category": _dig(row, "static", "fund", "classification", "tag"),
+
+            # قیمت‌ها و درصد تغییرات
+            "close_price": _dig(row, "live", "market", "prices", "close"),
+            "close_price_change_percent": _dig(row, "live", "market", "changes", "closePercent"),
+            "final_price": _dig(row, "live", "market", "prices", "closing"),
+            "final_price_change_percent": _dig(row, "live", "market", "changes", "closingPercent"),
+
+            # حجم/ارزش معاملات
+            "volume": _dig(row, "live", "market", "trading", "volume"),
+            "value": _dig(row, "live", "market", "trading", "value"),
+
+            # سرانه‌ها و پول حقیقی
+            "sarane_kharid": _dig(row, "live", "market", "clientType", "realBuyPerCapitaValue"),
+            "sarane_forosh": _dig(row, "live", "market", "clientType", "realSellPerCapitaValue"),
+            "buy_power": _dig(row, "live", "market", "clientType", "buyPower"),
+            "pol_hagigi": _dig(row, "live", "market", "clientType", "moneyFlowValue"),
+            "buy_order_value": _dig(row, "live", "market", "orders", "buyValue"),
+            "sell_order_value": _dig(row, "live", "market", "orders", "sellValue"),
+
+            # بازدهی‌های دوره‌ای (بر مبنای قیمت پایانی/آخرین)
+            "weekly_return": _dig(row, "live", "fund", "priceReturns", "5"),
+            "monthly_return": _dig(row, "live", "fund", "priceReturns", "20"),
+            "3_month_return": _dig(row, "live", "fund", "priceReturns", "60"),
+
+            # NAV و حباب
+            "net_asset": _dig(row, "static", "fund", "netAsset"),
+            "NAV": _dig(row, "live", "fund", "currentNav"),
+            "nominal_bubble": _dig(row, "live", "fund", "bubblePercent"),
+            "NAV_change_percent": _dig(row, "live", "fund", "navReturns", "1"),
+            "avg_monthly_bubble": _dig(row, "static", "fund", "bubbleHistory", "average", "20"),
+
+            # میانگین ارزش معاملات ماهانه (۲۰ روزه)
+            "avg_monthly_value": _dig(row, "static", "marketHistory", "averageValue", "20"),
+            "value_to_avg_ratio": _dig(row, "live", "market", "historyDerived", "valueToAverage", "20"),
+        }
         extracted_data.append(extracted_row)
 
     Fund_df = pd.DataFrame(extracted_data)
@@ -176,8 +210,8 @@ def process_funds_data(data, commodity):
 
     Fund_df["ekhtelaf_sarane"] = Fund_df["sarane_kharid"] - Fund_df["sarane_forosh"]
     Fund_df["pol_to_value_ratio"] = (
-        (Fund_df["pol_hagigi"] / Fund_df["avg_monthly_value"].replace(0, pd.NA)) * 100
-    ).round(2)
+        (Fund_df["pol_hagigi"] / Fund_df["avg_monthly_value"].replace(0, np.nan)) * 100
+    ).astype(float).round(2)
 
     Fund_df["final_price_change"] = pd.to_numeric(
         Fund_df["final_price_change_percent"], errors="coerce"
