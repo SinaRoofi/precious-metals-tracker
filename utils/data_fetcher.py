@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from config import (
     TELEGRAM_CHANNELS, API_URLS, HTTP_HEADERS,
     MAX_RETRIES, RETRY_DELAY, REQUEST_TIMEOUT,
+    FUNDS_SNAPSHOT_TIMEFRAME,
 )
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,14 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
             time.sleep(1)
 
             logger.info(f"📡 [{commodity}] تلاش {attempt}/{max_retries} - درخواست funds...")
-            resp2 = session.get(url_funds, timeout=REQUEST_TIMEOUT)
+            # اندپوینت جدید snapshot تریدرآرنا: نیازمند timeframe و یک کوئری‌پارام
+            # کش‌بریک (همان‌طور که خود سایت هم می‌فرستد؛ سرور بدونش هم معمولاً جواب می‌ده
+            # ولی برای هماهنگی با رفتار سایت نگه داشته شده).
+            funds_params = {
+                "timeframe": FUNDS_SNAPSHOT_TIMEFRAME,
+                "_": int(time.time() * 1000),
+            }
+            resp2 = session.get(url_funds, params=funds_params, timeout=REQUEST_TIMEOUT)
             resp2.raise_for_status()
             funds_data = resp2.json()
             logger.info(f"✅ [{commodity}] funds دریافت شد")
