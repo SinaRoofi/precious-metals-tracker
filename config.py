@@ -91,14 +91,21 @@ API_URLS = {
     'gold': {
         'intrinsic': 'https://rahavard365.com/api/v2/gold/intrinsic-values',
         'light_charts': 'https://rahavard365.com/api/v2/gold/light-charts',
-        'funds': 'https://tradersarena.ir/data/industries-stocks-csv/gold-funds',
+        # ⚠️ ۲۰۲۶/۰۵/۲۵: ساختار سایت تریدرآرنا عوض شد. اندپوینت قدیمی
+        # (data/industries-stocks-csv/gold-funds) حذف شده و الان یک
+        # snapshot JSON تودرتو برمی‌گرداند (نه دیگر آرایه‌ی ایندکس‌دار).
+        # timeframe=12 پارامتر بازه‌ی ریسک است؛ همانی که سایت خودش می‌فرستد.
+        'funds': 'https://tradersarena.ir/data/industries/gold-funds/snapshot',
     },
     'silver': {
         'intrinsic': 'https://rahavard365.com/api/v2/silver/intrinsic-values',
         'light_charts': 'https://rahavard365.com/api/v2/silver/light-charts',
-        'funds': 'https://tradersarena.ir/data/industries-stocks-csv/silver-funds',
+        'funds': 'https://tradersarena.ir/data/industries/silver-funds/snapshot',
     },
 }
+
+# پارامتر timeframe برای اندپوینت جدید snapshot صندوق‌های تریدرآرنا
+FUNDS_SNAPSHOT_TIMEFRAME = 12
 
 # ════════════════════════════════════════════════════════════════
 # ⏰ تنظیمات زمانی
