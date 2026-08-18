@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "طلا": {"high": 1_366_000, "low": 1_340_000},
+    "طلا": {"high": 1_444_000, "low": 1_361_010},
 }
 
 ALERT_THRESHOLD_PERCENT = {
