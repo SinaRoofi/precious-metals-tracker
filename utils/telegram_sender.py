@@ -20,6 +20,7 @@ from config import (
     TREEMAP_WIDTH, TREEMAP_HEIGHT, TREEMAP_SCALE,
     TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
     REQUEST_TIMEOUT, TIMEZONE, LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF,
+    MAX_RETRIES, RETRY_DELAY,
 )
 from utils.chart_creator import create_market_charts
 
@@ -53,21 +54,111 @@ def _empty_message_store():
             "silver": {"message_id": None, "message_id2": None, "date": None}}
 
 
+# کدهای وضعیتی که «گذرا» فرض می‌شن و ارزش retry دارن:
+# 403 → معمولاً secondary rate limit گیت‌هاب (نه لزوماً توکن غلط)
+# 429 → rate limit صریح؛ 5xx → مشکل موقت سمت سرور گیت‌هاب
+_GIST_TRANSIENT_STATUS_CODES = {403, 429, 500, 502, 503, 504}
+
+
+def _gist_request_with_retry(method, url, commodity, label, headers=None, json_body=None,
+                              max_retries=MAX_RETRIES, retry_delay=RETRY_DELAY):
+    """درخواست GET/PATCH به گیست گیت‌هاب، با retry روی خطای گذرا (تایم‌اوت/خطای شبکه/۴۲۹/۵xx/۴۰۳).
+
+    ۴۰۴ عمداً retry نمی‌شه (معمولاً یعنی GIST_ID اشتباهه یا فایل هنوز ساخته نشده —
+    در هر دو حالت retry فایده نداره). خطاهای دیگه‌ی ۴xx هم permanent فرض می‌شن.
+
+    Returns:
+        (response یا None, status) — status یکی از:
+        "ok", "timeout", "network_error", "http_error:CODE"
+    """
+    last_status = "unknown_error"
+    for attempt in range(1, max_retries + 1):
+        start = time.monotonic()
+        try:
+            if method == "GET":
+                response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            else:
+                response = requests.patch(url, headers=headers, json=json_body, timeout=REQUEST_TIMEOUT)
+            elapsed = time.monotonic() - start
+
+            if response.status_code == 200:
+                logger.info(f"✅ [{commodity}] {label} موفق (تلاش {attempt}/{max_retries}, {elapsed:.1f}s)")
+                return response, "ok"
+
+            if response.status_code == 404:
+                return response, "http_error:404"
+
+            last_status = f"http_error:{response.status_code}"
+            if response.status_code in _GIST_TRANSIENT_STATUS_CODES and attempt < max_retries:
+                logger.warning(
+                    f"⚠️ [{commodity}] {label} کد {response.status_code} برگشت (گذرا، تلاش "
+                    f"{attempt}/{max_retries}, {elapsed:.1f}s) — {retry_delay}s صبر و تلاش مجدد..."
+                )
+                time.sleep(retry_delay)
+                continue
+
+            logger.error(
+                f"❌ [{commodity}] {label} با کد {response.status_code} برگشت ({elapsed:.1f}s) — "
+                f"بدنه: {response.text[:300]}"
+            )
+            return response, last_status
+
+        except requests.exceptions.Timeout as e:
+            elapsed = time.monotonic() - start
+            last_status = "timeout"
+            logger.warning(
+                f"⏱️ [{commodity}] {label} TIMEOUT (تلاش {attempt}/{max_retries}, {elapsed:.1f}s, "
+                f"REQUEST_TIMEOUT={REQUEST_TIMEOUT}): {e}"
+            )
+        except requests.exceptions.RequestException as e:
+            elapsed = time.monotonic() - start
+            last_status = "network_error"
+            logger.warning(
+                f"🌐 [{commodity}] {label} خطای شبکه (تلاش {attempt}/{max_retries}, {elapsed:.1f}s): "
+                f"{type(e).__name__}: {e}"
+            )
+
+        if attempt < max_retries:
+            time.sleep(retry_delay)
+
+    logger.error(f"❌ [{commodity}] {label} بعد از {max_retries} تلاش ناموفق ماند (status={last_status})")
+    return None, last_status
+
+
 def get_gist_data(commodity):
-    """دریافت message_id های یک کالا از GitHub Gist"""
+    """دریافت message_id های یک کالا از GitHub Gist (با retry روی خطای گذرا)
+
+    Returns:
+        (data, status) — data همیشه یک dict معتبره (در خطا خالی).
+        status یکی از این مقادیر، برای اینکه caller بفهمه چرا data خالیه:
+            "ok"               خواندن موفق (چه کالا توی store بوده چه نه)
+            "no_config"        GIST_ID/GIST_TOKEN ست نشده
+            "timeout"          همه‌ی تلاش‌ها تایم‌اوت شدن
+            "network_error"    همه‌ی تلاش‌ها با خطای شبکه شکست خوردن
+            "http_error:CODE"  گیت‌هاب کد غیر ۲۰۰ برگردوند (بعد از retry روی کدهای گذرا)
+            "parse_error"      کد ۲۰۰ بود ولی محتوای فایل JSON/ساختار مورد انتظار نبود
+    """
+    empty = {"message_id": None, "message_id2": None, "date": None}
+
+    if not GIST_ID or not GIST_TOKEN:
+        logger.warning(f"⚠️ [{commodity}] GIST_ID یا GIST_TOKEN تنظیم نشده — خواندن گیست انجام نشد")
+        return empty, "no_config"
+
+    url = f"https://api.github.com/gists/{GIST_ID}"
+    headers = {"Authorization": f"token {GIST_TOKEN}"}
+    response, status = _gist_request_with_retry("GET", url, commodity, "خواندن گیست", headers=headers)
+
+    if status != "ok":
+        return empty, status
+
     try:
-        if not GIST_ID or not GIST_TOKEN:
-            return {"message_id": None, "message_id2": None, "date": None}
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        if response.status_code == 200:
-            content = response.json()["files"][MESSAGE_ID_FILE]["content"]
-            store = json.loads(content)
-            return store.get(commodity, {"message_id": None, "message_id2": None, "date": None})
-    except Exception as e:
-        logger.error(f"[{commodity}] خطا در خواندن Gist: {e}")
-    return {"message_id": None, "message_id2": None, "date": None}
+        content = response.json()["files"][MESSAGE_ID_FILE]["content"]
+        store = json.loads(content)
+    except (KeyError, ValueError, TypeError) as e:
+        logger.error(f"❌ [{commodity}] گیست کد 200 برگردوند ولی پارس محتوا شکست خورد: {type(e).__name__}: {e}")
+        return empty, "parse_error"
+
+    return store.get(commodity, empty), "ok"
 
 
 def save_gist_data(commodity, message_id, message_id2, date):
@@ -77,35 +168,57 @@ def save_gist_data(commodity, message_id, message_id2, date):
     نه یک عدد فرض‌شده (مثل message_id+1) — چون این فرض تضمین‌شده نیست و باعث خطای
     'message to edit not found' می‌شه.
     """
+    if not GIST_ID or not GIST_TOKEN:
+        logger.warning(f"⚠️ [{commodity}] GIST_ID یا GIST_TOKEN تنظیم نشده — ذخیره گیست انجام نشد")
+        return
+
     try:
         url = f"https://api.github.com/gists/{GIST_ID}"
         headers = {"Authorization": f"token {GIST_TOKEN}"}
 
         # اول کل store رو می‌خونیم تا کالای دیگه رو overwrite نکنیم.
-        # اگه این GET fail بشه، ادامه نمی‌دیم — وگرنه PATCH با یک store خالی
-        # message_id کالای دیگه رو null می‌کنه (باگ واقعی که در چک نهایی پیدا شد).
-        try:
-            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-            if response.status_code == 200:
+        # اگه این GET (بعد از retry) بازم fail بشه، ادامه نمی‌دیم — وگرنه PATCH با یک
+        # store خالی message_id کالای دیگه رو null می‌کنه (باگ واقعی که قبلاً پیدا شد).
+        response, get_status = _gist_request_with_retry(
+            "GET", url, commodity, "GET گیست (قبل از ذخیره)", headers=headers,
+        )
+
+        if get_status == "ok":
+            try:
                 content = response.json()["files"][MESSAGE_ID_FILE]["content"]
                 store = _empty_message_store()
                 store.update(json.loads(content))
-            elif response.status_code == 404:
-                # فایل/گیست هنوز هیچ داده‌ای نداره — این تنها حالتیه که store خالی امنه
-                store = _empty_message_store()
-            else:
-                logger.error(f"[{commodity}] GET گیست با کد {response.status_code} برگشت — ذخیره لغو شد")
+            except (KeyError, ValueError, TypeError) as e:
+                logger.error(
+                    f"❌ [{commodity}] GET گیست (قبل از ذخیره) پارس محتوا شکست خورد — "
+                    f"ذخیره لغو شد: {type(e).__name__}: {e}"
+                )
                 return
-        except requests.RequestException as e:
-            logger.error(f"[{commodity}] GET گیست fail شد ({e}) — ذخیره لغو شد تا کالای دیگه overwrite نشه")
+        elif get_status == "http_error:404":
+            # فایل/گیست هنوز هیچ داده‌ای نداره — این تنها حالتیه که store خالی امنه
+            store = _empty_message_store()
+        else:
+            logger.error(
+                f"❌ [{commodity}] GET گیست (قبل از ذخیره) نهایتاً ناموفق ماند (status={get_status}) "
+                f"— ذخیره لغو شد تا کالای دیگه overwrite نشه"
+            )
             return
 
         store[commodity] = {"message_id": message_id, "message_id2": message_id2, "date": date}
-
         data = {"files": {MESSAGE_ID_FILE: {"content": json.dumps(store, ensure_ascii=False)}}}
-        requests.patch(url, headers=headers, json=data, timeout=REQUEST_TIMEOUT)
+
+        _, patch_status = _gist_request_with_retry(
+            "PATCH", url, commodity, "PATCH گیست (ذخیره)", headers=headers, json_body=data,
+        )
+        if patch_status == "ok":
+            logger.info(f"✅ [{commodity}] گیست ذخیره شد — message_id={message_id}, {message_id2}")
+        else:
+            logger.error(
+                f"❌ [{commodity}] ذخیره گیست نهایتاً ناموفق ماند (status={patch_status}) — "
+                f"ران بعدی احتمالاً message_id قدیمی می‌خونه"
+            )
     except Exception as e:
-        logger.error(f"[{commodity}] خطا در ذخیره Gist: {e}")
+        logger.error(f"[{commodity}] خطای غیرمنتظره در ذخیره Gist: {e}", exc_info=True)
 
 
 def get_today_date():
@@ -146,11 +259,22 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
             tether_price, tether_change_percent,
         )
 
-        gist_data = get_gist_data(commodity)
+        gist_data, gist_status = get_gist_data(commodity)
         saved_message_id = gist_data.get("message_id")
         saved_message_id2 = gist_data.get("message_id2")
         saved_date = gist_data.get("date")
         today = get_today_date()
+
+        if gist_status != "ok":
+            # خواندن گیست fail شده (تایم‌اوت/شبکه/کد غیر ۲۰۰/پارس) — data خالیه ولی
+            # این با «امروز هنوز پیامی نبوده» فرق داره. اگه امروز واقعاً پیام قبلی
+            # وجود داشته باشه، این مسیر باعث ارسال یک پیام جدیدِ تکراری می‌شه چون
+            # الان نمی‌تونیم بفهمیم message_id قبلی چیه.
+            logger.warning(
+                f"⚠️ [{commodity}] گیست درست خونده نشد (status={gist_status}) — با فرضِ "
+                f"'بدون پیام ذخیره‌شده' ادامه داده می‌شه؛ اگه امروز پیام قبلی واقعاً "
+                f"وجود داشته باشه، این باعث ارسال یک پیام جدید (تکراری) به‌جای آپدیت می‌شه"
+            )
 
         if saved_date != today:
             logger.info(f"📅 [{commodity}] روز جدید ({today}) - ریست message_id")
