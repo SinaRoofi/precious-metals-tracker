@@ -6,8 +6,8 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 198_000
-DOLLAR_LOW = 197_000
+DOLLAR_HIGH = 199_000
+DOLLAR_LOW = 198_000
 
 # --- طلا ---
 SHAMS_HIGH = 29_500_000
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 44_000, "low": 43_000},
+    "زروان": {"high": 44_000, "low": 43_500},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -36,9 +36,9 @@ ALERT_THRESHOLD_PERCENT = {
 EKHTELAF_THRESHOLD = 20
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4347
-DEFAULT_DOLLAR_PRICE = 187000
-DEFAULT_SILVER_PRICE = 64
+DEFAULT_GOLD_PRICE = 4604
+DEFAULT_DOLLAR_PRICE = 198_000
+DEFAULT_SILVER_PRICE = 69
 
 # 🎈 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
