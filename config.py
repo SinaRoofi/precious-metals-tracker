@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گنج": {"high": 193_263, "low": 191_115},
+    "گنج": {"high": 194_000, "low": 183_443},
 }
 
 ALERT_THRESHOLD_PERCENT = {
