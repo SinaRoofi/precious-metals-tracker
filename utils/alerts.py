@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import requests
+import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import jdatetime
@@ -26,12 +27,24 @@ from config import (
     GIST_ID,
     GIST_TOKEN,
     ALERT_STATUS_FILE,
+    SARANE_KHARID_BASELINE_FILE,
     ALERT_CHANNEL_HANDLE,
     REQUEST_TIMEOUT,
     TIMEZONE,
     POL_SHARP_CHANGE_THRESHOLD,
+    STANDARD_HEADER,
+    SARANE_KHARID_MA_DAYS,
+    SARANE_KHARID_MA_MIN_DAYS,
+    SARANE_KHARID_SPIKE_MULTIPLIER,
 )
 from utils.sheets_storage import read_from_sheets
+
+# حداکثر تعداد ردیف تاریخچه که برای محاسبه‌ی میانگین چند روزه‌ی سرانه خرید می‌خوانیم
+# (هم‌رده با TRADE_VALUE_HISTORY_LOOKBACK_ROWS در weekly_report.py)
+SARANE_KHARID_HISTORY_LOOKBACK_ROWS = 3000
+
+# ✅ کش محلی برای جلوگیری از reset در صورت خطای Gist (fallback، مثل ALERT_STATUS_CACHE)
+SARANE_KHARID_BASELINE_CACHE = None
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +80,7 @@ def _default_alert_status():
         status[f"{c}_bubble"] = "normal"
         status[f"{c}_pol_hagigi"] = "normal"
         status[f"{c}_hard_signal"] = "normal"
+        status[f"{c}_sarane_kharid_spike"] = "normal"
     for symbol in FUND_PRICE_ALERTS:
         status[f"fund_{symbol}"] = "normal"
     return status
@@ -209,6 +223,213 @@ def get_previous_state_from_sheet(commodity):
 
 
 # ════════════════════════════════════════════════════════════════
+# میانگین چند روزه‌ی سرانه خرید بازار (برای هشدار جهش)
+# ════════════════════════════════════════════════════════════════
+
+
+def _default_sarane_kharid_baseline_store():
+    return {c: {"date": None, "baseline": None} for c in ("gold", "silver")}
+
+
+def get_sarane_kharid_baseline_store():
+    """
+    دریافت مقدار ذخیره‌شده‌ی baseline از Gist (فایل جدا، مستقل از alert_status.json)
+    با fallback به کش محلی — دقیقاً هم‌الگوی get_alert_status().
+    """
+    global SARANE_KHARID_BASELINE_CACHE
+
+    try:
+        if not GIST_ID or not GIST_TOKEN:
+            logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
+            return SARANE_KHARID_BASELINE_CACHE or _default_sarane_kharid_baseline_store()
+
+        url = f"https://api.github.com/gists/{GIST_ID}"
+        headers = {"Authorization": f"token {GIST_TOKEN}"}
+        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+
+        if r.status_code == 200 and SARANE_KHARID_BASELINE_FILE in r.json()["files"]:
+            store = json.loads(r.json()["files"][SARANE_KHARID_BASELINE_FILE]["content"])
+            for key in _default_sarane_kharid_baseline_store():
+                store.setdefault(key, {"date": None, "baseline": None})
+            SARANE_KHARID_BASELINE_CACHE = store
+            return store
+
+    except Exception as e:
+        logger.error(f"خطا در خواندن sarane_kharid_baseline: {e}")
+        if SARANE_KHARID_BASELINE_CACHE:
+            logger.info("استفاده از کش محلی baseline سرانه خرید")
+            return SARANE_KHARID_BASELINE_CACHE
+
+    default = _default_sarane_kharid_baseline_store()
+    SARANE_KHARID_BASELINE_CACHE = default
+    return default
+
+
+def save_sarane_kharid_baseline_store(store):
+    """ذخیره‌ی store در Gist — فایل جدا از alert_status.json (این فایل هم از قبل باید در همون Gist ساخته شده باشد)."""
+    global SARANE_KHARID_BASELINE_CACHE
+
+    try:
+        if not GIST_ID or not GIST_TOKEN:
+            return
+
+        url = f"https://api.github.com/gists/{GIST_ID}"
+        headers = {"Authorization": f"token {GIST_TOKEN}"}
+
+        response = requests.patch(
+            url,
+            headers=headers,
+            json={
+                "files": {
+                    SARANE_KHARID_BASELINE_FILE: {
+                        "content": json.dumps(store, ensure_ascii=False)
+                    }
+                }
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        if response.status_code == 200:
+            SARANE_KHARID_BASELINE_CACHE = store
+
+    except Exception as e:
+        logger.error(f"خطا در ذخیره sarane_kharid_baseline: {e}")
+
+
+def get_sarane_kharid_baseline(commodity):
+    """
+    میانگین سرانه خرید وزنی بازار روی آخرین SARANE_KHARID_MA_DAYS روز کاری «بسته»
+    (یعنی به‌جز امروز) را برمی‌گرداند.
+
+    محاسبه‌ی سنگین (خواندن کل تاریخچه‌ی Sheets) فقط یک‌بار در روز انجام می‌شود:
+    نتیجه با تاریخ امروز در Gist ذخیره می‌شود، و تا وقتی تاریخ ذخیره‌شده هنوز
+    امروز است، هر بار (حتی هر ۱ دقیقه) فقط همون مقدار ذخیره‌شده از Gist خونده
+    می‌شود — نه کل شیت. اولین ران هر روز (که تاریخ ذخیره‌شده قدیمی/خالی است)
+    محاسبه را دوباره انجام می‌دهد و baseline جدید را برای بقیه‌ی همون روز ذخیره
+    می‌کند.
+
+    Returns:
+        float | None — None یعنی هنوز baseline معتبری محاسبه نشده
+        (کمتر از SARANE_KHARID_MA_MIN_DAYS روز تاریخچه‌ی بسته موجود است).
+    """
+    tz = pytz.timezone(TIMEZONE)
+    today = datetime.now(tz).date()
+    today_str = today.isoformat()
+
+    store = get_sarane_kharid_baseline_store()
+    entry = store.get(commodity, {"date": None, "baseline": None})
+
+    if entry.get("date") == today_str and entry.get("baseline") is not None:
+        return entry["baseline"]
+
+    baseline = _compute_sarane_kharid_baseline(commodity, today)
+
+    store[commodity] = {"date": today_str, "baseline": baseline}
+    save_sarane_kharid_baseline_store(store)
+
+    return baseline
+
+
+def _compute_sarane_kharid_baseline(commodity, today):
+    """محاسبه‌ی واقعی میانگین (بدون کش/Gist) — یک‌بار در روز از get_sarane_kharid_baseline صدا زده می‌شود."""
+    try:
+        rows = read_from_sheets(commodity, limit=SARANE_KHARID_HISTORY_LOOKBACK_ROWS)
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows, columns=STANDARD_HEADER)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["sarane_kharid_weighted"] = pd.to_numeric(
+            df["sarane_kharid_weighted"], errors="coerce"
+        )
+        df = df.dropna(subset=["timestamp", "sarane_kharid_weighted"])
+        if df.empty:
+            return None
+
+        df["date"] = df["timestamp"].dt.date
+
+        # یک ردیف در روز (آخرین snapshot همون روز)، فقط روزهای قبل از امروز
+        daily = (
+            df[df["date"] < today]
+            .sort_values("timestamp")
+            .groupby("date", as_index=False)
+            .last()
+            .sort_values("date")
+        )
+
+        if len(daily) < SARANE_KHARID_MA_MIN_DAYS:
+            logger.debug(
+                f"[{commodity}] تاریخچه‌ی کافی برای میانگین سرانه خرید نیست "
+                f"({len(daily)} روز < حداقل {SARANE_KHARID_MA_MIN_DAYS} روز)"
+            )
+            return None
+
+        window = daily["sarane_kharid_weighted"].tail(SARANE_KHARID_MA_DAYS)
+        return float(window.mean())
+
+    except Exception as e:
+        logger.error(f"[{commodity}] خطا در محاسبه‌ی میانگین سرانه خرید: {e}")
+        return None
+
+
+def check_sarane_kharid_spike_alert(
+    bot_token, chat_id, current_sarane_kharid, baseline, status, tz, now, commodity, label
+):
+    """
+    بررسی و ارسال هشدار جهش سرانه خرید بازار: وقتی سرانه خرید فعلی حداقل
+    SARANE_KHARID_SPIKE_MULTIPLIER برابر میانگین SARANE_KHARID_MA_DAYS روزه شود.
+
+    state-based (مثل آستانه‌های قیمتی) — فقط موقع ورود به حالت «جهش» پیام
+    می‌رود و دوباره وقتی نسبت به زیر آستانه برگشت، وضعیت به normal ریست می‌شود
+    (بدون پیام)، تا هر بار که مقدار بالای آستانه می‌ماند اسپم نشود.
+
+    باید baseline > 0 باشد؛ در غیر این صورت نسبت «دو برابر شدن» بی‌معنی است
+    (میانگین پایه صفر/منفی) و بررسی رد می‌شود.
+    """
+    status_key = f"{commodity}_sarane_kharid_spike"
+
+    if baseline is None or baseline <= 0:
+        return False
+
+    is_spike = current_sarane_kharid >= baseline * SARANE_KHARID_SPIKE_MULTIPLIER
+
+    if is_spike:
+        if status[status_key] != "spike":
+            send_sarane_kharid_spike_alert(
+                bot_token, chat_id, current_sarane_kharid, baseline, tz, now, label
+            )
+            status[status_key] = "spike"
+            logger.info(
+                f"🚀 [{commodity}] جهش سرانه خرید: فعلی {current_sarane_kharid:,.2f} "
+                f"≥ {SARANE_KHARID_SPIKE_MULTIPLIER:.0f}× میانگین {baseline:,.2f}"
+            )
+            return True
+        return False
+
+    if status[status_key] != "normal":
+        status[status_key] = "normal"
+        return True
+
+    return False
+
+
+def send_sarane_kharid_spike_alert(bot_token, chat_id, current_value, baseline, tz, now, label):
+    """ارسال هشدار جهش سرانه خرید بازار"""
+    ratio = current_value / baseline if baseline else 0
+
+    main_text = f"""
+🚀 هشدار جهش سرانه خرید بازار — {label}
+
+📊 سرانه خرید فعلی: {current_value:,.2f}
+📉 میانگین {SARANE_KHARID_MA_DAYS} روزه: {baseline:,.2f}
+✖️ نسبت: {ratio:,.2f} برابر
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
+
+
+# ════════════════════════════════════════════════════════════════
 # ارکستراسیون اصلی — یک‌بار به ازای هر کالا در main.py صدا زده می‌شود
 # ════════════════════════════════════════════════════════════════
 
@@ -261,6 +482,11 @@ def check_and_send_alerts(
         else 0
     )
     current_pol = df_funds["pol_hagigi"].sum() if not df_funds.empty else 0
+    current_sarane_kharid = (
+        (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
+        if total_value > 0
+        else 0
+    )
 
     changed = False
     bubble_status_changed = False
@@ -326,6 +552,15 @@ def check_and_send_alerts(
     if hard_signal_changed:
         changed = True
 
+    # هشدار جهش سرانه خرید بازار نسبت به میانگین چند روزه
+    sarane_baseline = get_sarane_kharid_baseline(commodity)
+    sarane_spike_changed = check_sarane_kharid_spike_alert(
+        bot_token, chat_id, current_sarane_kharid, sarane_baseline,
+        status, tz, now, commodity, label,
+    )
+    if sarane_spike_changed:
+        changed = True
+
     # آستانه‌های قیمتی
     # نکته: SILVER_SHAMS_HIGH/LOW در config به تومان نوشته می‌شن، ولی current_shams
     # خام/ریال از dfp میاد (dfp تبدیل نمی‌شه) — پس فقط برای نقره، مقدار مقایسه رو
@@ -368,7 +603,7 @@ def check_and_send_alerts(
     if fund_changed:
         changed = True
 
-    if changed or bubble_status_changed or pol_status_changed:
+    if changed or bubble_status_changed or pol_status_changed or sarane_spike_changed:
         save_alert_status(status)
 
 
