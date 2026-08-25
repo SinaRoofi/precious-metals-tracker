@@ -35,6 +35,11 @@ ALERT_THRESHOLD_PERCENT = {
 }
 EKHTELAF_THRESHOLD = 20
 
+# 🛒 هشدار جهش سرانه خرید بازار (نسبت به میانگین چند روزه)
+SARANE_KHARID_MA_DAYS = 10       # تعداد روزهای گذشته (بسته، بدون امروز) برای میانگین پایه
+SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم — کمتر از این، سیگنال نامعتبر است
+SARANE_KHARID_SPIKE_MULTIPLIER = 2.0  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
+
 # 🎯 مقادیر پیش‌فرض (Fallback)
 DEFAULT_GOLD_PRICE = 4604
 DEFAULT_DOLLAR_PRICE = 198_000
@@ -63,6 +68,7 @@ HIGH_VALUE = 581
 GIST_ID = os.getenv("GIST_ID")
 GIST_TOKEN = os.getenv("GIST_TOKEN")
 ALERT_STATUS_FILE = "alert_status.json"
+SARANE_KHARID_BASELINE_FILE = "sarane_kharid_baseline.json"
 MESSAGE_ID_FILE = "message_id.json"
 
 SHEET_ID = os.getenv("SHEET_ID")
