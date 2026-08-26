@@ -40,14 +40,14 @@ TELEGRAM_CAPTION_LIMIT = 1024
 # (الان برای همه‌ی دارایی‌ها روشنه)
 CAPTION_ASSETS = {
     "gold": [
-        {"key": "شمش-طلا", "title": "🟡 شمش طلا بورس کالا", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
-        {"key": "طلا-گرم-24-عیار", "title": "🟡 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "طلا-گرم-18-عیار", "title": "🟡 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "شمش-طلا", "title": "🟨 شمش طلا بورس کالا", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
+        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+        {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
     ],
     "silver": [
-        {"key": "شمش-نقره", "title": "⚪ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
-        {"key": "نقره-گرمی-999", "title": "⚪ نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "شمش-نقره", "title": "⬜ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "نقره-گرمی-999", "title": "🔹 نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
     ],
 }
 
