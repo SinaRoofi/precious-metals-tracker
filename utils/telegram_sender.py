@@ -33,16 +33,17 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 # unit='ریال' یعنی close_price خام نمایش داده می‌شه (شمش/wholesale)
 # unit='تومان' یعنی close_price/10 نمایش داده می‌شه (گرمی/سکه/retail)
 # show_ounce_calc=True یعنی "اونس محاسباتی" هم علاوه بر "دلار محاسباتی" نشون داده می‌شه
+# (الان برای همه‌ی دارایی‌ها روشنه)
 CAPTION_ASSETS = {
     "gold": [
         {"key": "شمش-طلا", "title": "✨ شمش طلا بورسی", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
-        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⚪ شمش نقره بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
-        {"key": "نقره-گرمی-999", "title": "🔸 نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+        {"key": "نقره-گرمی-999", "title": "🔸 نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
     ],
 }
 
