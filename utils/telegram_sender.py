@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
+# حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
+# long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
+TELEGRAM_CAPTION_LIMIT = 1024
+
 # دارایی‌هایی که در کپشن به‌صورت جداگانه نمایش داده می‌شن.
 # unit='ریال' یعنی close_price خام نمایش داده می‌شه (شمش/wholesale)
 # unit='تومان' یعنی close_price/10 نمایش داده می‌شه (گرمی/سکه/retail)
@@ -37,9 +41,9 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 CAPTION_ASSETS = {
     "gold": [
         {"key": "شمش-طلا", "title": "✨ شمش طلا بورسی", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
-        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
-        {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⚪ شمش نقره بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
@@ -842,24 +846,50 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 🎯 میانه حباب: {median_bubble:+.2f}%
 """
 
-    for asset_cfg in assets_config:
-        key = asset_cfg["key"]
-        if key not in dfp.index:
-            logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن حذف شد")
-            continue
+    header = caption
+    footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
-        row = dfp.loc[key]
-        d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
-        price = row["close_price"] / asset_cfg["divisor"]
+    def build_assets_block(only_primary_ounce):
+        """
+        only_primary_ounce=True یعنی «اونس محاسباتی» فقط برای اولین دارایی
+        (شمش — که اولویت اصلی است) نشون داده می‌شه، نه بقیه. برای وقتی که
+        کپشن کامل از حد مجاز تلگرام رد می‌شه استفاده می‌شه (fallback درجه‌دوم).
+        """
+        block = ""
+        for i, asset_cfg in enumerate(assets_config):
+            key = asset_cfg["key"]
+            if key not in dfp.index:
+                logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن حذف شد")
+                continue
 
-        caption += f"""
+            row = dfp.loc[key]
+            d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
+            price = row["close_price"] / asset_cfg["divisor"]
+
+            block += f"""
 <b>{asset_cfg['title']}</b>
 💰 قیمت: {price:,.0f} {asset_cfg['unit']}
 📊 تغییر: {row['close_price_change_percent']:+.2f}% | حباب: {row['Bubble']:+.2f}%
 💵 دلار محاسباتی: {d_calc:,.0f} ({diff_d:+,.0f})
 """
-        if asset_cfg["show_ounce_calc"]:
-            caption += f"{ounce_emoji} اونس محاسباتی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
+            show_ounce = asset_cfg["show_ounce_calc"] and not (only_primary_ounce and i != 0)
+            if show_ounce:
+                block += f"{ounce_emoji} اونس محاسباتی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
+        return block
 
-    caption += f"\n🔗 {CHANNEL_HANDLE}\n"
-    return caption.strip()
+    caption = (header + build_assets_block(only_primary_ounce=False) + footer).strip()
+
+    if len(caption) > TELEGRAM_CAPTION_LIMIT:
+        logger.warning(
+            f"⚠️ [{commodity}] کپشن {len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
+            f"«اونس محاسباتی» فقط برای اولین دارایی نگه داشته می‌شه"
+        )
+        caption = (header + build_assets_block(only_primary_ounce=True) + footer).strip()
+
+    if len(caption) > TELEGRAM_CAPTION_LIMIT:
+        logger.error(
+            f"❌ [{commodity}] کپشن حتی بعد از حذف اونس محاسباتی هم {len(caption)} کاراکتره — truncate اضطراری"
+        )
+        caption = caption[: TELEGRAM_CAPTION_LIMIT - 1] + "…"
+
+    return caption
