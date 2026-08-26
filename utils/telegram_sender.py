@@ -40,13 +40,13 @@ TELEGRAM_CAPTION_LIMIT = 1024
 # (الان برای همه‌ی دارایی‌ها روشنه)
 CAPTION_ASSETS = {
     "gold": [
-        {"key": "شمش-طلا", "title": "✨ شمش طلا بورسی", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
+        {"key": "شمش-طلا", "title": "✨ شمش طلا بورس کالا", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
         {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🪙 سکه بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
     ],
     "silver": [
-        {"key": "شمش-نقره", "title": "⚪ شمش نقره بورسی", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "شمش-نقره", "title": "⚪ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "نقره-گرمی-999", "title": "🔸 نقره گرمی ۹۹۹", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
     ],
 }
@@ -809,7 +809,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         caption = f"""
 🔄 آخرین آپدیت: {current_time}
 
-<b>💵 دلار (تومان)</b>
+<b>💵 دلار</b>
 
 💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}
 """
@@ -817,14 +817,14 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         caption = f"""
 🔄 آخرین آپدیت: {current_time}
 
-<b>💵 دلار (تومان)</b>
+<b>💵 دلار</b>
 
-🟩 کران پایین دلار: {low_total:,.0f} ({low_pct:.2f}%)
+🟩 کران پایین: {low_total:,.0f} ({low_pct:.2f}%)
 💵 ارزش دلار: {value_total:,.0f} ({value_pct:.2f}%)
-🟥 کران بالای دلار: {high_total:,.0f} ({high_pct:.2f}%)
+🟥 کران بالا: {high_total:,.0f} ({high_pct:.2f}%)
 """
         if tether_price is not None:
-            caption += f"\u200F💲 دلار تتر: {tether_price:,.0f} ({tether_change_percent:+.2f}%)\n"
+            caption += f"\u200F💲 تتر: {tether_price:,.0f} ({tether_change_percent:+.2f}%)\n"
 
         if dollar_from_dirham is not None:
             caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
@@ -837,13 +837,12 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 <b>{ounce_emoji} اونس {label}</b>
 💰 قیمت: ${global_price:,.2f} ({global_change:+.2f}%)
 
-<b>📊 آمار صندوق‌های {label}</b>
+<b>📊 صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} م.ت ({value_to_avg_ratio:.0f}%)
 💸 پول حقیقی: {total_pol:,.0f} م.ت ({pol_to_value_ratio:.0f}%)
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
 💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.2f}%)
-🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
-🎯 میانه حباب: {median_bubble:+.2f}%
+🎈 حباب (میانگین/میانه): {avg_bubble_weighted:+.2f}% / {median_bubble:+.2f}%
 """
 
     header = caption
@@ -866,13 +865,14 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
             price = row["close_price"] / asset_cfg["divisor"]
 
+            show_ounce = asset_cfg["show_ounce_calc"] and not (only_primary_ounce and i != 0)
+
             block += f"""
 <b>{asset_cfg['title']}</b>
 💰 قیمت: {price:,.0f} {asset_cfg['unit']}
 📊 تغییر: {row['close_price_change_percent']:+.2f}% | حباب: {row['Bubble']:+.2f}%
 💵 دلار محاسباتی: {d_calc:,.0f} ({diff_d:+,.0f})
 """
-            show_ounce = asset_cfg["show_ounce_calc"] and not (only_primary_ounce and i != 0)
             if show_ounce:
                 block += f"{ounce_emoji} اونس محاسباتی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
         return block
