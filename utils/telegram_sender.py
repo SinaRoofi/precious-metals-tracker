@@ -838,11 +838,12 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 💰 قیمت: ${global_price:,.2f} ({global_change:+.2f}%)
 
 <b>📊 صندوق‌های {label}</b>
-💰 ارزش معاملات: {total_value:,.0f} م.ت ({value_to_avg_ratio:.0f}%)
-💸 پول حقیقی: {total_pol:,.0f} م.ت ({pol_to_value_ratio:.0f}%)
+💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
+💸 پول حقیقی: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
 💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.2f}%)
-🎈 حباب (میانگین/میانه): {avg_bubble_weighted:+.2f}%|{median_bubble:+.2f}%
+🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
+🎯 میانه حباب: {median_bubble:+.2f}%
 """
 
     header = caption
