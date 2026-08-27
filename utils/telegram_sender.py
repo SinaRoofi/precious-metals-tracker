@@ -4,6 +4,7 @@
 import io
 import json
 import logging
+import math
 import time
 import requests
 import pytz
@@ -21,6 +22,7 @@ from config import (
     TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
     REQUEST_TIMEOUT, TIMEZONE, LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF,
     MAX_RETRIES, RETRY_DELAY,
+    ASSET_ORDER, PRICING_FACTORS, TROY_OZ, GOLD_YEAR_END_OUNCE_TARGET,
 )
 from utils.chart_creator import create_market_charts
 
@@ -33,6 +35,75 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
 TELEGRAM_CAPTION_LIMIT = 1024
 
+
+def calculate_shamsh_tala_rr(dfp, low_dollar, high_dollar):
+    """
+    ریسک/ریوارد شمش طلا بورس کالا تا پایان سال.
+
+    از همون فرمول ارزش ذاتی calculate_values در data_processor.py استفاده
+    می‌کنه: Value = (dollar * ounce_target / TROY_OZ) * purity * weight * scale
+    با دو تفاوت عمدی:
+      - ounce_target از GOLD_YEAR_END_OUNCE_TARGET (config، پیش‌بینی دستی
+        خودت) میاد، نه از قیمت لحظه‌ای اونس.
+      - dollar به‌جای نرخ فعلی، از سناریوهای کران پایین/کران بالای
+        پیش‌بینی پایان‌سال عبور می‌کنه.
+
+    فرمول (طبق تأیید خودت):
+      Reward = هدف(کران بالا) − قیمت فعلی شمش
+      Risk   = هدف(کران پایین) − قیمت فعلی شمش
+      ⚠️ توجه: چون هدف(کران پایین) معمولاً کمتر از قیمت فعلیه، Risk با این
+      فرمول منفی درمیاد و در نتیجه R/R هم منفی می‌شه (نه یک نسبت مثبت
+      معمول) — دقیقاً همون‌طور که خواستی پیاده شده، فقط این رفتار رو
+      بدون یادآوری بی‌سر و صدا رد نکردم.
+
+    Returns: dict با price_low/high، current_price، reward، risk، rr
+    (rr=None اگر risk صفر باشه) — یا None اگر «شمش-طلا» در dfp نباشه.
+    """
+    key = "شمش-طلا"
+    if key not in dfp.index:
+        logger.warning("⚠️ [gold] 'شمش-طلا' در dfp نیست — محاسبه‌ی R/R رد شد")
+        return None
+
+    try:
+        idx = ASSET_ORDER["gold"].index(key)
+        factors = PRICING_FACTORS["gold"][idx]
+    except (ValueError, IndexError) as e:
+        logger.error(f"❌ [gold] ضرایب قیمت‌گذاری 'شمش-طلا' پیدا نشد: {e}")
+        return None
+
+    current_price = dfp.loc[key, "close_price"]
+
+    def value_at(dollar):
+        return (
+            (dollar * GOLD_YEAR_END_OUNCE_TARGET / TROY_OZ)
+            * factors["purity"] * factors["weight"] * factors["scale"]
+        )
+
+    price_low = value_at(low_dollar)
+    price_high = value_at(high_dollar)
+
+    reward = price_high - current_price
+    risk = price_low - current_price
+    # ⚠️ R/R هیچ‌وقت نباید منفی باشه (طبق تأیید خودت) — چون فرمول فعلی
+    # (Reward/Risk بدون قدرمطلق) بسته به داده می‌تونه علامت منفی بده،
+    # قدرمطلق هر دو رو قبل از تقسیم می‌گیریم تا نسبت همیشه ≥ 0 باشه.
+    rr = (
+        (abs(reward) / abs(risk))
+        if risk not in (0, None) and not math.isnan(risk)
+        else None
+    )
+    if rr is not None and math.isnan(rr):
+        rr = None
+
+    return {
+        "current_price": current_price,
+        "price_low": price_low,
+        "price_high": price_high,
+        "reward": reward,
+        "risk": risk,
+        "rr": rr,
+    }
+
 # دارایی‌هایی که در کپشن به‌صورت جداگانه نمایش داده می‌شن.
 # unit='ریال' یعنی close_price خام نمایش داده می‌شه (شمش/wholesale)
 # unit='تومان' یعنی close_price/10 نمایش داده می‌شه (گرمی/سکه/retail)
@@ -41,8 +112,8 @@ TELEGRAM_CAPTION_LIMIT = 1024
 CAPTION_ASSETS = {
     "gold": [
         {"key": "شمش-طلا", "title": "🟨 شمش طلا بورس کالا", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
-        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلا ۲۴ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "طلا-گرم-18-عیار", "title": "🔸 طلا ۱۸ عیار", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        {"key": "طلا-گرم-24-عیار", "title": "🔸 طلای ۲۴", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
+        {"key": "طلا-گرم-18-عیار", "title": "🔸 طلای ۱۸", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
     ],
     "silver": [
@@ -807,53 +878,59 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
     if commodity == "silver":
         caption = f"""
-🔄 آخرین آپدیت: {current_time}
+🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
 
-💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}
+💵 معامله: {dollar_last:,.0f} ({dollar_change:+.1f}%) {tick}
 """
     else:
         caption = f"""
-🔄 آخرین آپدیت: {current_time}
+🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
 
-🟩 کران پایین: {low_total:,.0f} ({low_pct:.2f}%)
-💵 ارزش دلار: {value_total:,.0f} ({value_pct:.2f}%)
-🟥 کران بالا: {high_total:,.0f} ({high_pct:.2f}%)
+🟩 کف: {low_total:,.0f} ({low_pct:.1f}%)
+💵 ارزش: {value_total:,.0f} ({value_pct:.1f}%)
+🟥 سقف: {high_total:,.0f} ({high_pct:.1f}%)
 """
         if tether_price is not None:
-            caption += f"\u200F💲 تتر: {tether_price:,.0f} ({tether_change_percent:+.2f}%)\n"
+            caption += f"\u200F💲 تتر: {tether_price:,.0f} ({tether_change_percent:+.1f}%)\n"
 
         if dollar_from_dirham is not None:
-            caption += f"\u200F🇦🇪 دلار درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.2f}%)\n\n"
+            caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.1f}%)\n\n"
 
-        caption += f"💵 آخرین معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
+        caption += f"💵 معامله: {dollar_last:,.0f} ({dollar_change:+.1f}%) {tick}\n"
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>
-💰 قیمت: ${global_price:,.2f} ({global_change:+.2f}%)
+\u200F💰 ${global_price:,.2f} ({global_change:+.1f}%)
 
 <b>📊 صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
 💸 پول حقیقی: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
-📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
-💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.2f}%)
-🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
-🎯 میانه حباب: {median_bubble:+.2f}%
+📈 آخرین قیمت: ({avg_change_percent_weighted:+.1f}%)
+💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.1f}%)
+🎈 میانگین حباب: {avg_bubble_weighted:+.1f}%
+🎯 میانه حباب: {median_bubble:+.1f}%
 """
 
     header = caption
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
-    def build_assets_block(only_primary_ounce):
+    rr = None
+    if commodity == "gold":
+        rr = calculate_shamsh_tala_rr(dfp, low_total, high_total)
+
+    def build_assets_block(only_primary_ounce, include_rr):
         """
-        only_primary_ounce=True یعنی «اونس محاسباتی» فقط برای اولین دارایی
-        (شمش — که اولویت اصلی است) نشون داده می‌شه، نه بقیه. برای وقتی که
-        کپشن کامل از حد مجاز تلگرام رد می‌شه استفاده می‌شه (fallback درجه‌دوم).
+        only_primary_ounce=True یعنی «اونس ضمنی» فقط برای اولین دارایی
+        (شمش — که اولویت اصلی است) نشون داده می‌شه، نه بقیه.
+        include_rr=False یعنی خط R/R (زیرمجموعه‌ی شمش) نشون داده نمی‌شه.
+        هر دو برای وقتی که کپشن کامل از حد مجاز تلگرام رد می‌شه استفاده
+        می‌شن (fallback درجه‌دوم/سوم).
         """
         block = ""
         for i, asset_cfg in enumerate(assets_config):
@@ -870,26 +947,35 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
             block += f"""
 <b>{asset_cfg['title']}</b>
-💰 قیمت: {price:,.0f} {asset_cfg['unit']}
-📊 تغییر: {row['close_price_change_percent']:+.2f}% | حباب: {row['Bubble']:+.2f}%
-💵 دلار محاسباتی: {d_calc:,.0f} ({diff_d:+,.0f})
+💰 {price:,.0f} {asset_cfg['unit']}
+📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%
+💵 دلار ضمنی: {d_calc:,.0f} ({diff_d:+,.0f})
 """
             if show_ounce:
-                block += f"{ounce_emoji} اونس محاسباتی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
+                block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
+
+            if key == "شمش-طلا" and include_rr and rr and rr["rr"] is not None:
+                block += f"\u200F⚖️ ریسک به ریوارد (پایان سال): {rr['rr']:.2f}\n"
         return block
 
-    caption = (header + build_assets_block(only_primary_ounce=False) + footer).strip()
+    caption = (header + build_assets_block(only_primary_ounce=False, include_rr=True) + footer).strip()
 
     if len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.warning(
             f"⚠️ [{commodity}] کپشن {len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
-            f"«اونس محاسباتی» فقط برای اولین دارایی نگه داشته می‌شه"
+            f"«اونس ضمنی» فقط برای اولین دارایی نگه داشته می‌شه"
         )
-        caption = (header + build_assets_block(only_primary_ounce=True) + footer).strip()
+        caption = (header + build_assets_block(only_primary_ounce=True, include_rr=True) + footer).strip()
+
+    if len(caption) > TELEGRAM_CAPTION_LIMIT and rr:
+        logger.warning(
+            f"⚠️ [{commodity}] کپشن هنوز {len(caption)} کاراکتره — خط R/R حذف می‌شه"
+        )
+        caption = (header + build_assets_block(only_primary_ounce=True, include_rr=False) + footer).strip()
 
     if len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.error(
-            f"❌ [{commodity}] کپشن حتی بعد از حذف اونس محاسباتی هم {len(caption)} کاراکتره — truncate اضطراری"
+            f"❌ [{commodity}] کپشن حتی بعد از حذف اونس محاسباتی و R/R هم {len(caption)} کاراکتره — truncate اضطراری"
         )
         caption = caption[: TELEGRAM_CAPTION_LIMIT - 1] + "…"
 
