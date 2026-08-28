@@ -66,15 +66,19 @@ def format_rr_ratio(value):
 
 def calculate_shamsh_tala_rr(dfp):
     """
-    ارزش شمش طلا بورس کالا در پایان سال، با ۳ سناریوی دلار (کف/ارزش/سقف)
-    از همون ثابت‌های LOW_VALUE/VALUE/HIGH_VALUE که در کپشن استفاده می‌شن،
-    ولی همیشه با GOLD_RR_YEAR_END_DAYS=365 (نه روز سپری‌شده‌ی سال جاری) —
+    ارزش شمش طلا بورس کالا در پایان سال، با ۲ سناریوی R/R که یک ریسک
+    مشترک دارن ولی هدف/ریوارد متفاوت:
+      سناریو ۱: هدف = دلار سقف (HIGH_VALUE)   | ریسک = دلار کف (LOW_VALUE)
+      سناریو ۲: هدف = دلار ارزش (VALUE)       | ریسک = دلار کف (LOW_VALUE)
+
+    همیشه با GOLD_RR_YEAR_END_DAYS=365 (نه روز سپری‌شده‌ی سال جاری) —
     چون هدف تصویر «پایان سال» است، نه وضعیت امروز.
 
     از همون فرمول ارزش ذاتی calculate_values در data_processor.py استفاده
     می‌کنه: Value = (dollar * ounce_target / TROY_OZ) * purity * weight * scale
     با این تفاوت که ounce_target از GOLD_YEAR_END_OUNCE_TARGET (config،
-    پیش‌بینی دستی خودت) میاد و برای هر ۳ سناریو یکسانه؛ فقط دلار فرق می‌کنه.
+    پیش‌بینی دستی خودت) میاد و برای هر ۳ سناریوی دلار یکسانه؛ فقط دلار
+    فرق می‌کنه.
 
     ⚠️ واحد پول: LOW_VALUE/VALUE/HIGH_VALUE و VALUE_DIFF برحسب تومان
     محاسبه می‌شن. عمداً بدون هیچ ضریب تبدیلی مستقیم با current_price
@@ -84,24 +88,23 @@ def calculate_shamsh_tala_rr(dfp):
     می‌کنه، نه یک قرارداد جدا.
 
     فرمول (مطابق ابزار Long Position در TradingView):
-      ریوارد        = هدف(سقف) − قیمت فعلی   → فاصله‌ی رو به بالا تا سقف (%)
-      ریسک (ارزش)   = قیمت فعلی − هدف(ارزش)  → فاصله‌ی رو به پایین تا میانی (%)
-      ریسک (کف)     = قیمت فعلی − هدف(کف)    → فاصله‌ی رو به پایین تا کف (%)
-      R/R (ارزش)    = ریوارد / ریسک(ارزش)
-      R/R (کف)      = ریوارد / ریسک(کف)
+      ریسک (مشترک)     = قیمت فعلی − هدف(کف)    → فاصله‌ی رو به پایین تا کف (%)
+      ریوارد (سقف)      = هدف(سقف) − قیمت فعلی   → فاصله‌ی رو به بالا تا سقف (%)
+      ریوارد (ارزش)     = هدف(ارزش) − قیمت فعلی  → فاصله‌ی رو به بالا تا ارزش (%)
+      R/R (سقف)         = ریوارد(سقف) / ریسک
+      R/R (ارزش)        = ریوارد(ارزش) / ریسک
 
     توجه به جهت تفریق: ریوارد از «هدف منهای فعلی» و ریسک از «فعلی منهای
-    هدف» حساب می‌شه (نه یک جهت برای هر دو) — دقیقاً مثل TradingView، تا
-    در ستاپ سالم (قیمت فعلی بین کف و سقف) هر دو مثبت باشن. این یعنی اگه
-    قیمت از سقف رد بشه، ریوارد خودش منفی می‌شه (دیگه بالادستی نمونده) و
-    همزمان ریسک بزرگ‌تر می‌شه (فاصله تا کف بیشتر شده) → R/R منفی، که
-    درست هشدار سناریوی نامطلوب رو می‌ده.
+    هدف کف» حساب می‌شه — دقیقاً مثل TradingView، تا در ستاپ سالم (قیمت
+    فعلی بالای کف) ریسک مثبت باشه. اگه قیمت زیر کف بیفته، ریسک منفی
+    می‌شه (یعنی حتی بدترین سناریو هم هنوز بالادستی داره) — این حالت
+    نامعمول ولی ریاضی‌اش درسته.
 
-    ⚠️ عمداً بدون abs: نسبت می‌تونه منفی بشه و این عمدیه — علامت منفی
+    ⚠️ عمداً بدون abs: نسبت‌ها می‌تونن منفی بشن و این عمدیه — علامت منفی
     یعنی سناریوی نامطلوب، نه خطا.
 
-    Returns: dict با current_price، value_high/value/low، reward،
-    risk_value، risk_low (همه %)، rr_value، rr_low
+    Returns: dict با current_price، value_high/value/low، risk،
+    reward_high، reward_value (همه %)، rr_high، rr_value
     (هرکدوم None اگه مخرج صفر/نامعتبر باشه) — یا None اگر «شمش-طلا» در
     dfp نباشه یا current_price نامعتبر باشه.
     """
@@ -136,9 +139,9 @@ def calculate_shamsh_tala_rr(dfp):
     value_value = value_at(dollar_value)
     value_low = value_at(dollar_low)
 
-    reward = (value_high - current_price) / current_price * 100      # رو به بالا تا سقف
-    risk_value = (current_price - value_value) / current_price * 100  # رو به پایین تا میانی
-    risk_low = (current_price - value_low) / current_price * 100      # رو به پایین تا کف
+    risk = (current_price - value_low) / current_price * 100          # ریسک مشترک، رو به پایین تا کف
+    reward_high = (value_high - current_price) / current_price * 100   # رو به بالا تا سقف
+    reward_value = (value_value - current_price) / current_price * 100  # رو به بالا تا ارزش
 
     def safe_div(numerator, denominator):
         if denominator in (0, None) or math.isnan(denominator):
@@ -146,17 +149,17 @@ def calculate_shamsh_tala_rr(dfp):
         result = numerator / denominator
         return None if math.isnan(result) else result
 
-    rr_value = safe_div(reward, risk_value)
-    rr_low = safe_div(reward, risk_low)
+    rr_high = safe_div(reward_high, risk)
+    rr_value = safe_div(reward_value, risk)
 
     logger.info(
         "📐 [gold RR] current=%.0f | dollar(low/value/high)=%.0f/%.0f/%.0f | "
-        "value(low/value/high)=%.0f/%.0f/%.0f | reward=%.2f%% risk_value=%.2f%% "
-        "risk_low=%.2f%% | rr_value=%s rr_low=%s",
+        "value(low/value/high)=%.0f/%.0f/%.0f | risk=%.2f%% reward_high=%.2f%% "
+        "reward_value=%.2f%% | rr_high=%s rr_value=%s",
         current_price, dollar_low, dollar_value, dollar_high,
-        value_low, value_value, value_high, reward, risk_value, risk_low,
+        value_low, value_value, value_high, risk, reward_high, reward_value,
+        f"{rr_high:.2f}" if rr_high is not None else "None",
         f"{rr_value:.2f}" if rr_value is not None else "None",
-        f"{rr_low:.2f}" if rr_low is not None else "None",
     )
 
     return {
@@ -164,11 +167,11 @@ def calculate_shamsh_tala_rr(dfp):
         "value_high": value_high,
         "value_value": value_value,
         "value_low": value_low,
-        "reward": reward,
-        "risk_value": risk_value,
-        "risk_low": risk_low,
+        "risk": risk,
+        "reward_high": reward_high,
+        "reward_value": reward_value,
+        "rr_high": rr_high,
         "rr_value": rr_value,
-        "rr_low": rr_low,
     }
 
 # دارایی‌هایی که در کپشن به‌صورت جداگانه نمایش داده می‌شن.
@@ -1022,11 +1025,11 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
 
             if key == "شمش-طلا" and include_rr and rr and (
-                rr["rr_value"] is not None or rr["rr_low"] is not None
+                rr["rr_high"] is not None or rr["rr_value"] is not None
             ):
                 block += (
-                    f"\u200F⚖️ ریوارد به ریسک (ارزش|کف): "
-                    f"{format_rr_ratio(rr['rr_value'])} | {format_rr_ratio(rr['rr_low'])}\n"
+                    f"\u200F⚖️ ریوارد به ریسک (سقف|ارزش): "
+                    f"{format_rr_ratio(rr['rr_high'])} | {format_rr_ratio(rr['rr_value'])}\n"
                 )
         return block
 
