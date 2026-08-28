@@ -149,6 +149,16 @@ def calculate_shamsh_tala_rr(dfp):
     rr_value = safe_div(reward, risk_value)
     rr_low = safe_div(reward, risk_low)
 
+    logger.info(
+        "📐 [gold RR] current=%.0f | dollar(low/value/high)=%.0f/%.0f/%.0f | "
+        "value(low/value/high)=%.0f/%.0f/%.0f | reward=%.2f%% risk_value=%.2f%% "
+        "risk_low=%.2f%% | rr_value=%s rr_low=%s",
+        current_price, dollar_low, dollar_value, dollar_high,
+        value_low, value_value, value_high, reward, risk_value, risk_low,
+        f"{rr_value:.2f}" if rr_value is not None else "None",
+        f"{rr_low:.2f}" if rr_low is not None else "None",
+    )
+
     return {
         "current_price": current_price,
         "value_high": value_high,
