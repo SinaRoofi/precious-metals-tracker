@@ -1024,13 +1024,17 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             if show_ounce:
                 block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
 
-            if key == "شمش-طلا" and include_rr and rr and (
-                rr["rr_high"] is not None or rr["rr_value"] is not None
-            ):
-                block += (
-                    f"\u200F⚖️ ریوارد به ریسک (سقف|ارزش): "
-                    f"{format_rr_ratio(rr['rr_high'])} | {format_rr_ratio(rr['rr_value'])}\n"
-                )
+            if key == "شمش-طلا" and include_rr and rr:
+                if rr["rr_high"] is not None:
+                    block += (
+                        f"\u200F⚖️ ریوارد به ریسک (سقف): "
+                        f"بازدهی {rr['reward_high']:+.2f}% → {format_rr_ratio(rr['rr_high'])}\n"
+                    )
+                if rr["rr_value"] is not None:
+                    block += (
+                        f"\u200F⚖️ ریوارد به ریسک (ارزش): "
+                        f"بازدهی {rr['reward_value']:+.2f}% → {format_rr_ratio(rr['rr_value'])}\n"
+                    )
         return block
 
     caption = (header + build_assets_block(only_primary_ounce=False, include_rr=True) + footer).strip()
