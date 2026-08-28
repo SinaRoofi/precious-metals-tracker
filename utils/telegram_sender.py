@@ -1025,16 +1025,20 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
 
             if key == "شمش-طلا" and include_rr and rr:
+                rr_lines = []
                 if rr["rr_high"] is not None:
-                    block += (
-                        f"\u200F⚖️ ریوارد به ریسک (سقف): "
-                        f"بازدهی {rr['reward_high']:+.2f}% → {format_rr_ratio(rr['rr_high'])}\n"
+                    rr_lines.append(
+                        f"سقف: {rr['reward_high']:+.2f}% → {format_rr_ratio(rr['rr_high'])}"
                     )
                 if rr["rr_value"] is not None:
-                    block += (
-                        f"\u200F⚖️ ریوارد به ریسک (ارزش): "
-                        f"بازدهی {rr['reward_value']:+.2f}% → {format_rr_ratio(rr['rr_value'])}\n"
+                    rr_lines.append(
+                        f"ارزش: {rr['reward_value']:+.2f}% → {format_rr_ratio(rr['rr_value'])}"
                     )
+                if rr_lines:
+                    block += "\u200F⚖️ ریوارد به ریسک:\n"
+                    for i, line in enumerate(rr_lines):
+                        connector = "└" if i == len(rr_lines) - 1 else "├"
+                        block += f"\u200F{connector} {line}\n"
         return block
 
     caption = (header + build_assets_block(only_primary_ounce=False, include_rr=True) + footer).strip()
