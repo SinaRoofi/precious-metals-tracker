@@ -6,12 +6,12 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 210_000
-DOLLAR_LOW = 209_000
+DOLLAR_HIGH = 211_000
+DOLLAR_LOW = 210_000
 
 # --- طلا ---
-SHAMS_HIGH = 30_000_000
-SHAMS_LOW = 29_500_000
+SHAMS_HIGH = 30_500_000
+SHAMS_LOW = 30_000_000
 
 GOLD_HIGH = 4500
 GOLD_LOW = 4400
@@ -38,7 +38,7 @@ EKHTELAF_THRESHOLD = 20
 # 🛒 هشدار جهش سرانه خرید بازار (نسبت به میانگین چند روزه)
 SARANE_KHARID_MA_DAYS = 10       # تعداد روزهای گذشته (بسته، بدون امروز) برای میانگین پایه
 SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم — کمتر از این، سیگنال نامعتبر است
-SARANE_KHARID_SPIKE_MULTIPLIER = 2.0  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
+SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
 DEFAULT_GOLD_PRICE = 4445
