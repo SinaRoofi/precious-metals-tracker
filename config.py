@@ -6,14 +6,14 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 207_000
-DOLLAR_LOW = 206_000
+DOLLAR_HIGH = 208_000
+DOLLAR_LOW = 207_000
 
 # --- طلا ---
 SHAMS_HIGH = 29_500_000
 SHAMS_LOW = 29_000_000
 
-GOLD_HIGH = 4600
+GOLD_HIGH = 4500
 GOLD_LOW = 4400
 
 # --- نقره ---
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گنج": {"high": 189_000, "low": 185_300},
+    "گنج": {"high": 191_000, "low": 189_200},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -42,7 +42,7 @@ SARANE_KHARID_SPIKE_MULTIPLIER = 2.0  # سرانه خرید فعلی باید ح
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
 DEFAULT_GOLD_PRICE = 4445
-DEFAULT_DOLLAR_PRICE = 204_500
+DEFAULT_DOLLAR_PRICE = 208_000
 DEFAULT_SILVER_PRICE = 69
 
 # 🎈 آستانه‌های هشدار حباب
