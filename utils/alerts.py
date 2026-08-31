@@ -36,6 +36,11 @@ from config import (
     SARANE_KHARID_MA_DAYS,
     SARANE_KHARID_MA_MIN_DAYS,
     SARANE_KHARID_SPIKE_MULTIPLIER,
+    CURRENT_HOLDING,
+    SWITCH_FEE_BUY,
+    SWITCH_FEE_SELL,
+    SWITCH_SAFETY_MARGIN,
+    SWITCH_TOP_N,
 )
 from utils.sheets_storage import read_from_sheets
 
@@ -81,6 +86,7 @@ def _default_alert_status():
         status[f"{c}_pol_hagigi"] = "normal"
         status[f"{c}_hard_signal"] = "normal"
         status[f"{c}_sarane_kharid_spike"] = "normal"
+        status[f"{c}_switch_signal"] = "normal"
     for symbol in FUND_PRICE_ALERTS:
         status[f"fund_{symbol}"] = "normal"
     return status
@@ -389,7 +395,20 @@ def check_sarane_kharid_spike_alert(
     status_key = f"{commodity}_sarane_kharid_spike"
 
     if baseline is None or baseline <= 0:
+        logger.warning(
+            f"⚠️ [{commodity}] بررسی جهش سرانه خرید رد شد — baseline نامعتبر است "
+            f"(baseline={baseline}). فعلی: {current_sarane_kharid:,.2f}. "
+            f"ممکن است تاریخچه‌ی کافی (حداقل {SARANE_KHARID_MA_MIN_DAYS} روز) در Sheets نباشد، "
+            f"یا خواندن Gist/Sheets خطا داده باشد — لاگ‌های بالاتر را چک کن."
+        )
         return False
+
+    ratio = current_sarane_kharid / baseline
+    logger.info(
+        f"📊 [{commodity}] سرانه خرید: فعلی {current_sarane_kharid:,.2f} | "
+        f"میانگین {SARANE_KHARID_MA_DAYS}روزه {baseline:,.2f} | "
+        f"نسبت {ratio:.2f}× (آستانه {SARANE_KHARID_SPIKE_MULTIPLIER:.1f}×)"
+    )
 
     is_spike = current_sarane_kharid >= baseline * SARANE_KHARID_SPIKE_MULTIPLIER
 
@@ -601,6 +620,13 @@ def check_and_send_alerts(
         bot_token, chat_id, df_funds, status,
     )
     if fund_changed:
+        changed = True
+
+    # فیلتر آربیتراژ داینامیک — سوئیچ بین صندوق‌های هم‌کالا
+    switch_changed = check_switch_alert(
+        bot_token, chat_id, df_funds, status, tz, now, commodity, label,
+    )
+    if switch_changed:
         changed = True
 
     if changed or bubble_status_changed or pol_status_changed or sarane_spike_changed:
@@ -886,6 +912,121 @@ def check_fund_price_alerts(bot_token, chat_id, df_funds, status):
                 status_changed = True
 
     return status_changed
+
+
+# ════════════════════════════════════════════════════════════════
+# 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌های هم‌کالا)
+# ════════════════════════════════════════════════════════════════
+
+
+def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity, label):
+    """
+    بررسی سیگنال سوئیچ بین صندوق‌های هم‌کالا (طلا با طلا، نقره با نقره).
+
+    منطق: صندوق فعلی (CURRENT_HOLDING[commodity]) با بهترین صندوق (کمترین
+    nominal_bubble) در بین SWITCH_TOP_N صندوق پرحجم‌تر مقایسه می‌شود. اگر
+    صندوق فعلی خودش جزو top-N نباشد، جداگانه به مجموعه‌ی مقایسه اضافه می‌شود.
+
+    سوئیچ فقط وقتی سیگنال می‌شود که هر دو شرط برقرار باشد:
+      ۱) افزایش طلای واقعی (پس از کارمزد) از SWITCH_SAFETY_MARGIN بیشتر باشد.
+      ۲) فیلتر بازگشت-به-میانگین (mean-reversion gate): صندوق فعلی نسبت به
+         میانگین حباب ماهانه‌ی خودش گران‌تر باشد، و صندوق مقصد نسبت به
+         میانگین حباب ماهانه‌ی خودش ارزان‌تر باشد. این تضمین می‌کند مقایسه
+         فقط بین صندوق‌هایی انجام شود که هرکدام نسبت به رفتار عادی خودشان
+         «غیرعادی» هستند — نه صرفاً یکی که همیشه ساختاری حباب کمتری دارد.
+      اگر avg_monthly_bubble برای هرکدام از دو صندوق موجود نباشد (NaN)،
+      به‌صورت محافظه‌کارانه سیگنال صادر نمی‌شود.
+
+    state-based (مثل حباب/پول حقیقی) — فقط موقع تغییر وضعیت (صندوق
+    پیشنهادی جدید یا رفع سیگنال) پیام می‌رود.
+    """
+    status_changed = False
+    status_key = f"{commodity}_switch_signal"
+    current_symbol = CURRENT_HOLDING.get(commodity)
+
+    if not current_symbol:
+        logger.debug(f"[{commodity}] CURRENT_HOLDING تنظیم نشده — چک سوئیچ رد شد")
+        return status_changed
+
+    if df_funds is None or df_funds.empty or current_symbol not in df_funds.index:
+        logger.debug(f"[{commodity}] صندوق فعلی '{current_symbol}' در Fund_df پیدا نشد")
+        return status_changed
+
+    current_bubble = df_funds.loc[current_symbol, "nominal_bubble"]
+    current_avg_bubble = df_funds.loc[current_symbol, "avg_monthly_bubble"]
+    if pd.isna(current_bubble):
+        logger.debug(f"[{commodity}] nominal_bubble برای '{current_symbol}' نامعتبر است")
+        return status_changed
+
+    # Fund_df از قبل بر اساس value نزولی مرتب است
+    candidates = df_funds.head(SWITCH_TOP_N)
+    if current_symbol not in candidates.index:
+        candidates = pd.concat([candidates, df_funds.loc[[current_symbol]]])
+
+    candidates = candidates[~candidates.index.duplicated(keep="first")]
+    candidates = candidates.dropna(subset=["nominal_bubble"])
+    if candidates.empty:
+        return status_changed
+
+    best_symbol = candidates["nominal_bubble"].idxmin()
+    best_bubble = candidates.loc[best_symbol, "nominal_bubble"]
+    best_avg_bubble = candidates.loc[best_symbol, "avg_monthly_bubble"]
+
+    # نسبت طلای واقعی بعد از سوئیچ به قبلش (دقیق، نه تقریب خطی):
+    # gold_ratio = (1-fee_sell)(1-fee_buy) × (1+bubble_from/100)/(1+bubble_to/100)
+    gold_gain_percent = (
+        (1 - SWITCH_FEE_SELL) * (1 - SWITCH_FEE_BUY)
+        * (1 + current_bubble / 100) / (1 + best_bubble / 100)
+        - 1
+    ) * 100
+
+    gain_ok = gold_gain_percent > SWITCH_SAFETY_MARGIN * 100
+
+    # فیلتر بازگشت-به-میانگین — نیازمند داده‌ی معتبر avg_monthly_bubble برای هر دو
+    if pd.isna(current_avg_bubble) or pd.isna(best_avg_bubble):
+        reversion_ok = False
+        logger.debug(
+            f"[{commodity}] avg_monthly_bubble ناقص برای '{current_symbol}' یا "
+            f"'{best_symbol}' — فیلتر بازگشت‌به‌میانگین رد شد (محافظه‌کارانه)"
+        )
+    else:
+        reversion_ok = (current_bubble > current_avg_bubble) and (best_bubble < best_avg_bubble)
+
+    if best_symbol != current_symbol and gain_ok and reversion_ok:
+        if status[status_key] != best_symbol:
+            send_switch_alert(
+                bot_token, chat_id, current_symbol, current_bubble,
+                best_symbol, best_bubble, gold_gain_percent, tz, now, label,
+            )
+            status[status_key] = best_symbol
+            status_changed = True
+            logger.info(
+                f"🔄 [{commodity}] سیگنال سوئیچ: {current_symbol} → {best_symbol} "
+                f"| افزایش طلای واقعی: {gold_gain_percent:+.2f}% "
+                f"| فعلی: حباب {current_bubble:+.2f}% (میانگین {current_avg_bubble:+.2f}%) "
+                f"| مقصد: حباب {best_bubble:+.2f}% (میانگین {best_avg_bubble:+.2f}%)"
+            )
+    else:
+        if status[status_key] != "normal":
+            status[status_key] = "normal"
+            status_changed = True
+
+    return status_changed
+
+
+def send_switch_alert(bot_token, chat_id, from_symbol, from_bubble,
+                       to_symbol, to_bubble, gold_gain_percent, tz, now, label):
+    """ارسال هشدار سیگنال سوئیچ بین دو صندوق هم‌کالا"""
+    main_text = f"""
+🔄 سیگنال سوئیچ صندوق {label}
+
+📤 از: {from_symbol} (حباب {from_bubble:+.2f}%)
+📥 به: {to_symbol} (حباب {to_bubble:+.2f}%)
+🪙 افزایش طلای واقعی (پس از کارمزد): {gold_gain_percent:+.2f}%
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
 # ════════════════════════════════════════════════════════════════
