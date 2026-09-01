@@ -41,9 +41,9 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4445
-DEFAULT_DOLLAR_PRICE = 208_000
-DEFAULT_SILVER_PRICE = 66
+DEFAULT_GOLD_PRICE = 4367
+DEFAULT_DOLLAR_PRICE = 213_000
+DEFAULT_SILVER_PRICE = 64
 
 # 🎈 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
