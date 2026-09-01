@@ -27,15 +27,23 @@ def _sheet_name(commodity):
     return SHEET_NAMES[commodity]
 
 
+_service = None  # کش سراسری در سطح پروسه — یک‌بار در هر اجرای main.py ساخته می‌شه
+_headers_ensured = set()  # {commodity} — برای جلوگیری از چک تکراری هدر/تب در هر خوندن/نوشتن
+
+
 def get_sheets_service():
-    """اتصال به Google Sheets API"""
+    """اتصال به Google Sheets API — نتیجه در سطح پروسه کش می‌شه تا credentials/token فقط یک‌بار ساخته بشه"""
+    global _service
+    if _service is not None:
+        return _service
     try:
         creds_info = json.loads(SERVICE_ACCOUNT_JSON)
         credentials = service_account.Credentials.from_service_account_info(
             creds_info,
             scopes=['https://www.googleapis.com/auth/spreadsheets']
         )
-        return build('sheets', 'v4', credentials=credentials, cache_discovery=False)
+        _service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
+        return _service
     except Exception as e:
         logger.error(f"❌ خطا در اتصال به Google Sheets: {e}")
         raise
@@ -61,7 +69,10 @@ def _ensure_sheet_tab(service, sheet_name):
 
 
 def ensure_header(commodity):
-    """بررسی و ایجاد/آپدیت خودکار هدر برای تب یک کالا"""
+    """بررسی و ایجاد/آپدیت خودکار هدر برای تب یک کالا — فقط بار اول در هر پروسه واقعاً چک می‌کنه"""
+    if commodity in _headers_ensured:
+        return True
+
     sheet_name = _sheet_name(commodity)
     try:
         service = get_sheets_service()
@@ -82,10 +93,12 @@ def ensure_header(commodity):
                 valueInputOption='RAW', body={'values': [STANDARD_HEADER]}
             ).execute()
             logger.info(f"✅ [{commodity}] هدر جدید ساخته شد ({NUM_COLS} ستون)")
+            _headers_ensured.add(commodity)
             return True
 
         if len(existing_header) == NUM_COLS:
             logger.debug(f"✓ [{commodity}] هدر معتبر است ({NUM_COLS} ستون)")
+            _headers_ensured.add(commodity)
             return True
 
         logger.warning(f"⚠️ [{commodity}] هدر نامعتبر ({len(existing_header)} ستون)")
@@ -94,6 +107,7 @@ def ensure_header(commodity):
             valueInputOption='RAW', body={'values': [STANDARD_HEADER]}
         ).execute()
         logger.info(f"✅ [{commodity}] هدر آپدیت شد")
+        _headers_ensured.add(commodity)
         return True
 
     except Exception as e:
