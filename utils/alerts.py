@@ -166,6 +166,20 @@ def save_alert_status(status):
 # ════════════════════════════════════════════════════════════════
 
 
+def _safe_float(value):
+    """
+    تبدیل امن به float — برخلاف `value if value else None`، مقدار ۰ رو
+    به‌اشتباه معادل «داده‌ی موجود نیست» نمی‌گیره (۰ برای این ستون‌ها
+    مقدار معتبریه، مثلاً پول حقیقی یا حباب که واقعاً می‌تونن صفر باشن).
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def get_previous_state_from_sheet(commodity):
     """دریافت وضعیت قبلی یک کالا با بررسی فاصله زمانی، از تب مربوطه در شیت"""
     empty = {
@@ -207,22 +221,22 @@ def get_previous_state_from_sheet(commodity):
 
         return {
             "dollar_price": (
-                float(prev_row[2]) if len(prev_row) > 2 and prev_row[2] else None
+                _safe_float(prev_row[2]) if len(prev_row) > 2 else None
             ),
             "shams_price": (
-                float(prev_row[3]) if len(prev_row) > 3 and prev_row[3] else None
+                _safe_float(prev_row[3]) if len(prev_row) > 3 else None
             ),
             "global_price": (
-                float(prev_row[1]) if len(prev_row) > 1 and prev_row[1] else None
+                _safe_float(prev_row[1]) if len(prev_row) > 1 else None
             ),
             "ekhtelaf_sarane": (
-                float(prev_row[11]) if len(prev_row) > 11 and prev_row[11] else None
+                _safe_float(prev_row[11]) if len(prev_row) > 11 else None
             ),
             "bubble_weighted": (
-                float(prev_row[8]) if len(prev_row) > 8 and prev_row[8] else None
+                _safe_float(prev_row[8]) if len(prev_row) > 8 else None
             ),
             "pol_hagigi": (
-                float(prev_row[12]) if len(prev_row) > 12 and prev_row[12] else None
+                _safe_float(prev_row[12]) if len(prev_row) > 12 else None
             ),
             "same_day": same_day,
         }
