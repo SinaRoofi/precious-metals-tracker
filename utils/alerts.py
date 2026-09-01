@@ -175,6 +175,7 @@ def get_previous_state_from_sheet(commodity):
         "ekhtelaf_sarane": None,
         "bubble_weighted": None,
         "pol_hagigi": None,
+        "same_day": None,
     }
 
     try:
@@ -187,10 +188,12 @@ def get_previous_state_from_sheet(commodity):
         prev_row = rows[-2]
         last_row = rows[-1]
 
+        same_day = None
         try:
             prev_time = datetime.strptime(prev_row[0][:19], "%Y-%m-%d %H:%M:%S")
             last_time = datetime.strptime(last_row[0][:19], "%Y-%m-%d %H:%M:%S")
             time_diff = (last_time - prev_time).total_seconds() / 60
+            same_day = prev_time.date() == last_time.date()
 
             if time_diff > 10:
                 logger.warning(
@@ -221,6 +224,7 @@ def get_previous_state_from_sheet(commodity):
             "pol_hagigi": (
                 float(prev_row[12]) if len(prev_row) > 12 and prev_row[12] else None
             ),
+            "same_day": same_day,
         }
 
     except Exception as e:
@@ -558,7 +562,7 @@ def check_and_send_alerts(
 
     pol_status_changed = check_pol_alerts(
         bot_token, chat_id, current_pol, prev["pol_hagigi"],
-        status, tz, now, commodity, label,
+        status, tz, now, commodity, label, same_day=prev["same_day"],
     )
     if pol_status_changed:
         changed = True
@@ -715,7 +719,7 @@ def send_bubble_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, c
 # ════════════════════════════════════════════════════════════════
 
 
-def check_pol_alerts(bot_token, chat_id, current_pol, prev_pol, status, tz, now, commodity, label):
+def check_pol_alerts(bot_token, chat_id, current_pol, prev_pol, status, tz, now, commodity, label, same_day=None):
     """بررسی و ارسال هشدارهای پول حقیقی - کراس صفر + تغییر شدید (1 دقیقه، فقط همون روز)"""
     status_changed = False
     status_key = f"{commodity}_pol_hagigi"
@@ -742,22 +746,14 @@ def check_pol_alerts(bot_token, chat_id, current_pol, prev_pol, status, tz, now,
 
     if prev_pol is not None:
         try:
-            rows = read_from_sheets(commodity, limit=3)
-            if len(rows) >= 2:
-                prev_row = rows[-2]
-                last_row = rows[-1]
-
-                prev_time = datetime.strptime(prev_row[0][:19], "%Y-%m-%d %H:%M:%S")
-                last_time = datetime.strptime(last_row[0][:19], "%Y-%m-%d %H:%M:%S")
-
-                if prev_time.date() == last_time.date():
-                    pol_change = current_pol - prev_pol
-                    if abs(pol_change) >= POL_SHARP_CHANGE_THRESHOLD:
-                        send_pol_sharp_change_alert(
-                            bot_token, chat_id, prev_pol, current_pol, pol_change, tz, now, label
-                        )
-                else:
-                    logger.debug(f"[{commodity}] پول حقیقی در روزهای مختلف - هشدار ارسال نمیشه")
+            if same_day is True:
+                pol_change = current_pol - prev_pol
+                if abs(pol_change) >= POL_SHARP_CHANGE_THRESHOLD:
+                    send_pol_sharp_change_alert(
+                        bot_token, chat_id, prev_pol, current_pol, pol_change, tz, now, label
+                    )
+            elif same_day is False:
+                logger.debug(f"[{commodity}] پول حقیقی در روزهای مختلف - هشدار ارسال نمیشه")
         except Exception as e:
             logger.warning(f"[{commodity}] خطا در بررسی تاریخ پول حقیقی: {e}")
 
