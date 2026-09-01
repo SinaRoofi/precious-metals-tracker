@@ -603,29 +603,16 @@ def build_weekly_package(commodity):
 
 
 def build_weekly_caption(commodity, daily_df):
-    """کپشن متنی خلاصه‌ی هفته برای ارسال همراه عکس."""
+    """کپشن متنی خلاصه‌ی هفته برای ارسال همراه عکس — عکس خودش همه‌ی جزئیات رو داره."""
     label = COMMODITY_LABEL[commodity]
-    last = daily_df.iloc[-1]
     week_start, week_end = _current_trading_week_range()
-
-    total_pol = daily_df["pol_hagigi"].sum()
-    avg_bubble_fund = daily_df["fund_weighted_bubble_percent"].mean()
-    avg_bubble_shams = daily_df["shams_bubble_percent"].mean()
 
     jalali_week_start = JalaliDate(week_start).strftime("%Y/%m/%d")
     jalali_week_end = JalaliDate(week_end).strftime("%Y/%m/%d")
 
     return f"""
-📅 <b>گزارش هفتگی بازار {label}</b>
+📊 <b>گزارش هفتگی بازار {label}</b>
 🗓 {jalali_week_start} تا {jalali_week_end} ({len(daily_df)} روز کاری)
-
-🎈 میانگین حباب شمش: {avg_bubble_shams:+.2f}%
-🎈 میانگین حباب صندوق‌ها: {avg_bubble_fund:+.2f}%
-💸 پول حقیقی تجمعی هفته: {total_pol:+,.0f} م.ت
-📊 سرانه خرید آخرین روز: {last['sarane_kharid_weighted']:,.0f}
-📊 سرانه فروش آخرین روز: {last['sarane_forosh_weighted']:,.0f}
-⚖️ اختلاف سرانه آخرین روز: {last['ekhtelaf_sarane_weighted']:+,.0f}
-💰 ارزش معاملات آخرین روز: {last['trade_value']:,.0f} (MA۵: {last['trade_value_ma5']:,.0f} | MA۲۲: {last['trade_value_ma22']:,.0f})
 
 🔗 {CHANNEL_HANDLE}
 """.strip()
