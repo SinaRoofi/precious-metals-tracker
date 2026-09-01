@@ -1,305 +1,326 @@
-"""تنظیمات و ثابت‌های پروژه Gold & Silver Market Tracker"""
+"""
+تنظیمات پروژه Bourse Tracker
+"""
 
 import os
+from dotenv import load_dotenv
 
-# ════════════════════════════════════════════════════════════════
-# 🚨 آستانه‌های هشدار قیمتی
-# ════════════════════════════════════════════════════════════════
+# بارگذاری متغیرهای محیطی از فایل .env
+load_dotenv()
 
-DOLLAR_HIGH = 213_500
-DOLLAR_LOW = 213_000
+# ========================================
+# تنظیمات تلگرام
+# ========================================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+ERROR_CHAT_ID = os.getenv("ERROR_CHAT_ID", "")  # اختیاری: کانال جدا برای خطاهای فنی (فیلتر خراب)
+WATCHLIST_CHAT_ID = os.getenv("WATCHLIST_CHAT_ID", "")  # اختیاری: کانال دوم برای واچ‌لیست شخصی
 
-# --- طلا ---
-SHAMS_HIGH = 30_000_000
-SHAMS_LOW = 29_500_000
+# ========================================
+# تنظیمات API
+# ========================================
+API_BASE_URL = os.getenv("API_BASE_URL")
 
-GOLD_HIGH = 4400
-GOLD_LOW = 4300
-
-# --- نقره ---
-SILVER_SHAMS_HIGH = 500_000
-SILVER_SHAMS_LOW = 400_000
-
-SILVER_HIGH = 70
-SILVER_LOW = 60
-
-# --- هشدار قیمتی نمادهای صندوق 
-FUND_PRICE_ALERTS = {
-    "زروان": {"high": 45_303, "low": 44_540},
-}
-
-ALERT_THRESHOLD_PERCENT = {
-    "dollar": 0.5,
-    "gold": 0.5,
-    "silver": 1.0,
-}
-EKHTELAF_THRESHOLD = 20
-
-# 🛒 هشدار جهش سرانه خرید بازار (نسبت به میانگین چند روزه)
-SARANE_KHARID_MA_DAYS = 10       # تعداد روزهای گذشته (بسته، بدون امروز) برای میانگین پایه
-SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم — کمتر از این، سیگنال نامعتبر است
-SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
-
-# 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4367
-DEFAULT_DOLLAR_PRICE = 213_000
-DEFAULT_SILVER_PRICE = 64
-
-# 🎈 آستانه‌های هشدار حباب
-BUBBLE_SHARP_CHANGE_THRESHOLD = 1
-
-# ✅ آستانه‌های هشدار پول حقیقی
-POL_SHARP_CHANGE_THRESHOLD = 100
-
-# 📌 هندل کانال تلگرام — مشترک برای طلا و نقره
-CHANNEL_HANDLE = "@PreciousMetals_IR"
-ALERT_CHANNEL_HANDLE = "@ALERT_METALS"
-
-# ارزش روزانه دلار تومان
-VALUE_DIFF = 111_000
-LOW_VALUE = 162
-VALUE = 285
-HIGH_VALUE = 581
-
-# ════════════════════════════════════════════════════════════════
-# 📐 پیش‌بینی ریسک/ریوارد شمش طلا بورس کالا (تا پایان سال)
-# ════════════════════════════════════════════════════════════════
-GOLD_YEAR_END_OUNCE_TARGET = 4500  # $
-
-# ════════════════════════════════════════════════════════════════
-# 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌ها)
-# ════════════════════════════════════════════════════════════════
-# نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
-# در اون کالا نداری و چک سوئیچ برای اون کالا انجام نمی‌شود.
-CURRENT_HOLDING = {
-    "gold": "ناب",
-    "silver": None,
-}
-
-# کارمزد خرید/فروش صندوق‌ها — یکسان برای همه‌ی صندوق‌ها (طلا و نقره)
-SWITCH_FEE_BUY = 1_198_558 / 1_000_000_000     # 0.001198558 (٪۰.۱۲)
-SWITCH_FEE_SELL = 1_201_469 / 1_000_000_000    # 0.001201469 (٪۰.۱۲)
-SWITCH_ROUND_TRIP_FEE = SWITCH_FEE_BUY + SWITCH_FEE_SELL  # ≈ 0.0024 (٪۰.۲۴)
-
-# حاشیه‌ی امن اضافه بر کارمزد (اسپرد/لغزش قیمت بین سیگنال و اجرا)
-SWITCH_SAFETY_MARGIN = 0.001   # ٪۰.۱
-
-# فقط صندوق‌های پرحجم‌تر (بر اساس ارزش معاملات، از قبل نزولی در Fund_df) بررسی می‌شوند
-SWITCH_TOP_N = 10
-
-# ════════════════════════════════════════════════════════════════
-# 🔐 متغیرهای محیطی (Environment Variables)
-# ════════════════════════════════════════════════════════════════
-
-GIST_ID = os.getenv("GIST_ID")
+# ========================================
+# GitHub Gist
+# ========================================
 GIST_TOKEN = os.getenv("GIST_TOKEN")
-ALERT_STATUS_FILE = "alert_status.json"
-SARANE_KHARID_BASELINE_FILE = "sarane_kharid_baseline.json"
-MESSAGE_ID_FILE = "message_id.json"
+GIST_ID = os.getenv("GIST_ID")
 
-SHEET_ID = os.getenv("SHEET_ID")
-SERVICE_ACCOUNT_JSON = os.getenv("SHEETS_SERVICE_ACCOUNT")
-
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-TELETHON_API_ID = int(os.getenv('TELETHON_API_ID', 0))
-TELETHON_API_HASH = os.getenv('TELETHON_API_HASH')
-TELEGRAM_SESSION = os.getenv('TELEGRAM_SESSION')
-TELEGRAM_ALERT_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID')
-
-# ════════════════════════════════════════════════════════════════
-# 📡 کانال‌های تلگرام
-# ════════════════════════════════════════════════════════════════
-
-TELEGRAM_CHANNELS = {
-    'dollar': 'dollar_tehran3bze',
-}
-
-# ════════════════════════════════════════════════════════════════
-# 🌐 API URLs — nested بر اساس کالا
-# ════════════════════════════════════════════════════════════════
-
-API_URLS = {
-    'gold': {
-        'intrinsic': 'https://rahavard365.com/api/v2/gold/intrinsic-values',
-        'light_charts': 'https://rahavard365.com/api/v2/gold/light-charts',
-        # ⚠️ ۲۰۲۶/۰۵/۲۵: ساختار سایت تریدرآرنا عوض شد. اندپوینت قدیمی
-        # (data/industries-stocks-csv/gold-funds) حذف شده و الان یک
-        # snapshot JSON تودرتو برمی‌گرداند (نه دیگر آرایه‌ی ایندکس‌دار).
-        # timeframe=12 پارامتر بازه‌ی ریسک است؛ همانی که سایت خودش می‌فرستد.
-        'funds': 'https://tradersarena.ir/data/industries/gold-funds/snapshot',
-    },
-    'silver': {
-        'intrinsic': 'https://rahavard365.com/api/v2/silver/intrinsic-values',
-        'light_charts': 'https://rahavard365.com/api/v2/silver/light-charts',
-        'funds': 'https://tradersarena.ir/data/industries/silver-funds/snapshot',
-    },
-}
-
-# پارامتر timeframe برای اندپوینت جدید snapshot صندوق‌های تریدرآرنا
-FUNDS_SNAPSHOT_TIMEFRAME = 12
-
-# ════════════════════════════════════════════════════════════════
-# ⏰ تنظیمات زمانی
-# ════════════════════════════════════════════════════════════════
-
-TIMEZONE = 'Asia/Tehran'
-
-# ════════════════════════════════════════════════════════════════
-# 🎨 تنظیمات نمودارها
-# ════════════════════════════════════════════════════════════════
-
-CHART_WIDTH = 1400
-CHART_HEIGHT = 2200
-CHART_SCALE = 2
-WEEKLY_CHART_HEIGHT = 3000  # 6 subplot (بازده دلار/اونس/شمش، ارزش معاملات، حباب شمش، حباب صندوق‌ها، پول حقیقی تجمعی، سرانه)
-MONTHLY_CHART_WIDTH = 2000  # پهن‌تر از هفتگی چون ~۲۲-۲۶ تیک روزانه باید جا بشه
-MONTHLY_CHART_HEIGHT = WEEKLY_CHART_HEIGHT  # همون ۶ پنل، فقط بازه‌ی زمانی متفاوت
-
-TREEMAP_WIDTH = 1350
-TREEMAP_HEIGHT = 1350
-TREEMAP_SCALE = 2
-
-COLOR_POSITIVE = '#00E676'
-COLOR_NEGATIVE = '#FF1744'
-COLOR_NEUTRAL = '#2C2C2C'
-COLOR_BACKGROUND = '#0D1117'
-COLOR_GRID = '#21262D'
-COLOR_GOLD = '#FFD700'
-COLOR_SILVER = '#C0C0C0'
-
-TREEMAP_COLORSCALE = [
-    [0.0, "#E57373"], [0.1, "#D85C5C"], [0.2, "#C94444"],
-    [0.3, "#A52A2A"], [0.4, "#6B1A1A"],
-    [0.5, "#2C2C2C"],
-    [0.6, "#1B5E20"], [0.7, "#2E7D32"], [0.8, "#43A047"],
-    [0.9, "#5CB860"], [1.0, "#66BB6A"],
+# ========================================
+# کدهای صنایع مختلف بورس
+# ========================================
+INDUSTRY_CODES = [
+    "01",
+    "10",
+    "11",
+    "13",
+    "14",
+    "17",
+    "19",
+    "20",
+    "21",
+    "22",
+    "23",
+    "25",
+    "27",
+    "28",
+    "29",
+    "31",
+    "32",
+    "34",
+    "38",
+    "39",
+    "40",
+    "42",
+    "43",
+    "44",
+    "47",
+    "49",
+    "53",
+    "54",
+    "55",
+    "56",
+    "57",
+    "58",
+    "60",
+    "64",
+    "66",
+    "67",
+    "70",
+    "72",
+    "73",
+    "74",
 ]
 
-Y_AXIS_STEP = 50
-
-# ════════════════════════════════════════════════════════════════
-# 📝 دارایی‌های داخلی هر کالا (ترتیب = ترتیب ایندکس در calculate_values)
-# ════════════════════════════════════════════════════════════════
-
-BULLION_ASSET = {
-    'gold': 'شمش-طلا',
-    'silver': 'شمش-نقره',
+# نام صنایع (برای هشتگ)
+INDUSTRY_NAMES = {
+    "01": "زراعت",
+    "10": "ذغال_سنگ",
+    "11": "استخراج_نفت",
+    "13": "کانه_فلزی",
+    "14": "سایر_معادن",
+    "17": "منسوجات",
+    "19": "محصولات_چرمی",
+    "20": "محصولات_چوبی",
+    "21": "محصولات_کاغذ",
+    "22": "انتشار_و_چاپ",
+    "23": "فرآورده_نفتی",
+    "25": "لاستیک",
+    "27": "فلزات_اساسی",
+    "28": "محصولات_فلزی",
+    "29": "ماشین_آلات",
+    "31": "دستگاه_های_برقی",
+    "32": "وسایل_ارتباطی",
+    "34": "خودرو",
+    "38": "قند_و_شکر",
+    "39": "چند_رشته_ای_صنعتی",
+    "40": "تامین_آب_برق_گاز",
+    "42": "غذایی_بجز_قند",
+    "43": "مواد_دارویی",
+    "44": "شیمیایی",
+    "47": "خرده_فروشی",
+    "49": "کاشی_سرامیک",
+    "53": "سیمان",
+    "54": "کانی_غیرفلزی",
+    "55": "هتل_رستوران",
+    "56": "سرمایه_گذاری",
+    "57": "بانک",
+    "58": "سایر_مالی",
+    "60": "حمل_نقل",
+    "64": "رادیویی",
+    "66": "بیمه_بازنشسته",
+    "67": "اداره_بازارهای_مالی",
+    "70": "انبوه_سازی",
+    "72": "رایانه",
+    "73": "اطلاعات_ارتباطات",
+    "74": "فنی_مهندسی",
 }
 
-ASSET_ORDER = {
-    'gold': [
-        "طلا-گرم-18-عیار",
-        "طلا-گرم-24-عیار",
-        "شمش-طلا",
-        "سطلا",
-        "سکه-امامی-طرح-جدید",
-        "سکه-بهار-آزادی-طرح-قدیم",
-        "طلا-مظنه-آبشده-تهران",
-        "سکه0312پ01",
-        "سکه0411پ05",
-        "سکه0412پ03",
-        "نیم-سکه",
-        "ربع-سکه",
-        "سکه-1-گرمی",
-    ],
-    'silver': [
-        "شمش-نقره",
-        "نقره-گرمی-999",
-    ],
+# ========================================
+# تنظیمات صندوق‌ها
+# ========================================
+FUND_TYPES = {
+    "index": {
+        "slug": "index-funds",
+        "name": "صندوق‌های شاخصی",
+        "enabled": True,
+    },
+    "real_state": {
+        "slug": "real-state-funds",
+        "name": "صندوق‌های املاک",
+        "enabled": True,
+    },
+    "fund_in_fund": {
+        "slug": "fund-in-funds",
+        "name": "صندوق‌های فراصندوق",
+        "enabled": True,
+    },
+    "classic_stock": {
+        "slug": "classic-stock-funds",
+        "name": "صندوق‌های سهامی کلاسیک",
+        "enabled": True,
+    },
+    "mixed": {
+        "slug": "mixed-funds",
+        "name": "صندوق‌های مختلط",
+        "enabled": True,
+    },
+    "energy": {
+        "slug": "energy-funds",
+        "name": "صندوق‌های انرژی",
+        "enabled": True,
+    },
+    "leveraged": {
+        "slug": "leveraged-funds",
+        "name": "صندوق‌های اهرمی",
+        "enabled": True,
+    },
+    "sector": {
+        "slug": "sector-funds",
+        "name": "صندوق‌های بخشی",
+        "enabled": True,
+    },
 }
 
-# ════════════════════════════════════════════════════════════════
-# 💰 ضرایب فرمول ارزش ذاتی (Value) — از calculate_values موجود استخراج شده
-# هر آیتم متناظر با همون ایندکس در ASSET_ORDER[commodity] است
-# فرمول: Value = ((purity * dollar * global_price) / TROY_OZ) * weight * scale
-# ════════════════════════════════════════════════════════════════
+# ========================================
+# تنظیمات فیلترها
+# ========================================
 
-TROY_OZ = 31.1034768
-
-PRICING_FACTORS = {
-    'gold': [
-        {'purity': 0.75,  'weight': 1,       'scale': 10},    # طلا-گرم-18-عیار
-        {'purity': 0.995, 'weight': 1,       'scale': 10},    # طلا-گرم-24-عیار
-        {'purity': 0.995, 'weight': 1,       'scale': 1},     # شمش-طلا
-        {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سطلا
-        {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سکه-امامی-طرح-جدید
-        {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سکه-بهار-آزادی-طرح-قدیم
-        {'purity': 0.705, 'weight': 4.6083,  'scale': 10},    # طلا-مظنه-آبشده-تهران
-        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0312پ01
-        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0411پ05
-        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0412پ03
-        {'purity': 0.9,   'weight': 4.0665,  'scale': 10},    # نیم-سکه
-        {'purity': 0.9,   'weight': 2.03225, 'scale': 10},    # ربع-سکه
-        {'purity': 0.9,   'weight': 1,       'scale': 10},    # سکه-1-گرمی
-    ],
-    'silver': [
-        {'purity': 0.999, 'weight': 1, 'scale': 10},  # شمش-نقره
-        {'purity': 0.999, 'weight': 1, 'scale': 10},  # نقره-گرمی-999
-    ],
+# فیلتر 1: قدرت خرید قوی
+STRONG_BUYING_CONFIG = {
+    "min_value_to_avg_monthly": 3,
+    "min_sarane_kharid": 100,  # میلیون تومان
+    "min_godrat_kharid": 2,
+    "godrat_greater_than_5day": True,  # قدرت خرید > میانگین 5 روز
+    "godrat_5day_multiplier": 2,  # ضریب مقایسه با میانگین 5 روزه (فقط وقتی بالا True باشه اثر داره)
 }
 
-
-# ════════════════════════════════════════════════════════════════
-# 🔤 مسیر فونت‌ها
-# ════════════════════════════════════════════════════════════════
-
-FONT_BOLD_PATH = "assets/fonts/Vazirmatn-Bold.ttf"
-FONT_MEDIUM_PATH = "assets/fonts/Vazirmatn-Medium.ttf"
-FONT_REGULAR_PATH = "assets/fonts/Vazirmatn-Regular.ttf"
-
-# ════════════════════════════════════════════════════════════════
-# 🔄 تنظیمات Retry و Network
-# ════════════════════════════════════════════════════════════════
-
-MAX_RETRIES = 2
-RETRY_DELAY = 3
-REQUEST_TIMEOUT = (5, 15)
-
-HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+# فیلتر 2: کراس سرانه خرید
+SARANE_CROSS_CONFIG = {
+    "sarane_kharid_greater_than_forosh": True,
+    "min_value_to_avg_monthly": 0.5,
+    "min_sarane_kharid": 100,
+    "max_buy_queue_value": 2,  # میلیارد تومان - ارزش سفارش ردیف اول صف خرید باید کمتر از این باشه
 }
 
-# ════════════════════════════════════════════════════════════════
-# 📊 تنظیمات Google Sheets — یک Spreadsheet، دو تب (Gold / Silver)
-# ════════════════════════════════════════════════════════════════
-
-SHEET_NAMES = {
-    'gold': 'Gold',
-    'silver': 'Silver',
-}
-
-STANDARD_HEADER = [
-    'timestamp',
-    'global_price_usd',
-    'dollar_price',
-    'shams_price',
-    'dollar_change_percent',
-    'shams_change_percent',
-    'fund_weighted_change_percent',
-    'fund_final_price_avg',
-    'fund_weighted_bubble_percent',
-    'sarane_kharid_weighted',
-    'sarane_forosh_weighted',
-    'ekhtelaf_sarane_weighted',
-    'pol_hagigi',
-    'shams_bubble_percent',
-    'trade_value',  # ⚠️ ستون جدید — همیشه در انتها اضافه شود، نه وسط (سازگاری با ردیف‌های قدیمی)
+# فیلتر 3: واچ‌لیست شخصی — عبور از یک آستانه‌ی واحد
+PERSONAL_WATCHLIST = [
+    "شپنا",
+    "فملی",
+    "رافزا",
+    "دجابر",
+    "فزر",
+    "حتاید",
+    "هجرت",
+    
 ]
+PERSONAL_WATCHLIST_THRESHOLD = 2.5  # درصد تغییر قیمت
+PERSONAL_WATCHLIST_SKIP_IF_BUY_QUEUE = True
 
-KEEP_DAYS = 40  # باید کل یک ماه شمسی (تا ۳۱ روز) رو پوشش بده، برای گزارش ماهانه
+# فیلتر 4: رنج مثبت
+range_mosbat = {
+    "tick_diff_percent": 2.0,
+    "min_value_to_avg_monthly": 0.5,
+}
 
-# ════════════════════════════════════════════════════════════════
-# 📝 تنظیمات Logging
-# ════════════════════════════════════════════════════════════════
+# فیلتر 5: ورود پول حقیقی قوی
+POL_HAGIGI_FILTER_CONFIG = {
+    "min_pol_to_value_ratio": 0.5,
+    "min_sarane_kharid": 100,
+    "min_godrat_kharid": 1.5,
+}
 
-LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-LOG_FILE = 'market_tracker.log'
-LOG_LEVEL = 'INFO'
+# فیلتر 6: تیک و ساعت
+TICK_FILTER_CONFIG = {
+    "first_to_low_ratio": 0.99,
+    "last_to_first_ratio": 0.99,
+    "tick_diff_percent": 1.0,
+}
 
-# ════════════════════════════════════════════════════════════════
-# 📌 تنظیمات Telegram Message
-# ════════════════════════════════════════════════════════════════
+# فیلتر 7: حجم مشکوک
+SUSPICIOUS_VOLUME_CONFIG = {
+    "min_value_to_avg_ratio": 2.0,
+}
 
-MAX_MESSAGES_TO_CHECK = 10000
-MESSAGE_BATCH_SIZE = 100
+# فیلتر 8: نوسان‌ گیری
+SWING_TRADE_CONFIG = {
+    "min_allowed_price": -2.8,
+    "max_last_change_percent": -1.0,
+    "min_godrat_kharid": 2.0,
+    "min_sarane_kharid": 100, 
+    "min_value_to_avg_monthly": 1.0,
+}
+
+# فیلتر 9: نیم ساعت اول (۹:۰۰ تا ۹:۳۰)
+FIRST_HOUR_CONFIG = {
+    "min_value_to_avg_ratio": 1.0,
+    "start_hour": 9,
+    "start_minute": 0,
+    "end_hour": 9,
+    "end_minute": 30,
+}
+
+# فیلتر 10: صف خرید با اردر سنگین (بالای ۱۰ میلیارد)
+HEAVY_BUY_QUEUE_CONFIG = {
+    "min_buy_order": 100,  # میلیون تومان
+    "min_buy_queue_value": 10,  # میلیارد تومان
+    "price_at_ceiling": True,  # آخرین قیمت = سقف
+}
+
+# فیلتر 14: صف خرید ساده (بالای ۱ میلیارد، بدون شرط اردر سنگین)
+BUY_QUEUE_SIMPLE_CONFIG = {
+    "min_buy_queue_value": 1,  # میلیارد تومان
+    "price_at_ceiling": True,  # آخرین قیمت = سقف
+}
+
+# فیلتر 11: خرید حقوقی و حقیقی قوی
+HOGHOOGHI_HAGHIGHI_STRONG_BUY_CONFIG = {
+    "max_pol_hagigi_to_value": -0.3,  
+    "min_last_price_change_percent": 0, 
+    "min_sarane_kharid": 100,  
+    "sarane_kharid_greater_than_forosh": True, 
+} 
+
+# فیلتر 12: ماروبوزو صعودی با حجم
+BULLISH_MARUBOZU_CONFIG = {
+    "min_body_to_range_ratio": 0.9,   # نسبت بدنه به کل رنج روز - هرچی به 1 نزدیک‌تر یعنی سایه کمتر
+    "min_intraday_move_percent": 1.0,  # حداقل اندازه‌ی بدنه‌ی کندل (نسبت به قیمت باز شدن امروز، نه دیروز)
+    "min_value_to_avg_monthly": 1.0,  
+}
+
+# فیلتر 13: اختلاف سرانه بالا (سرانه خرید - سرانه فروش)
+SARANE_DIFF_CONFIG = {
+    "min_sarane_diff": 100,  # میلیون تومان
+    "max_buy_queue_value": 2,  # میلیارد تومان - اگه صف خرید بالای این باشه، حذف می‌شه
+}
+
+# ========================================
+# زمان‌بندی
+# ========================================
+MARKET_START_TIME = "09:00"
+MARKET_END_TIME = "12:30"
+
+# روزهای کاری (0=شنبه تا 6=جمعه)
+WORKING_DAYS = [0, 1, 2, 3, 4]
+
+# ========================================
+# تنظیمات لاگ
+# ========================================
+LOG_LEVEL = "INFO"
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+# ========================================
+# اعتبارسنجی تنظیمات
+# ========================================
+def validate_config():
+    """بررسی صحت تنظیمات"""
+    errors = []
+
+    if not TELEGRAM_BOT_TOKEN:
+        errors.append("TELEGRAM_BOT_TOKEN تنظیم نشده است")
+
+    if not TELEGRAM_CHAT_ID:
+        errors.append("TELEGRAM_CHAT_ID تنظیم نشده است")
+
+    if not API_BASE_URL:
+        errors.append("API_BASE_URL تنظیم نشده است")
+
+    if not GIST_TOKEN:
+        errors.append("GIST_TOKEN تنظیم نشده است")
+
+    if not GIST_ID:
+        errors.append("GIST_ID تنظیم نشده است")
+
+    multiplier = STRONG_BUYING_CONFIG.get("godrat_5day_multiplier")
+    if not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool) or multiplier <= 0:
+        errors.append(
+            f"STRONG_BUYING_CONFIG['godrat_5day_multiplier'] باید عدد مثبت باشد "
+            f"(مقدار فعلی: {multiplier!r})"
+        )
+
+    if errors:
+        raise ValueError("خطاهای تنظیمات:\n" + "\n".join(errors))
+
+    return True
