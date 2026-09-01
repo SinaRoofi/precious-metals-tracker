@@ -55,11 +55,13 @@ COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 # داده‌ی دیروز از شیت (per-commodity)
 # ════════════════════════════════════════════════════════════════
 
-def get_global_price_yesterday_from_sheet(commodity, today_date):
-    """دریافت قیمت جهانی آخرین روز کاری قبل از امروز، از تب یک کالا"""
+def get_global_price_yesterday_from_sheet(commodity, today_date, rows=None):
+    """دریافت قیمت جهانی آخرین روز کاری قبل از امروز، از تب یک کالا.
+    اگه rows از قبل خونده شده (مثلاً برای دلار روی همون تب) پاس داده بشه، دوباره شیت رو نمی‌خونه."""
     try:
         today = datetime.strptime(today_date, "%Y-%m-%d")
-        rows = read_from_sheets(commodity, limit=800)
+        if rows is None:
+            rows = read_from_sheets(commodity, limit=800)
 
         if not rows:
             logger.warning(f"⚠️ [{commodity}] هیچ رکوردی در شیت پیدا نشد")
@@ -85,11 +87,13 @@ def get_global_price_yesterday_from_sheet(commodity, today_date):
         return None, None, False
 
 
-def get_dollar_yesterday_from_sheet(commodity, today_date):
-    """دریافت قیمت دلار آخرین روز کاری قبل از امروز (دلار بین دو تب مشترکه، فقط یک تب کافیه)"""
+def get_dollar_yesterday_from_sheet(commodity, today_date, rows=None):
+    """دریافت قیمت دلار آخرین روز کاری قبل از امروز (دلار بین دو تب مشترکه، فقط یک تب کافیه).
+    اگه rows از قبل خونده شده پاس داده بشه، دوباره شیت رو نمی‌خونه."""
     try:
         today = datetime.strptime(today_date, "%Y-%m-%d")
-        rows = read_from_sheets(commodity, limit=800)
+        if rows is None:
+            rows = read_from_sheets(commodity, limit=800)
 
         if not rows:
             return None, None, False
@@ -131,7 +135,7 @@ async def fetch_commodity_inputs(commodity):
 # ════════════════════════════════════════════════════════════════
 
 def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
-                          yesterday_close, dirham_price, check_dollar):
+                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None):
     bullion_key = BULLION_ASSET[commodity]
 
     if not light_chart or light_chart.get("price", 0) <= 0:
@@ -149,7 +153,9 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         return
 
     today_str = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
-    global_yesterday, _, found = get_global_price_yesterday_from_sheet(commodity, today_str)
+    global_yesterday, _, found = get_global_price_yesterday_from_sheet(
+        commodity, today_str, rows=preloaded_yesterday_rows
+    )
     if not found:
         logger.warning(f"⚠️ [{commodity}] قیمت جهانی دیروز پیدا نشد → تغییر صفر محاسبه می‌شود")
         global_yesterday = None
@@ -306,13 +312,18 @@ async def main():
                 last_trade = dollar_prices["last_trade"]
                 logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
 
-            dollar_yesterday, _, dollar_found = get_dollar_yesterday_from_sheet("gold", today_str)
+            logger.info("🇦🇪 دریافت قیمت درهم امارات + خواندن تب gold برای قیمت دیروز (موازی)...")
+            dirham_price, gold_yesterday_rows = await asyncio.gather(
+                asyncio.to_thread(fetch_dirham_price),
+                asyncio.to_thread(read_from_sheets, "gold", 800),
+            )
+
+            dollar_yesterday, _, dollar_found = get_dollar_yesterday_from_sheet(
+                "gold", today_str, rows=gold_yesterday_rows
+            )
             yesterday_close = dollar_yesterday if dollar_yesterday else last_trade
             if not dollar_found:
                 logger.warning(f"⚠️ قیمت دلار دیروز پیدا نشد → استفاده از قیمت فعلی ({last_trade:,})")
-
-            logger.info("🇦🇪 دریافت قیمت درهم امارات...")
-            dirham_price = fetch_dirham_price()
 
             # ─── fetch موازی طلا+نقره (فقط شبکه) ───
             logger.info("📡 دریافت داده‌های بازار طلا و نقره (موازی)...")
@@ -334,6 +345,7 @@ async def main():
                     yesterday_close=yesterday_close,
                     dirham_price=dirham_price,
                     check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
+                    preloaded_yesterday_rows=(gold_yesterday_rows if commodity == "gold" else None),
                 )
 
         logger.info("=" * 60)
