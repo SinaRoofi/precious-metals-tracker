@@ -667,34 +667,21 @@ def build_monthly_package(commodity):
 
 
 def build_monthly_caption(commodity, daily_df):
-    """کپشن متنی خلاصه‌ی ماه برای ارسال همراه عکس.
+    """کپشن متنی خلاصه‌ی ماه برای ارسال همراه عکس — عکس خودش همه‌ی جزئیات رو داره.
 
     بازه‌ی تاریخ از خودِ داده‌ی واقعاً نمایش‌داده‌شده (min/max تاریخ daily_df) گرفته می‌شه،
     نه با فراخوانی دوباره‌ی _current_trading_month_range — چون وقتی fallback به «آخرین
     ۳۰ روز موجود» فعال شده باشه، اون تابع دیگه بازه‌ی واقعیِ نمایش‌داده‌شده رو نشون نمی‌ده.
     """
     label = COMMODITY_LABEL[commodity]
-    last = daily_df.iloc[-1]
     month_start, month_end = daily_df["date"].min(), daily_df["date"].max()
-
-    total_pol = daily_df["pol_hagigi"].sum()
-    avg_bubble_fund = daily_df["fund_weighted_bubble_percent"].mean()
-    avg_bubble_shams = daily_df["shams_bubble_percent"].mean()
 
     jalali_month_start = JalaliDate(month_start).strftime("%Y/%m/%d")
     jalali_month_end = JalaliDate(month_end).strftime("%Y/%m/%d")
 
     return f"""
-📅 <b>گزارش ماهانه بازار {label}</b>
+📊 <b>گزارش ماهانه بازار {label}</b>
 🗓 {jalali_month_start} تا {jalali_month_end} ({len(daily_df)} روز کاری)
-
-🎈 میانگین حباب شمش: {avg_bubble_shams:+.2f}%
-🎈 میانگین حباب صندوق‌ها: {avg_bubble_fund:+.2f}%
-💸 پول حقیقی تجمعی ماه: {total_pol:+,.0f} م.ت
-📊 سرانه خرید آخرین روز: {last['sarane_kharid_weighted']:,.0f}
-📊 سرانه فروش آخرین روز: {last['sarane_forosh_weighted']:,.0f}
-⚖️ اختلاف سرانه آخرین روز: {last['ekhtelaf_sarane_weighted']:+,.0f}
-💰 ارزش معاملات آخرین روز: {last['trade_value']:,.0f} (MA۵: {last['trade_value_ma5']:,.0f} | MA۲۲: {last['trade_value_ma22']:,.0f})
 
 🔗 {CHANNEL_HANDLE}
 """.strip()
