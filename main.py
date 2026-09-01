@@ -1,449 +1,360 @@
+# main.py
+"""اسکریپت اصلی Gold & Silver Market Tracker"""
+
 import sys
+import os
 import logging
 from datetime import datetime
-import jdatetime
 import pytz
+import jdatetime
 import asyncio
-import time
-import pandas as pd
+from telethon import TelegramClient
+from telethon.sessions import StringSession
 
 from config import (
-    MARKET_START_TIME,
-    MARKET_END_TIME,
-    API_BASE_URL,
-    ERROR_CHAT_ID,
-    GIST_ID,
-    GIST_TOKEN,
-    PERSONAL_WATCHLIST,
-    WATCHLIST_CHAT_ID,
-    validate_config,
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ALERT_CHAT_ID,
+    TELETHON_API_ID, TELETHON_API_HASH, TELEGRAM_SESSION,
+    TIMEZONE, LOG_FORMAT, LOG_FILE, LOG_LEVEL,
+    DEFAULT_GOLD_PRICE, DEFAULT_SILVER_PRICE, DEFAULT_DOLLAR_PRICE,
+    BULLION_ASSET,
 )
-from utils.holidays import is_trading_day
-from utils.data_fetcher import UnifiedDataFetcher
-from utils.data_processor import BourseDataProcessor
-from utils.alerts import TelegramAlert
-from utils.gist_alert_manager import GistAlertManager, WATCHLIST_COPY_SUFFIX
+from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dollar_prices, fetch_dirham_price
+from utils.data_processor import process_market_data
+from utils.telegram_sender import send_to_telegram
+from utils.holidays import is_iranian_holiday
+from utils.sheets_storage import save_to_sheets, read_from_sheets
+from utils.alerts import check_and_send_alerts
 
-# ===========================
-# تنظیم timezone تهران
-# ===========================
-TEHRAN_TZ = pytz.timezone("Asia/Tehran")
+class JalaliFormatter(logging.Formatter):
+    """Formatter که %(asctime)s رو با تاریخ و ساعت شمسی (تهران) پر می‌کند"""
+
+    def formatTime(self, record, datefmt=None):
+        tehran_tz = pytz.timezone(TIMEZONE)
+        dt = datetime.fromtimestamp(record.created, tz=tehran_tz)
+        jalali = jdatetime.datetime.fromgregorian(datetime=dt)
+        return jalali.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ===========================
-# تنظیم logging به وقت تهران
-# ===========================
-def tehran_time(*args):
-    return datetime.now(TEHRAN_TZ).timetuple()
-
+_formatter = JalaliFormatter(LOG_FORMAT)
+_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+_file_handler.setFormatter(_formatter)
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(_formatter)
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("bourse_tracker.log", encoding="utf-8"),
-    ],
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    handlers=[_file_handler, _stream_handler],
 )
-logging.Formatter.converter = tehran_time
 logger = logging.getLogger(__name__)
 
-# ===========================
-# تعداد سهام در هر پیام بر اساس فیلتر
-# ===========================
-STOCKS_PER_MESSAGE_MAP = {
-    "filter_1_strong_buying": 5,
-    "filter_2_sarane_cross": 5,
-    "filter_3_watchlist": 5,
-    "filter_4_range_mosbat": 5,
-    "filter_5_pol_hagigi_ratio": 5,
-    "filter_6_tick_time": 5,
-    "filter_7_suspicious_volume": 5,
-    "filter_8_swing_trade": 5,
-    "filter_9_first_hour": 5,
-    "filter_10_heavy_buy_queue": 5,
-    "filter_11_hoghooghi_haghighi_strong_buy": 5,
-    "filter_12_bullish_marubozu": 5,
-    "filter_13_sarane_diff": 5,
-    "filter_14_buy_queue_simple": 5,
-}
-
-# ===========================
-# نگاشت فیلتر به ستون کلیدی برای Daily Summary
-# فقط فیلترهایی که در summary نمایش داده می‌شن
-# ===========================
-FILTER_VALUE_COLUMN = {
-    "filter_1_strong_buying":                  "godrat_kharid",
-    "filter_2_sarane_cross":                   "sarane_kharid",
-    "filter_5_pol_hagigi_ratio":               "pol_hagigi_to_avg_monthly_value",
-    "filter_7_suspicious_volume":              "value_to_avg_monthly_value",
-    "filter_10_heavy_buy_queue":               "buy_queue_value",
-    "filter_11_hoghooghi_haghighi_strong_buy": "sarane_kharid",
-    "filter_12_bullish_marubozu":               "intraday_move_percent",
-    "filter_13_sarane_diff":                    "sarane_diff",
-    "filter_14_buy_queue_simple":               "buy_queue_value",
-}
+DEFAULT_GLOBAL_PRICE = {"gold": DEFAULT_GOLD_PRICE, "silver": DEFAULT_SILVER_PRICE}
+COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 
 
-# ===========================
-# توابع کمکی
-# ===========================
-def is_market_open() -> bool:
-    """بررسی اینکه آیا بازار باز است یا نه (به وقت تهران)"""
-    now = datetime.now(TEHRAN_TZ)
-    logger.info(f"🕐 زمان تهران: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+# ════════════════════════════════════════════════════════════════
+# داده‌ی دیروز از شیت (per-commodity)
+# ════════════════════════════════════════════════════════════════
 
-    if not is_trading_day(now):
-        logger.info("امروز روز معاملاتی نیست (آخر هفته یا تعطیل رسمی)")
-        return False
-
-    current_time = now.strftime("%H:%M")
-    if not (MARKET_START_TIME <= current_time <= MARKET_END_TIME):
-        logger.info(f"خارج از ساعات کاری بازار (ساعت تهران: {current_time})")
-        return False
-
-    jnow = jdatetime.datetime.fromgregorian(datetime=now.replace(tzinfo=None))
-    logger.info(f"✅ بازار باز است - {jnow.strftime('%Y-%m-%d')} {current_time}")
-    return True
-
-
-def chunk_dataframe(df, filter_name):
-    """تقسیم DataFrame به چانک‌های کوچکتر بر اساس فیلتر"""
-    chunk_size = STOCKS_PER_MESSAGE_MAP.get(filter_name, 5)
-    for i in range(0, len(df), chunk_size):
-        yield df.iloc[i : i + chunk_size]
-
-
-# ===========================
-# ارسال هشدارها - نسخه Parallel
-# ===========================
-
-# توجه: WATCHLIST_COPY_SUFFIX از utils.gist_alert_manager ایمپورت می‌شه (نه اینجا
-# تعریف می‌شه) چون daily_summary_generator.py هم برای رفع دوبار-شمارش نمادهای
-# واچ‌لیستی در گزارش «نمادهای پرتکرار» بهش نیاز داره — نگه‌داری در یک‌جا از
-# عدم‌همگامی بین دو فایل جلوگیری می‌کنه.
-
-
-async def _queue_filter_tasks(
-    all_tasks: list,
-    alert: TelegramAlert,
-    alert_manager: GistAlertManager,
-    df: pd.DataFrame,
-    filter_name: str,
-    dedup_type: str,
-    chat_id: str,
-    channel_label: str,
-    value_col: str,
-    skipped_count: int,
-) -> int:
-    """
-    df رو chunk می‌کنه، برای هر نماد dedup چک می‌کنه، و task ارسال برای
-    chunkهایی که چیزی برای ارسال دارن به all_tasks اضافه می‌کنه.
-    مقدار جدید skipped_count رو برمی‌گردونه (چون int تو پایتون immutable هست).
-    """
-    for chunk_idx, chunk_df in enumerate(chunk_dataframe(df, filter_name), 1):
-        symbols_to_send = []
-
-        for _, row in chunk_df.iterrows():
-            symbol = row["symbol"]
-            if not await alert_manager.should_send_alert(symbol, dedup_type):
-                logger.info(f"⏭️  {symbol}: قبلاً امروز ارسال شده ({dedup_type})")
-                skipped_count += 1
-            else:
-                symbols_to_send.append(symbol)
-
-        if symbols_to_send:
-            chunk_to_send = chunk_df[chunk_df["symbol"].isin(symbols_to_send)]
-            task = alert.send_filter_alert(
-                chunk_to_send, filter_name, chat_id=chat_id, channel_label=channel_label
-            )
-            all_tasks.append(
-                (task, symbols_to_send, dedup_type, filter_name, chunk_idx, chunk_to_send, value_col)
-            )
-            logger.info(
-                f"📋 Task ایجاد شد برای {filter_name} [{dedup_type}] گروه {chunk_idx}: "
-                f"{len(symbols_to_send)} سهم"
-            )
-        else:
-            logger.info(f"⏭️  {filter_name} [{dedup_type}] گروه {chunk_idx}: همه قبلاً ارسال شده‌اند")
-
-    return skipped_count
-
-
-async def send_alerts_for_filters_async(
-    alert: TelegramAlert,
-    alert_manager: GistAlertManager,
-    filters_results: dict,
-    api_name: str,
-    personal_watchlist: set = frozenset(),
-    watchlist_chat_id: str = "",
-) -> tuple:
-    """
-    ارسال هشدارها برای فیلترهای یک API به صورت کاملاً موازی
-
-    Args:
-        alert: شیء TelegramAlert
-        alert_manager: شیء GistAlertManager
-        filters_results: دیکشنری نتایج فیلترها
-        api_name: نام API (برای لاگ)
-        personal_watchlist: مجموعه نمادهای واچ‌لیست شخصی
-        watchlist_chat_id: چت آیدی کانال دوم (واچ‌لیست شخصی)
-
-    روتینگ:
-        - filter_3_watchlist: فقط به watchlist_chat_id می‌ره (هرگز کانال اصلی)
-        - بقیه‌ی فیلترها: طبق روال به کانال اصلی + اگه symbol تو
-          personal_watchlist باشه، یک کپی هم به watchlist_chat_id
-
-    Returns:
-        tuple: (تعداد ارسال شده, تعداد رد شده)
-    """
-    sent_count = 0
-    skipped_count = 0
-
-    logger.info(f"\n{'='*60}")
-    logger.info(f"📤 ارسال هشدارهای {api_name}")
-    logger.info(f"{'='*60}")
-
-    all_tasks = []
-
-    for filter_name, filtered_df in filters_results.items():
-        if filtered_df.empty:
-            logger.info(f"فیلتر {filter_name}: نتیجه‌ای یافت نشد")
-            continue
-
-        logger.info(f"\n🔍 پردازش فیلتر {filter_name}: {len(filtered_df)} سهم")
-        value_col = FILTER_VALUE_COLUMN.get(filter_name)
-
-        if filter_name == "filter_3_watchlist":
-            # فقط کانال دوم - هرگز کانال اصلی
-            if not watchlist_chat_id:
-                logger.warning(
-                    "⚠️ WATCHLIST_CHAT_ID تنظیم نشده - نتایج فیلتر 3 نادیده گرفته شد"
-                )
-                continue
-            skipped_count = await _queue_filter_tasks(
-                all_tasks, alert, alert_manager, filtered_df, filter_name,
-                dedup_type=filter_name, chat_id=watchlist_chat_id,
-                channel_label="WatchList", value_col=value_col,
-                skipped_count=skipped_count,
-            )
-            continue
-
-        # بقیه‌ی فیلترها: کانال اصلی طبق روال
-        skipped_count = await _queue_filter_tasks(
-            all_tasks, alert, alert_manager, filtered_df, filter_name,
-            dedup_type=filter_name, chat_id=None, channel_label=None,
-            value_col=value_col, skipped_count=skipped_count,
-        )
-
-        # کپی نمادهای واچ‌لیست شخصی به کانال دوم
-        if watchlist_chat_id and personal_watchlist:
-            watchlist_rows = filtered_df[filtered_df["symbol"].isin(personal_watchlist)]
-            if not watchlist_rows.empty:
-                skipped_count = await _queue_filter_tasks(
-                    all_tasks, alert, alert_manager, watchlist_rows, filter_name,
-                    dedup_type=f"{filter_name}{WATCHLIST_COPY_SUFFIX}",
-                    chat_id=watchlist_chat_id, channel_label="WatchList",
-                    value_col=value_col, skipped_count=skipped_count,
-                )
-
-    if all_tasks:
-        logger.info(f"\n🚀 شروع ارسال موازی {len(all_tasks)} پیام...")
-
-        tasks_only = [task for task, _, _, _, _, _, _ in all_tasks]
-        results = await asyncio.gather(*tasks_only, return_exceptions=True)
-
-        successful_marks = []
-
-        for result, (_, symbols, dedup_type, filter_name, chunk_idx, chunk_to_send, value_col) in zip(results, all_tasks):
-            if isinstance(result, Exception):
-                logger.error(
-                    f"❌ خطا در ارسال {filter_name} [{dedup_type}] گروه {chunk_idx}: {result}"
-                )
-            elif result:
-                # استخراج value، is_fund، صنعت و درصد تغییر قیمت پایانی برای هر نماد
-                # از chunk_to_send (industry_name و final_price_change_percent برای
-                # گزارش خلاصه‌ی روزانه لازم‌ان: «برترین صنایع» و نمایش درصد کنار نماد)
-                for s in symbols:
-                    val = None
-                    is_fund = None
-                    industry_name = None
-                    price_change_percent = None
-                    row = chunk_to_send[chunk_to_send["symbol"] == s]
-                    if not row.empty:
-                        if value_col and value_col in chunk_to_send.columns:
-                            try:
-                                val = float(row.iloc[0][value_col])
-                            except (ValueError, TypeError):
-                                val = None
-                        if "is_fund" in chunk_to_send.columns:
-                            is_fund_val = row.iloc[0]["is_fund"]
-                            if pd.notna(is_fund_val):
-                                is_fund = bool(is_fund_val)
-                        if "industry_name" in chunk_to_send.columns:
-                            industry_val = row.iloc[0]["industry_name"]
-                            if pd.notna(industry_val):
-                                industry_name = str(industry_val)
-                        if "final_price_change_percent" in chunk_to_send.columns:
-                            try:
-                                price_val = row.iloc[0]["final_price_change_percent"]
-                                if pd.notna(price_val):
-                                    price_change_percent = float(price_val)
-                            except (ValueError, TypeError):
-                                price_change_percent = None
-                    successful_marks.append(
-                        (s, dedup_type, val, is_fund, industry_name, price_change_percent)
-                    )
-
-                sent_count += len(symbols)
-                logger.info(
-                    f"✅ {filter_name} [{dedup_type}] گروه {chunk_idx}: {len(symbols)} سهم ارسال شد"
-                )
-            else:
-                logger.error(f"❌ {filter_name} [{dedup_type}] گروه {chunk_idx}: خطا در ارسال")
-
-        if successful_marks:
-            logger.info(f"📝 علامت‌گذاری {len(successful_marks)} هشدار در Gist...")
-            await alert_manager.mark_multiple_as_sent(successful_marks)
-
-    return sent_count, skipped_count
-
-
-# ===========================
-# تابع اصلی
-# ===========================
-async def main_async():
-    logger.info("=" * 80)
-    logger.info("🚀 شروع Bourse Tracker")
-    logger.info("=" * 80)
-
+def get_global_price_yesterday_from_sheet(commodity, today_date):
+    """دریافت قیمت جهانی آخرین روز کاری قبل از امروز، از تب یک کالا"""
     try:
-        t_run_start = time.time()
-        validate_config()
-        logger.info("✅ تنظیمات معتبر است")
+        today = datetime.strptime(today_date, "%Y-%m-%d")
+        rows = read_from_sheets(commodity, limit=800)
 
-        if not is_market_open():
-            logger.info("⏸️  بازار بسته است. خروج از برنامه.")
-            return
+        if not rows:
+            logger.warning(f"⚠️ [{commodity}] هیچ رکوردی در شیت پیدا نشد")
+            return None, None, False
 
-        logger.info("\n📥 شروع دریافت داده از API...")
-        fetcher = UnifiedDataFetcher(api1_base_url=API_BASE_URL)
-        df_raw = fetcher.fetch_all_data()
+        for row in reversed(rows):
+            if len(row) > 1 and row[0]:
+                row_date_str = row[0][:10]
+                row_date = datetime.strptime(row_date_str, "%Y-%m-%d")
+                if row_date < today:
+                    if row[1]:
+                        price = float(row[1])
+                        days_ago = (today - row_date).days
+                        logger.info(f"✅ [{commodity}] قیمت جهانی دیروز: ${price:.2f} ({row_date_str}, {days_ago} روز پیش)")
+                        return price, row_date_str, True
+                    continue
 
-        alert = TelegramAlert()
-
-        # اگه کل fetch شکست خورده باشه (مثلاً API 404/409 بده یا سایت schema رو
-        # عوض کرده باشه) نباید بی‌سروصدا "موفق" تموم بشه - چون فرقی با
-        # "بازار امروز سیگنالی نداشت" نداره و کسی متوجه نمی‌شه.
-        if df_raw is None or df_raw.empty:
-            logger.error("❌ هیچ داده‌ای از API دریافت نشد - fetch کاملاً شکست خورد")
-            if ERROR_CHAT_ID:
-                await alert.send_message(
-                    "🔴 <b>خطای بحرانی: دریافت داده کاملاً شکست خورد</b>\n\n"
-                    "هیچ رکوردی از tradersarena.ir دریافت نشد (۴۰۴/۴۰۹/تغییر schema/قطعی).\n"
-                    "این اجرا هیچ فیلتری اجرا نکرد و هیچ هشداری بررسی نشد.\n"
-                    "لاگ کامل رو تو GitHub Actions چک کن.",
-                    chat_id=ERROR_CHAT_ID,
-                )
-            else:
-                logger.warning(
-                    "⚠️ ERROR_CHAT_ID تنظیم نشده — این خطای بحرانی فقط در لاگ ثبت شد"
-                )
-            return
-
-        t_process_start = time.time()
-        logger.info("\n🔄 شروع پردازش داده‌ها...")
-        processor = BourseDataProcessor()
-        df = processor.process_all_data(df_raw)
-
-        logger.info("\n🔍 اعمال فیلترها...")
-        all_results = processor.apply_all_filters(df)
-        t_process_end = time.time()
-        logger.info(f"⏱️ پردازش + فیلترها: {t_process_end - t_process_start:.1f}s")
-
-        logger.info("\n📤 شروع ارسال هشدارها به تلگرام...")
-        alert_manager = GistAlertManager(GIST_TOKEN, GIST_ID)
-
-        # ذخیره‌ی یک‌باره‌ی تعداد کل نماد هر صنعت (universe) — برای نرمال‌سازی
-        # «برترین صنایع» در گزارش خلاصه‌ی روزانه (درصد مشارکت به‌جای عدد خام).
-        # save_industry_universe خودش idempotent هست، پس فراخوانی مکرر طی روز
-        # بی‌خطره و فقط یک‌بار واقعاً می‌نویسه.
-        if "industry_name" in df.columns:
-            universe_df = df if "is_fund" not in df.columns else df[~df["is_fund"].fillna(False)]
-            # json.dumps نمی‌تونه numpy.int64 رو serialize کنه، پس صریحاً int می‌کنیم
-            industry_universe = {
-                str(name): int(count)
-                for name, count in universe_df["industry_name"].dropna().value_counts().items()
-            }
-            if industry_universe:
-                await alert_manager.save_industry_universe(industry_universe)
-
-        # هشدار فوری اگه یکی از فیلترها امروز خطا داده باشه (کانال جدا، نه کانال اصلی)
-        if processor.failed_filters:
-            failed_list = "، ".join(processor.failed_filters)
-            logger.error(f"⚠️ فیلترهای خطادار این اجرا: {failed_list}")
-            if ERROR_CHAT_ID:
-                await alert.send_message(
-                    f"⚠️ <b>خطا در اجرای فیلتر</b>\n\n"
-                    f"فیلترهای زیر امروز اجرا نشدن (احتمالاً به‌خاطر تغییر schema API):\n"
-                    f"<code>{failed_list}</code>\n\n"
-                    f"لاگ کامل رو تو GitHub Actions چک کن.",
-                    chat_id=ERROR_CHAT_ID,
-                )
-            else:
-                logger.warning(
-                    "⚠️ ERROR_CHAT_ID تنظیم نشده — هشدار خطای فیلتر فقط در لاگ ثبت شد"
-                )
-
-        personal_watchlist = set(PERSONAL_WATCHLIST)
-        if not WATCHLIST_CHAT_ID:
-            logger.warning(
-                "⚠️ WATCHLIST_CHAT_ID تنظیم نشده — فیلتر 3 و کپی واچ‌لیست شخصی غیرفعال می‌مونن"
-            )
-
-        total_sent = 0
-        total_skipped = 0
-        t_send_start = time.time()
-
-        if all_results:
-            sent, skipped = await send_alerts_for_filters_async(
-                alert, alert_manager, all_results, "همه‌ی فیلترها (1-11)",
-                personal_watchlist, WATCHLIST_CHAT_ID,
-            )
-            total_sent += sent
-            total_skipped += skipped
-
-        t_send_end = time.time()
-        logger.info(f"⏱️ فاز ارسال هشدارها: {t_send_end - t_send_start:.1f}s")
-
-        stats = await alert_manager.get_today_stats()
-        logger.info("\n" + "=" * 80)
-        logger.info("📊 گزارش نهایی:")
-        logger.info(f"  • تاریخ: {stats['date']}")
-        logger.info(f"  • هشدارهای ارسال شده (این اجرا): {total_sent}")
-        logger.info(f"  • هشدارهای رد شده (اسپم): {total_skipped}")
-        logger.info(f"  • مجموع هشدارهای امروز: {stats['total_alerts']}")
-        logger.info("  • آمار بر اساس نوع هشدار:")
-        for alert_type, count in stats["alerts_by_type"].items():
-            logger.info(f"    - {alert_type}: {count}")
-        logger.info(f"  • Gist: {alert_manager.get_gist_url()}")
-        logger.info(f"  • ⏱️ زمان کل اجرا: {time.time() - t_run_start:.1f}s")
-        logger.info("=" * 80)
-        logger.info("✅ اجرا با موفقیت به پایان رسید")
-
-    except KeyboardInterrupt:
-        logger.info("\n⚠️  اجرا توسط کاربر متوقف شد")
-        sys.exit(0)
+        logger.warning(f"⚠️ [{commodity}] هیچ رکورد معتبری قبل از {today_date} پیدا نشد")
+        return None, None, False
 
     except Exception as e:
-        logger.error(f"\n❌ خطای غیرمنتظره: {e}", exc_info=True)
-        sys.exit(1)
+        logger.error(f"❌ [{commodity}] خطا در خواندن قیمت جهانی دیروز: {e}")
+        return None, None, False
 
 
-def main():
-    """نقطه ورود اصلی برنامه"""
-    asyncio.run(main_async())
+def get_dollar_yesterday_from_sheet(commodity, today_date):
+    """دریافت قیمت دلار آخرین روز کاری قبل از امروز (دلار بین دو تب مشترکه، فقط یک تب کافیه)"""
+    try:
+        today = datetime.strptime(today_date, "%Y-%m-%d")
+        rows = read_from_sheets(commodity, limit=800)
+
+        if not rows:
+            return None, None, False
+
+        for row in reversed(rows):
+            if len(row) > 2 and row[0]:
+                row_date_str = row[0][:10]
+                row_date = datetime.strptime(row_date_str, "%Y-%m-%d")
+                if row_date < today:
+                    if row[2]:
+                        price = float(row[2])
+                        days_ago = (today - row_date).days
+                        logger.info(f"✅ قیمت دلار دیروز: {price:,.0f} تومان ({row_date_str}, {days_ago} روز پیش)")
+                        return price, row_date_str, True
+                    continue
+
+        return None, None, False
+
+    except Exception as e:
+        logger.error(f"❌ خطا در خواندن قیمت دلار دیروز: {e}")
+        return None, None, False
+
+
+# ════════════════════════════════════════════════════════════════
+# مرحله‌ی fetch — parallel-safe (فقط شبکه، بدون write مشترک)
+# ════════════════════════════════════════════════════════════════
+
+async def fetch_commodity_inputs(commodity):
+    """فچ همزمان انس جهانی + دارایی‌های داخلی/صندوق‌ها برای یک کالا"""
+    light_chart, market_data = await asyncio.gather(
+        asyncio.to_thread(fetch_light_chart, commodity),
+        asyncio.to_thread(fetch_market_data, commodity),
+    )
+    return commodity, light_chart, market_data
+
+
+# ════════════════════════════════════════════════════════════════
+# مرحله‌ی process→save→send→alert — عمداً sequential (Gist مشترک)
+# ════════════════════════════════════════════════════════════════
+
+def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
+                          yesterday_close, dirham_price, check_dollar):
+    bullion_key = BULLION_ASSET[commodity]
+
+    if not light_chart or light_chart.get("price", 0) <= 0:
+        global_price = DEFAULT_GLOBAL_PRICE[commodity]
+        logger.warning(f"⚠️ [{commodity}] قیمت جهانی گرفته نشد → پیش‌فرض {global_price}")
+    else:
+        global_price = light_chart["price"]
+        logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
+
+    tether_price = light_chart.get("tether_price") if light_chart else None
+    tether_change_percent = light_chart.get("tether_change_percent") if light_chart else None
+
+    if not market_data:
+        logger.error(f"❌ [{commodity}] داده‌های بازار گرفته نشد — این کالا رد می‌شود")
+        return
+
+    today_str = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
+    global_yesterday, _, found = get_global_price_yesterday_from_sheet(commodity, today_str)
+    if not found:
+        logger.warning(f"⚠️ [{commodity}] قیمت جهانی دیروز پیدا نشد → تغییر صفر محاسبه می‌شود")
+        global_yesterday = None
+
+    processed = process_market_data(
+        commodity=commodity,
+        market_data=market_data,
+        global_price=global_price,
+        dollar_last_trade=last_trade,
+        yesterday_close=yesterday_close,
+        global_price_yesterday=global_yesterday,
+    )
+
+    if not processed:
+        logger.error(f"❌ [{commodity}] پردازش داده ناموفق — این کالا رد می‌شود")
+        return
+
+    Fund_df = processed["Fund_df"]
+    dfp = processed["dfp"]
+    logger.info(f"✅ [{commodity}] پردازش کامل شد - {len(Fund_df)} صندوق")
+
+    total_value = Fund_df["value"].sum()  # ارزش معاملات واقعی (برای ذخیره‌سازی) — می‌تواند صفر باشد
+    weighting_denominator = total_value or 1  # فقط برای جلوگیری از تقسیم بر صفر در میانگین‌های وزنی
+    fund_change_weighted = (Fund_df["close_price_change_percent"] * Fund_df["value"]).sum() / weighting_denominator
+    fund_bubble_weighted = (Fund_df["nominal_bubble"] * Fund_df["value"]).sum() / weighting_denominator
+    fund_final_price_avg = Fund_df["final_price_change"].mean()
+    sarane_kharid_w = (Fund_df["sarane_kharid"] * Fund_df["value"]).sum() / weighting_denominator
+    sarane_forosh_w = (Fund_df["sarane_forosh"] * Fund_df["value"]).sum() / weighting_denominator
+    ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
+    pol_hagigi_weighted = Fund_df["pol_hagigi"].sum()
+
+    dollar_change = ((last_trade - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
+    global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
+
+    if bullion_key in dfp.index:
+        shams_change = dfp.loc[bullion_key, "close_price_change_percent"]
+        shams_price = dfp.loc[bullion_key, "close_price"]
+        shams_date = dfp.loc[bullion_key, "trade_date"]
+        shams_bubble = dfp.loc[bullion_key, "Bubble"]
+    else:
+        shams_change, shams_price, shams_date, shams_bubble = 0, 0, None, 0
+        logger.warning(f"⚠️ [{commodity}] دارایی شمش ('{bullion_key}') در dfp پیدا نشد")
+
+    logger.info(f"📈 [{commodity}] دلار: {dollar_change:+.2f}% | انس: {global_change:+.2f}% | شمش: {shams_change:+.2f}%")
+    logger.info(f"📈 [{commodity}] صندوق‌ها (وزنی): {fund_change_weighted:+.2f}% | حباب: {fund_bubble_weighted:+.2f}%")
+    logger.info(f"💸 [{commodity}] پول حقیقی: {pol_hagigi_weighted:+.2f} م.ت")
+
+    logger.info(f"💾 [{commodity}] ذخیره در Google Sheets...")
+    save_to_sheets(commodity, {
+        "global_price": global_price,
+        "dollar_price": last_trade,
+        "shams_price": shams_price,
+        "dollar_change": dollar_change,
+        "shams_change": shams_change,
+        "shams_date": shams_date,
+        "fund_change_weighted": fund_change_weighted,
+        "fund_final_price_avg": fund_final_price_avg,
+        "fund_bubble_weighted": fund_bubble_weighted,
+        "sarane_kharid_w": sarane_kharid_w,
+        "sarane_forosh_w": -sarane_forosh_w,
+        "ekhtelaf_sarane_w": ekhtelaf_sarane_w,
+        "pol_hagigi": pol_hagigi_weighted,
+        "shams_bubble": shams_bubble,
+        "trade_value": total_value,
+    })
+
+    logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام...")
+    success = send_to_telegram(
+        commodity=commodity,
+        bot_token=TELEGRAM_BOT_TOKEN,
+        chat_id=TELEGRAM_CHAT_ID,
+        data=processed,
+        dollar_prices=dollar_prices,
+        global_price=global_price,
+        global_yesterday=global_yesterday,
+        global_time=None,
+        yesterday_close=yesterday_close,
+        dirham_price=dirham_price,
+        tether_price=tether_price,
+        tether_change_percent=tether_change_percent,
+    )
+    logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
+
+    logger.info(f"🚨 [{commodity}] بررسی هشدارها...")
+    try:
+        check_and_send_alerts(
+            commodity=commodity,
+            bot_token=TELEGRAM_BOT_TOKEN,
+            chat_id=TELEGRAM_ALERT_CHAT_ID,
+            data=processed,
+            dollar_prices=dollar_prices,
+            global_price=global_price,
+            yesterday_close=yesterday_close,
+            global_price_yesterday=global_yesterday,
+            check_dollar=check_dollar,
+        )
+        logger.info(f"✅ [{commodity}] بررسی هشدارها کامل شد")
+    except Exception as e:
+        logger.error(f"⚠️ [{commodity}] خطا در سیستم هشدارها (ادامه می‌دهیم): {e}")
+
+
+# ════════════════════════════════════════════════════════════════
+# main
+# ════════════════════════════════════════════════════════════════
+
+async def main():
+    try:
+        logger.info("=" * 60)
+        logger.info("🚀 شروع اجرای Gold & Silver Market Tracker")
+        logger.info("=" * 60)
+
+        tehran_tz = pytz.timezone(TIMEZONE)
+        now = datetime.now(tehran_tz)
+
+        force_run = os.getenv("FORCE_RUN", "false").lower() == "true"
+
+        if is_iranian_holiday(now):
+            if force_run:
+                logger.warning(
+                    f"⚠️ امروز ({now.strftime('%Y-%m-%d')}) طبق تشخیص سیستم تعطیله، "
+                    f"ولی FORCE_RUN=true است — اجرا ادامه پیدا می‌کند (حالت تست)"
+                )
+            else:
+                logger.info(f"🏖️ امروز {now.strftime('%Y-%m-%d')} تعطیل است.")
+                return
+
+        logger.info(f"🕐 زمان تهران: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ALERT_CHAT_ID,
+                    TELETHON_API_ID, TELETHON_API_HASH, TELEGRAM_SESSION]):
+            logger.error("❌ یکی از متغیرهای محیطی تلگرام پیدا نشد!")
+            logger.error("لازم: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ALERT_CHAT_ID, "
+                          "TELETHON_API_ID, TELETHON_API_HASH, TELEGRAM_SESSION")
+            return
+
+        today_str = now.strftime("%Y-%m-%d")
+
+        async with TelegramClient(StringSession(TELEGRAM_SESSION), TELETHON_API_ID, TELETHON_API_HASH) as client:
+            logger.info("✅ اتصال به Telethon برقرار شد")
+
+            # ─── دلار — یک‌بار، مشترک بین طلا و نقره ───
+            logger.info("💵 دریافت قیمت‌های دلار...")
+            dollar_prices = await fetch_dollar_prices(client)
+
+            if not dollar_prices or not dollar_prices.get("last_trade"):
+                last_trade = DEFAULT_DOLLAR_PRICE
+                dollar_prices = {
+                    "last_trade": DEFAULT_DOLLAR_PRICE,
+                    "bid": dollar_prices.get("bid", 0) if dollar_prices else 0,
+                    "ask": dollar_prices.get("ask", 0) if dollar_prices else 0,
+                }
+                logger.warning(f"⚠️ قیمت معامله دلار گرفته نشد → پیش‌فرض {DEFAULT_DOLLAR_PRICE:,}")
+            else:
+                last_trade = dollar_prices["last_trade"]
+                logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
+
+            dollar_yesterday, _, dollar_found = get_dollar_yesterday_from_sheet("gold", today_str)
+            yesterday_close = dollar_yesterday if dollar_yesterday else last_trade
+            if not dollar_found:
+                logger.warning(f"⚠️ قیمت دلار دیروز پیدا نشد → استفاده از قیمت فعلی ({last_trade:,})")
+
+            logger.info("🇦🇪 دریافت قیمت درهم امارات...")
+            dirham_price = fetch_dirham_price()
+
+            # ─── fetch موازی طلا+نقره (فقط شبکه) ───
+            logger.info("📡 دریافت داده‌های بازار طلا و نقره (موازی)...")
+            results = await asyncio.gather(
+                fetch_commodity_inputs("gold"),
+                fetch_commodity_inputs("silver"),
+            )
+
+            # ─── process→save→send→alert — sequential ───
+            for i, (commodity, light_chart, market_data) in enumerate(results):
+                logger.info("-" * 60)
+                logger.info(f"▶️ شروع پردازش {COMMODITY_LABEL[commodity]} ({commodity})")
+                process_and_dispatch(
+                    commodity=commodity,
+                    light_chart=light_chart,
+                    market_data=market_data,
+                    last_trade=last_trade,
+                    dollar_prices=dollar_prices,
+                    yesterday_close=yesterday_close,
+                    dirham_price=dirham_price,
+                    check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
+                )
+
+        logger.info("=" * 60)
+        logger.info("✅ اجرای کامل به پایان رسید")
+        logger.info("=" * 60)
+
+    except KeyboardInterrupt:
+        logger.info("\n⚠️ برنامه توسط کاربر متوقف شد")
+
+    except Exception as e:
+        logger.error("=" * 60)
+        logger.error(f"❌ خطای کلی: {e}", exc_info=True)
+        logger.error("=" * 60)
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 خداحافظ!")
+    except Exception as e:
+        logger.critical(f"💥 خطای بحرانی: {e}", exc_info=True)
+        sys.exit(1)
