@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گلدا": {"high": 194_000, "low": 192_000},
+    "گلدا": {"high": 20_320, "low": 20_130},
 }
 
 ALERT_THRESHOLD_PERCENT = {
