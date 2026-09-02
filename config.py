@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 45_303, "low": 44_540},
+    "گنج": {"high": 193_000, "low": 195_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -41,8 +41,8 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4367
-DEFAULT_DOLLAR_PRICE = 213_000
+DEFAULT_GOLD_PRICE = 4300
+DEFAULT_DOLLAR_PRICE = 219_000
 DEFAULT_SILVER_PRICE = 64
 
 # 🎈 آستانه‌های هشدار حباب
