@@ -10,8 +10,8 @@ DOLLAR_HIGH = 221_000
 DOLLAR_LOW = 220_000
 
 # --- طلا ---
-SHAMS_HIGH = 30_000_000
-SHAMS_LOW = 29_500_000
+SHAMS_HIGH = 30_500_000
+SHAMS_LOW = 30_000_000
 
 GOLD_HIGH = 4350
 GOLD_LOW = 4300
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گلدا": {"high": 20_320, "low": 20_130},
+    "گلدا": {"high": 20_320, "low": 20_164},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -41,8 +41,8 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4300
-DEFAULT_DOLLAR_PRICE = 219_000
+DEFAULT_GOLD_PRICE = 4330
+DEFAULT_DOLLAR_PRICE = 220_000
 DEFAULT_SILVER_PRICE = 64
 
 # 🎈 آستانه‌های هشدار حباب
