@@ -6,14 +6,14 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 221_000
-DOLLAR_LOW = 220_000
+DOLLAR_HIGH = 222_000
+DOLLAR_LOW = 221_000
 
 # --- طلا ---
 SHAMS_HIGH = 30_500_000
 SHAMS_LOW = 30_000_000
 
-GOLD_HIGH = 4350
+GOLD_HIGH = 4400
 GOLD_LOW = 4300
 
 # --- نقره ---
@@ -41,7 +41,7 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4330
+DEFAULT_GOLD_PRICE = 4370
 DEFAULT_DOLLAR_PRICE = 220_000
 DEFAULT_SILVER_PRICE = 64
 
