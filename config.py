@@ -96,6 +96,7 @@ GIST_ID = os.getenv("GIST_ID")
 GIST_TOKEN = os.getenv("GIST_TOKEN")
 ALERT_STATUS_FILE = "alert_status.json"
 SARANE_KHARID_BASELINE_FILE = "sarane_kharid_baseline.json"
+EKHTELAF_SARANE_BASELINE_FILE = "ekhtelaf_sarane_baseline.json"  # میانگین ۱۰روزه‌ی اختلاف سرانه (برای کپشن)
 MESSAGE_ID_FILE = "message_id.json"
 
 SHEET_ID = os.getenv("SHEET_ID")
