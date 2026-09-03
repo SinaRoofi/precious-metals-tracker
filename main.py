@@ -209,6 +209,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "dollar_price": last_trade,
         "shams_price": shams_price,
         "dollar_change": dollar_change,
+        "global_change": global_change,
         "shams_change": shams_change,
         "shams_date": shams_date,
         "fund_change_weighted": fund_change_weighted,
