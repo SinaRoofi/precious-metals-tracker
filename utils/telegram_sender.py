@@ -23,6 +23,7 @@ from config import (
     REQUEST_TIMEOUT, TIMEZONE, LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF,
     MAX_RETRIES, RETRY_DELAY,
     ASSET_ORDER, PRICING_FACTORS, TROY_OZ, GOLD_YEAR_END_OUNCE_TARGET,
+    SILVER_YEAR_END_OUNCE_TARGET,
 )
 from utils.chart_creator import create_market_charts
 
@@ -64,9 +65,13 @@ def format_rr_ratio(value):
     return f"{emoji}{value:+.2f}"
 
 
-def calculate_shamsh_tala_rr(dfp):
+BULLION_KEY = {"gold": "شمش-طلا", "silver": "شمش-نقره"}
+YEAR_END_OUNCE_TARGET = {"gold": GOLD_YEAR_END_OUNCE_TARGET, "silver": SILVER_YEAR_END_OUNCE_TARGET}
+
+
+def calculate_bullion_rr(commodity, dfp):
     """
-    ارزش شمش طلا بورس کالا در پایان سال، با ۲ سناریوی R/R که یک ریسک
+    ارزش شمش (طلا یا نقره) بورس کالا در پایان سال، با ۲ سناریوی R/R که یک ریسک
     مشترک دارن ولی هدف/ریوارد متفاوت:
       سناریو ۱: هدف = دلار سقف (HIGH_VALUE)   | ریسک = دلار کف (LOW_VALUE)
       سناریو ۲: هدف = دلار ارزش (VALUE)       | ریسک = دلار کف (LOW_VALUE)
@@ -76,7 +81,7 @@ def calculate_shamsh_tala_rr(dfp):
 
     از همون فرمول ارزش ذاتی calculate_values در data_processor.py استفاده
     می‌کنه: Value = (dollar * ounce_target / TROY_OZ) * purity * weight * scale
-    با این تفاوت که ounce_target از GOLD_YEAR_END_OUNCE_TARGET (config،
+    با این تفاوت که ounce_target از YEAR_END_OUNCE_TARGET[commodity] (config،
     پیش‌بینی دستی خودت) میاد و برای هر ۳ سناریوی دلار یکسانه؛ فقط دلار
     فرق می‌کنه.
 
@@ -105,33 +110,35 @@ def calculate_shamsh_tala_rr(dfp):
 
     Returns: dict با current_price، value_high/value/low، risk،
     reward_high، reward_value (همه %)، rr_high، rr_value
-    (هرکدوم None اگه مخرج صفر/نامعتبر باشه) — یا None اگر «شمش-طلا» در
+    (هرکدوم None اگه مخرج صفر/نامعتبر باشه) — یا None اگر کلید شمش در
     dfp نباشه یا current_price نامعتبر باشه.
     """
-    key = "شمش-طلا"
+    key = BULLION_KEY[commodity]
     if key not in dfp.index:
-        logger.warning("⚠️ [gold] 'شمش-طلا' در dfp نیست — محاسبه‌ی R/R رد شد")
+        logger.warning(f"⚠️ [{commodity}] '{key}' در dfp نیست — محاسبه‌ی R/R رد شد")
         return None
 
     try:
-        idx = ASSET_ORDER["gold"].index(key)
-        factors = PRICING_FACTORS["gold"][idx]
+        idx = ASSET_ORDER[commodity].index(key)
+        factors = PRICING_FACTORS[commodity][idx]
     except (ValueError, IndexError) as e:
-        logger.error(f"❌ [gold] ضرایب قیمت‌گذاری 'شمش-طلا' پیدا نشد: {e}")
+        logger.error(f"❌ [{commodity}] ضرایب قیمت‌گذاری '{key}' پیدا نشد: {e}")
         return None
 
     current_price = dfp.loc[key, "close_price"]
     if not current_price or math.isnan(current_price):
-        logger.warning("⚠️ [gold] current_price نامعتبر — محاسبه‌ی R/R رد شد")
+        logger.warning(f"⚠️ [{commodity}] current_price نامعتبر — محاسبه‌ی R/R رد شد")
         return None
 
     dollar_high = HIGH_VALUE * GOLD_RR_YEAR_END_DAYS + VALUE_DIFF
     dollar_value = VALUE * GOLD_RR_YEAR_END_DAYS + VALUE_DIFF
     dollar_low = LOW_VALUE * GOLD_RR_YEAR_END_DAYS + VALUE_DIFF
 
+    ounce_target = YEAR_END_OUNCE_TARGET[commodity]
+
     def value_at(dollar):
         return (
-            (dollar * GOLD_YEAR_END_OUNCE_TARGET / TROY_OZ)
+            (dollar * ounce_target / TROY_OZ)
             * factors["purity"] * factors["weight"] * factors["scale"]
         )
 
@@ -153,10 +160,10 @@ def calculate_shamsh_tala_rr(dfp):
     rr_value = safe_div(reward_value, risk)
 
     logger.info(
-        "📐 [gold RR] current=%.0f | dollar(low/value/high)=%.0f/%.0f/%.0f | "
+        "📐 [%s RR] current=%.0f | dollar(low/value/high)=%.0f/%.0f/%.0f | "
         "value(low/value/high)=%.0f/%.0f/%.0f | risk=%.2f%% reward_high=%.2f%% "
         "reward_value=%.2f%% | rr_high=%s rr_value=%s",
-        current_price, dollar_low, dollar_value, dollar_high,
+        commodity, current_price, dollar_low, dollar_value, dollar_high,
         value_low, value_value, value_high, risk, reward_high, reward_value,
         f"{rr_high:.2f}" if rr_high is not None else "None",
         f"{rr_value:.2f}" if rr_value is not None else "None",
@@ -992,9 +999,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     header = caption
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
-    rr = None
-    if commodity == "gold":
-        rr = calculate_shamsh_tala_rr(dfp)
+    rr = calculate_bullion_rr(commodity, dfp)
 
     def build_assets_block(only_primary_ounce, include_rr):
         """
@@ -1028,7 +1033,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             if show_ounce:
                 block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.1f}%)\n"
 
-            if key == "شمش-طلا" and include_rr and rr:
+            if key == BULLION_KEY.get(commodity) and include_rr and rr:
                 rr_lines = []
                 if rr["rr_high"] is not None:
                     rr_lines.append(
@@ -1040,9 +1045,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     )
                 if rr_lines:
                     block += "\u200F⚖️ ریوارد به ریسک:\n"
-                    for i, line in enumerate(rr_lines):
-                        connector = "└" if i == len(rr_lines) - 1 else "├"
-                        block += f"\u200E{connector} {line}\n"
+                    for line in rr_lines:
+                        block += f"{line}\n"
         return block
 
     caption = (header + build_assets_block(only_primary_ounce=False, include_rr=True) + footer).strip()
