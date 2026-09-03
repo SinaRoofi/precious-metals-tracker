@@ -124,6 +124,7 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
 
             global_price = data[0]["close_price"]
             global_change_percent = round(data[0]["close_price_change_percent"] * 100, 2)
+            global_time = data[0].get("last_date_time", "")[11:16] or None
 
             tether_price = data[3]["close_price"] / 10
             tether_change_percent = round(data[3]["close_price_change_percent"] * 100, 2)
@@ -132,6 +133,7 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
             return {
                 "price": global_price,
                 "change_percent": global_change_percent,
+                "time": global_time,
                 "tether_price": tether_price,
                 "tether_change_percent": tether_change_percent,
             }
