@@ -6,12 +6,12 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 221_000
-DOLLAR_LOW = 220_000
+DOLLAR_HIGH = 213_500
+DOLLAR_LOW = 213_000
 
 # --- طلا ---
-SHAMS_HIGH = 30_500_000
-SHAMS_LOW = 30_000_000
+SHAMS_HIGH = 30_000_000
+SHAMS_LOW = 29_500_000
 
 GOLD_HIGH = 4400
 GOLD_LOW = 4300
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گلدا": {"high": 20_320, "low": 20_164},
+    "زروان": {"high": 45_303, "low": 44_540},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -41,8 +41,8 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4370
-DEFAULT_DOLLAR_PRICE = 220_000
+DEFAULT_GOLD_PRICE = 4367
+DEFAULT_DOLLAR_PRICE = 213_000
 DEFAULT_SILVER_PRICE = 64
 
 # 🎈 آستانه‌های هشدار حباب
@@ -65,6 +65,7 @@ HIGH_VALUE = 581
 # 📐 پیش‌بینی ریسک/ریوارد شمش طلا بورس کالا (تا پایان سال)
 # ════════════════════════════════════════════════════════════════
 GOLD_YEAR_END_OUNCE_TARGET = 4500  # $
+SILVER_YEAR_END_OUNCE_TARGET = 55  # $ — ⚠️ placeholder، سینا باید عدد واقعیِ پیش‌بینی‌اش رو جایگزین کنه
 
 # ════════════════════════════════════════════════════════════════
 # 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌ها)
@@ -72,7 +73,7 @@ GOLD_YEAR_END_OUNCE_TARGET = 4500  # $
 # نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
 # در اون کالا نداری و چک سوئیچ برای اون کالا انجام نمی‌شود.
 CURRENT_HOLDING = {
-    "gold": "گلدا",
+    "gold": "ناب",
     "silver": None,
 }
 
@@ -285,6 +286,7 @@ STANDARD_HEADER = [
     'pol_hagigi',
     'shams_bubble_percent',
     'trade_value',  # ⚠️ ستون جدید — همیشه در انتها اضافه شود، نه وسط (سازگاری با ردیف‌های قدیمی)
+    'global_change_percent',  # ⚠️ ستون جدید — درصد تغییر اونس نسبت به دیروز (مثل dollar_change_percent)
 ]
 
 KEEP_DAYS = 40  # باید کل یک ماه شمسی (تا ۳۱ روز) رو پوشش بده، برای گزارش ماهانه
