@@ -6,15 +6,15 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 213_500
-DOLLAR_LOW = 213_000
+DOLLAR_HIGH = 222_000
+DOLLAR_LOW = 221_000
 
 # --- طلا ---
-SHAMS_HIGH = 30_000_000
-SHAMS_LOW = 29_500_000
+SHAMS_HIGH = 31_000_000
+SHAMS_LOW = 30_000_000
 
-GOLD_HIGH = 4400
-GOLD_LOW = 4300
+GOLD_HIGH = 4500
+GOLD_LOW = 4400
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 45_303, "low": 44_540},
+    "زروان": {"high": 46_000, "low": 45_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -41,9 +41,9 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4367
-DEFAULT_DOLLAR_PRICE = 213_000
-DEFAULT_SILVER_PRICE = 64
+DEFAULT_GOLD_PRICE = 4474
+DEFAULT_DOLLAR_PRICE = 221_000
+DEFAULT_SILVER_PRICE = 65
 
 # 🎈 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
@@ -73,7 +73,7 @@ SILVER_YEAR_END_OUNCE_TARGET = 70  # $ — ⚠️ placeholder، سینا بای�
 # نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
 # در اون کالا نداری و چک سوئیچ برای اون کالا انجام نمی‌شود.
 CURRENT_HOLDING = {
-    "gold": "ناب",
+    "gold": "گلدا",
     "silver": None,
 }
 
