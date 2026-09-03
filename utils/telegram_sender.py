@@ -26,6 +26,7 @@ from config import (
     SILVER_YEAR_END_OUNCE_TARGET,
 )
 from utils.chart_creator import create_market_charts
+from utils.alerts import get_sarane_kharid_baseline, get_ekhtelaf_sarane_baseline
 
 logger = logging.getLogger(__name__)
 
@@ -928,6 +929,28 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
     value_to_avg_ratio = (total_value / total_avg_monthly * 100) if total_avg_monthly > 0 else 0
 
+    # سرانه خرید/اختلاف سرانه‌ی وزنی بازار — هم‌الگوی sarane_kharid_w/ekhtelaf_sarane_w در main.py
+    if total_value > 0:
+        sarane_kharid_w = (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
+        sarane_forosh_w = (df_funds["sarane_forosh"] * df_funds["value"]).sum() / total_value
+    else:
+        sarane_kharid_w = sarane_forosh_w = 0
+    ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
+
+    def ratio_to_baseline_str(current, baseline):
+        """نسبت مقدار فعلی به میانگین ۱۰روزه، برای نمایش داخل پرانتز — «—» یعنی baseline هنوز موجود نیست."""
+        if baseline is None or baseline == 0:
+            return "—"
+        return f"{(current / baseline * 100):.0f}%"
+
+    sarane_kharid_baseline = get_sarane_kharid_baseline(commodity)
+    ekhtelaf_sarane_baseline = get_ekhtelaf_sarane_baseline(commodity)
+    sarane_kharid_ratio_str = ratio_to_baseline_str(sarane_kharid_w, sarane_kharid_baseline)
+    ekhtelaf_sarane_ratio_str = ratio_to_baseline_str(ekhtelaf_sarane_w, ekhtelaf_sarane_baseline)
+
+    sarane_kharid_emoji = "💚"  # سبز، ولی متمایز از 🟢/🟩 که جای دیگه‌ی کپشن استفاده شدن
+    ekhtelaf_sarane_emoji = "🐂" if ekhtelaf_sarane_w >= 0 else "🐻"
+
     dollar_last = dollar_prices["last_trade"]
 
     low_pct = (low_total - dollar_last) / dollar_last * 100
@@ -998,6 +1021,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
 💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.1f}%)
+{sarane_kharid_emoji} سرانه خرید: {sarane_kharid_w:,.0f} ({sarane_kharid_ratio_str})
+{ekhtelaf_sarane_emoji} اختلاف سرانه: {ekhtelaf_sarane_w:,.0f} ({ekhtelaf_sarane_ratio_str})
 🎈 میانگین حباب: {avg_bubble_weighted:+.1f}%
 🎯 میانه حباب: {median_bubble:+.1f}%
 """
@@ -1034,10 +1059,10 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 <b>{asset_cfg['title']}</b>
 💰 {price:,.0f} {asset_cfg['unit']}{time_str}
 📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%
-💵 دلار ضمنی: {d_calc:,.0f} ({diff_d:+.1f}%)
+💵 دلار ضمنی: {d_calc:,.0f}
 """
             if show_ounce:
-                block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.1f}%)\n"
+                block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f}\n"
 
             if key == BULLION_KEY.get(commodity) and include_rr and rr:
                 rr_lines = []
