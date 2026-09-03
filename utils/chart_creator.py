@@ -66,7 +66,8 @@ def create_market_charts(commodity):
             'fund_weighted_change_percent', 'fund_final_price_avg',
             'fund_weighted_bubble_percent', 'sarane_kharid_weighted',
             'sarane_forosh_weighted', 'ekhtelaf_sarane_weighted',
-            'pol_hagigi', 'shams_bubble_percent', 'trade_value'
+            'pol_hagigi', 'shams_bubble_percent', 'trade_value',
+            'global_change_percent',
         ])
 
         df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -88,7 +89,7 @@ def create_market_charts(commodity):
         fig = make_subplots(
             rows=7, cols=1,
             subplot_titles=(
-                f'<b>($) قیمت اونس {label}</b>',
+                f'<b>(%) قیمت اونس {label}</b>',
                 '<b>(%) دلار آزاد</b>',
                 f'<b>(%) شمش {label} بورس کالا</b>',
                 f'<b>(%) آخرین قیمت و قیمت پایانی صندوق‌های {label}</b>',
@@ -109,7 +110,7 @@ def create_market_charts(commodity):
         for annotation in fig['layout']['annotations']:
             annotation.font = dict(size=32, color='#8B949E', family=chart_font_family)
 
-        last_global = df['global_price_usd'].iloc[-1]
+        last_global_change = df['global_change_percent'].iloc[-1]
         last_dollar = df['dollar_change_percent'].iloc[-1]
         last_shams = df['shams_change_percent'].iloc[-1]
         last_fund = df['fund_weighted_change_percent'].iloc[-1]
@@ -121,23 +122,10 @@ def create_market_charts(commodity):
         last_ekhtelaf = df['ekhtelaf_sarane_weighted'].iloc[-1]
 
         # ═══════════════════════════════════════════════════════
-        # نمودار 1: قیمت جهانی انس
+        # نمودار 1: درصد تغییر انس (مثل دلار — نسبت به دیروز)
         # ═══════════════════════════════════════════════════════
-        window = 200
-        recent_prices = df['global_price_usd'].iloc[-window:]
-        margin = 0.005
-        global_min = recent_prices.min() * (1 - margin)
-        global_max = recent_prices.max() * (1 + margin)
-
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['global_price_usd'],
-            name=label,
-            line=dict(color=accent_color, width=5),
-            hovertemplate='<b>%{y:.2f} $</b><extra></extra>'
-        ), row=1, col=1)
-
-        fig.update_yaxes(range=[global_min, global_max], row=1, col=1)
+        add_conditional_line(fig, df, 'global_change_percent', 1, positive_color=accent_color)
+        set_y_range(fig, df, 'global_change_percent', 1)
 
         # ═══════════════════════════════════════════════════════
         # نمودار 2-3: دلار و شمش
@@ -270,11 +258,12 @@ def create_market_charts(commodity):
         # ═══════════════════════════════════════════════════════
         # برچسب‌های آخرین مقدار
         # ═══════════════════════════════════════════════════════
+        global_color = accent_color if last_global_change >= 0 else COLOR_NEGATIVE
         fig.add_annotation(
-            text=f'<b>{last_global:,.2f}$</b>',
-            x=1.01, y=last_global, xref='paper', yref='y1',
+            text=f'<b>{last_global_change:+.2f}%</b>',
+            x=1.01, y=last_global_change, xref='paper', yref='y1',
             xanchor='left', yanchor='middle',
-            font=dict(size=28, color=accent_color, family=chart_font_family),
+            font=dict(size=28, color=global_color, family=chart_font_family),
             showarrow=False
         )
 
@@ -473,15 +462,15 @@ def set_y_range_for_series(fig, series, row, padding_percent=0.3):
     fig.update_yaxes(range=[col_min - padding, col_max + padding], row=row, col=1)
 
 
-def add_conditional_line(fig, df, column, row):
-    """رسم خط با تغییر رنگ در محل عبور از صفر"""
+def add_conditional_line(fig, df, column, row, positive_color=COLOR_POSITIVE):
+    """رسم خط با تغییر رنگ در محل عبور از صفر (بالای صفر: positive_color، زیر صفر: قرمز)"""
     for i in range(len(df) - 1):
         curr_val = df[column].iloc[i]
         next_val = df[column].iloc[i + 1]
         curr_time = df['timestamp'].iloc[i]
         next_time = df['timestamp'].iloc[i + 1]
 
-        color = COLOR_POSITIVE if curr_val >= 0 else COLOR_NEGATIVE
+        color = positive_color if curr_val >= 0 else COLOR_NEGATIVE
 
         if (curr_val >= 0 and next_val < 0) or (curr_val < 0 and next_val >= 0):
             t = abs(curr_val) / (abs(curr_val) + abs(next_val))
@@ -494,7 +483,7 @@ def add_conditional_line(fig, df, column, row):
                 showlegend=False, hoverinfo='skip'
             ), row=row, col=1)
 
-            color_next = COLOR_NEGATIVE if next_val < 0 else COLOR_POSITIVE
+            color_next = COLOR_NEGATIVE if next_val < 0 else positive_color
             fig.add_trace(go.Scatter(
                 x=[cross_time, next_time], y=[0, next_val],
                 mode='lines',
