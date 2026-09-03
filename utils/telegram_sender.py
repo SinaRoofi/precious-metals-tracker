@@ -936,7 +936,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     def calc_diffs(row):
         d_calc = row.get("pricing_dollar", 0)
         o_calc = row.get(pricing_col, 0)
-        return d_calc, d_calc - dollar_last, o_calc, o_calc - global_price
+        diff_d_pct = ((d_calc - dollar_last) / dollar_last * 100) if dollar_last else 0
+        diff_o_pct = ((o_calc - global_price) / global_price * 100) if global_price else 0
+        return d_calc, diff_d_pct, o_calc, diff_o_pct
 
     pol_to_value_ratio = (total_pol / total_value * 100) if total_value != 0 else 0
 
@@ -960,9 +962,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
 <b>💵 دلار</b>
 
-🟩 کف: {low_total:,.0f} ({low_pct:.1f}%)
+🟥 کف: {low_total:,.0f} ({low_pct:.1f}%)
 💵 ارزش: {value_total:,.0f} ({value_pct:.1f}%)
-🟥 سقف: {high_total:,.0f} ({high_pct:.1f}%)
+🟢 سقف: {high_total:,.0f} ({high_pct:.1f}%)
 """
         if tether_price is not None:
             caption += f"\u200F💲 تتر: {tether_price:,.0f} ({tether_change_percent:+.1f}%)\n"
@@ -974,15 +976,15 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
+    ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>
-\u200F💰 ${global_price:,.2f} ({global_change:+.1f}%)
+\u200F💰 ${global_price:,.2f} ({global_change:+.1f}%){ounce_time_str}
 
 <b>📊 صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
-💸 پول حقیقی: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
+💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.1f}%)
-💎 خالص ارزش دارایی: ({avg_nav_change_weighted:+.1f}%)
 🎈 میانگین حباب: {avg_bubble_weighted:+.1f}%
 🎯 میانه حباب: {median_bubble:+.1f}%
 """
@@ -1012,17 +1014,19 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             row = dfp.loc[key]
             d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
             price = row["close_price"] / asset_cfg["divisor"]
+            trade_time = row.get("last_trade_time")
+            time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
 
             show_ounce = asset_cfg["show_ounce_calc"] and not (only_primary_ounce and i != 0)
 
             block += f"""
 <b>{asset_cfg['title']}</b>
-💰 {price:,.0f} {asset_cfg['unit']}
+💰 {price:,.0f} {asset_cfg['unit']}{time_str}
 📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%
-💵 دلار ضمنی: {d_calc:,.0f} ({diff_d:+,.0f})
+💵 دلار ضمنی: {d_calc:,.0f} ({diff_d:+.1f}%)
 """
             if show_ounce:
-                block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.0f})\n"
+                block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f} ({diff_o:+.1f}%)\n"
 
             if key == "شمش-طلا" and include_rr and rr:
                 rr_lines = []
@@ -1038,7 +1042,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     block += "\u200F⚖️ ریوارد به ریسک:\n"
                     for i, line in enumerate(rr_lines):
                         connector = "└" if i == len(rr_lines) - 1 else "├"
-                        block += f"\u200F{connector} {line}\n"
+                        block += f"\u200E{connector} {line}\n"
         return block
 
     caption = (header + build_assets_block(only_primary_ounce=False, include_rr=True) + footer).strip()
