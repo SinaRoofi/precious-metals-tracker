@@ -231,7 +231,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         dollar_prices=dollar_prices,
         global_price=global_price,
         global_yesterday=global_yesterday,
-        global_time=None,
+        global_time=light_chart.get("time") if light_chart else None,
         yesterday_close=yesterday_close,
         dirham_price=dirham_price,
         tether_price=tether_price,
