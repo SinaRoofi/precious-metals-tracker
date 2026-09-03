@@ -166,20 +166,6 @@ def save_alert_status(status):
 # ════════════════════════════════════════════════════════════════
 
 
-def _safe_float(value):
-    """
-    تبدیل امن به float — برخلاف `value if value else None`، مقدار ۰ رو
-    به‌اشتباه معادل «داده‌ی موجود نیست» نمی‌گیره (۰ برای این ستون‌ها
-    مقدار معتبریه، مثلاً پول حقیقی یا حباب که واقعاً می‌تونن صفر باشن).
-    """
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def get_previous_state_from_sheet(commodity):
     """دریافت وضعیت قبلی یک کالا با بررسی فاصله زمانی، از تب مربوطه در شیت"""
     empty = {
@@ -221,22 +207,22 @@ def get_previous_state_from_sheet(commodity):
 
         return {
             "dollar_price": (
-                _safe_float(prev_row[2]) if len(prev_row) > 2 else None
+                float(prev_row[2]) if len(prev_row) > 2 and prev_row[2] else None
             ),
             "shams_price": (
-                _safe_float(prev_row[3]) if len(prev_row) > 3 else None
+                float(prev_row[3]) if len(prev_row) > 3 and prev_row[3] else None
             ),
             "global_price": (
-                _safe_float(prev_row[1]) if len(prev_row) > 1 else None
+                float(prev_row[1]) if len(prev_row) > 1 and prev_row[1] else None
             ),
             "ekhtelaf_sarane": (
-                _safe_float(prev_row[11]) if len(prev_row) > 11 else None
+                float(prev_row[11]) if len(prev_row) > 11 and prev_row[11] else None
             ),
             "bubble_weighted": (
-                _safe_float(prev_row[8]) if len(prev_row) > 8 else None
+                float(prev_row[8]) if len(prev_row) > 8 and prev_row[8] else None
             ),
             "pol_hagigi": (
-                _safe_float(prev_row[12]) if len(prev_row) > 12 else None
+                float(prev_row[12]) if len(prev_row) > 12 and prev_row[12] else None
             ),
             "same_day": same_day,
         }
@@ -563,7 +549,7 @@ def check_and_send_alerts(
         if abs(diff) >= EKHTELAF_THRESHOLD:
             send_alert_ekhtelaf_fast(
                 bot_token, chat_id, prev["ekhtelaf_sarane"], current_ekhtelaf,
-                diff, current_pol, label,
+                diff, label,
             )
 
     # هشدارهای حباب و پول حقیقی
@@ -775,17 +761,17 @@ def check_pol_alerts(bot_token, chat_id, current_pol, prev_pol, status, tz, now,
 
 
 def send_pol_state_alert(bot_token, chat_id, pol_value, state, tz, now, label):
-    """ارسال هشدار کراس صفر پول حقیقی"""
+    """ارسال هشدار کراس صفر ورود پول حقیقی"""
     if state == "positive":
-        direction, dir_emoji, description = "مثبت", "🟢", "پول حقیقی مثبت شد"
+        direction, dir_emoji, description = "مثبت", "🟢", "ورود پول حقیقی مثبت شد"
     else:
-        direction, dir_emoji, description = "منفی", "🔴", "پول حقیقی منفی شد"
+        direction, dir_emoji, description = "منفی", "🔴", "ورود پول حقیقی منفی شد"
 
     main_text = f"""
-💸 هشدار پول حقیقی {label} {dir_emoji}
+💸 هشدار ورود پول حقیقی {label} {dir_emoji}
 
 {description}
-💰 پول حقیقی: {pol_value:+,.0f} میلیارد تومان
+💰 ورود پول حقیقی: {pol_value:+,.0f} میلیارد تومان
 📊 وضعیت: {direction}
 """.strip()
 
@@ -794,13 +780,13 @@ def send_pol_state_alert(bot_token, chat_id, pol_value, state, tz, now, label):
 
 
 def send_pol_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, tz, now, label):
-    """ارسال هشدار تغییر شدید پول حقیقی"""
+    """ارسال هشدار تغییر شدید ورود پول حقیقی"""
     direction = "ورود" if change > 0 else "خروج"
     dir_emoji = "📈" if change > 0 else "📉"
     change_text = f"{abs(change):,.0f}"
 
     main_text = f"""
-🚨 تغییر شدید پول حقیقی {label} {dir_emoji}
+🚨 تغییر شدید ورود پول حقیقی {label} {dir_emoji}
 
 ⏱ {direction} در 1 دقیقه: {change_text} میلیارد تومان
 🔴 قبلی: {prev_value:+,.0f} م.ت
@@ -869,7 +855,7 @@ def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz
 🚨 {title} — {label} {dir_emoji}
 
 🎈 حباب: {bubble:+.2f}%
-💸 پول حقیقی: {pol:+,.0f} میلیارد تومان
+💸 ورود پول حقیقی: {pol:+,.0f} میلیارد تومان
 📊 اختلاف سرانه: {ekhtelaf:+,.0f}
 """.strip()
 
@@ -981,6 +967,7 @@ def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity,
     best_symbol = candidates["nominal_bubble"].idxmin()
     best_bubble = candidates.loc[best_symbol, "nominal_bubble"]
     best_avg_bubble = candidates.loc[best_symbol, "avg_monthly_bubble"]
+    best_price = candidates.loc[best_symbol, "close_price"]
 
     # نسبت طلای واقعی بعد از سوئیچ به قبلش (دقیق، نه تقریب خطی):
     # gold_ratio = (1-fee_sell)(1-fee_buy) × (1+bubble_from/100)/(1+bubble_to/100)
@@ -1006,7 +993,7 @@ def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity,
         if status[status_key] != best_symbol:
             send_switch_alert(
                 bot_token, chat_id, current_symbol, current_bubble,
-                best_symbol, best_bubble, gold_gain_percent, tz, now, label,
+                best_symbol, best_bubble, best_price, gold_gain_percent, tz, now, label,
             )
             status[status_key] = best_symbol
             status_changed = True
@@ -1025,13 +1012,14 @@ def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity,
 
 
 def send_switch_alert(bot_token, chat_id, from_symbol, from_bubble,
-                       to_symbol, to_bubble, gold_gain_percent, tz, now, label):
+                       to_symbol, to_bubble, to_price, gold_gain_percent, tz, now, label):
     """ارسال هشدار سیگنال سوئیچ بین دو صندوق هم‌کالا"""
     main_text = f"""
 🔄 سیگنال سوئیچ صندوق {label}
 
 📤 از: {from_symbol} (حباب {from_bubble:+.2f}%)
 📥 به: {to_symbol} (حباب {to_bubble:+.2f}%)
+💰 قیمت ورودی {to_symbol}: {to_price:,.0f} ریال
 🪙 افزایش طلای واقعی (پس از کارمزد): {gold_gain_percent:+.2f}%
 """.strip()
 
@@ -1057,18 +1045,18 @@ def send_price_alert(bot_token, chat_id, asset_name, price, change_5min, unit="�
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
-def send_alert_ekhtelaf_fast(bot_token, chat_id, prev_val, curr_val, diff, pol_hagigi, label):
+def send_alert_ekhtelaf_fast(bot_token, chat_id, prev_val, curr_val, diff, label):
     """ارسال هشدار تغییر شدید اختلاف سرانه"""
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
     direction = "افزایش شدید (مثبت)" if diff > 0 else "کاهش شدید (منفی)"
     dir_emoji = "🟢" if diff > 0 else "🔴"
     diff_text = f"{diff:+.0f}".replace("+-", "−")
-    pol_text = f"{pol_hagigi:+,.0f}".replace("+-", "−")
+    prev_text = f"{prev_val:+,.0f}".replace("+-", "−")
 
     main_text = (
         f"🚨 هشدار اختلاف سرانه — {label}\n\n{dir_emoji} {direction}\n"
-        f"⏱ تغییر: {diff_text} میلیون تومان\n💰 پول حقیقی: {pol_text} میلیارد تومان"
+        f"⏱ تغییر: {diff_text} میلیون تومان\n📉 اختلاف سرانه قبلی: {prev_text} میلیون تومان"
     )
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
