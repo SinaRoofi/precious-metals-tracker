@@ -65,6 +65,12 @@ def format_rr_ratio(value):
     return f"{emoji}{value:+.2f}"
 
 
+def reward_emoji(reward_percent):
+    """ایموجی ابتدای خط بر اساس علامت درصد بازدهی (reward) — مستقل از
+    رنگ‌بندی format_rr_ratio که بر اساس کیفیت خودِ نسبت R/R است، نه بازدهی."""
+    return "🟢" if reward_percent >= 0 else "🔴"
+
+
 BULLION_KEY = {"gold": "شمش-طلا", "silver": "شمش-نقره"}
 YEAR_END_OUNCE_TARGET = {"gold": GOLD_YEAR_END_OUNCE_TARGET, "silver": SILVER_YEAR_END_OUNCE_TARGET}
 
@@ -1037,11 +1043,13 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 rr_lines = []
                 if rr["rr_high"] is not None:
                     rr_lines.append(
-                        f"سقف: {rr['reward_high']:+.2f}% → {format_rr_ratio(rr['rr_high'])}"
+                        f"{reward_emoji(rr['reward_high'])} سقف: {rr['reward_high']:+.2f}% "
+                        f"→ {format_rr_ratio(rr['rr_high'])}"
                     )
                 if rr["rr_value"] is not None:
                     rr_lines.append(
-                        f"ارزش: {rr['reward_value']:+.2f}% → {format_rr_ratio(rr['rr_value'])}"
+                        f"{reward_emoji(rr['reward_value'])} ارزش: {rr['reward_value']:+.2f}% "
+                        f"→ {format_rr_ratio(rr['rr_value'])}"
                     )
                 if rr_lines:
                     block += "\u200F⚖️ ریوارد به ریسک:\n"
