@@ -28,6 +28,7 @@ from config import (
     GIST_TOKEN,
     ALERT_STATUS_FILE,
     SARANE_KHARID_BASELINE_FILE,
+    EKHTELAF_SARANE_BASELINE_FILE,
     ALERT_CHANNEL_HANDLE,
     REQUEST_TIMEOUT,
     TIMEZONE,
@@ -379,6 +380,149 @@ def _compute_sarane_kharid_baseline(commodity, today):
 
     except Exception as e:
         logger.error(f"[{commodity}] خطا در محاسبه‌ی میانگین سرانه خرید: {e}")
+        return None
+
+
+# ════════════════════════════════════════════════════════════════
+# میانگین چند روزه‌ی اختلاف سرانه (برای خط «اختلاف سرانه» در کپشن)
+# دقیقاً هم‌الگوی بلوک سرانه خرید بالا — فایل Gist جدا (EKHTELAF_SARANE_BASELINE_FILE)
+# و کش محلی جدا، تا به baseline سرانه خرید (که هشدار جهش ازش استفاده می‌کنه) دست نخوره.
+# ════════════════════════════════════════════════════════════════
+
+EKHTELAF_SARANE_BASELINE_CACHE = None
+
+
+def _default_ekhtelaf_sarane_baseline_store():
+    return {c: {"date": None, "baseline": None} for c in ("gold", "silver")}
+
+
+def get_ekhtelaf_sarane_baseline_store():
+    """مثل get_sarane_kharid_baseline_store، ولی از فایل Gist جدای EKHTELAF_SARANE_BASELINE_FILE می‌خونه."""
+    global EKHTELAF_SARANE_BASELINE_CACHE
+
+    try:
+        if not GIST_ID or not GIST_TOKEN:
+            logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
+            return EKHTELAF_SARANE_BASELINE_CACHE or _default_ekhtelaf_sarane_baseline_store()
+
+        url = f"https://api.github.com/gists/{GIST_ID}"
+        headers = {"Authorization": f"token {GIST_TOKEN}"}
+        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+
+        if r.status_code == 200 and EKHTELAF_SARANE_BASELINE_FILE in r.json()["files"]:
+            store = json.loads(r.json()["files"][EKHTELAF_SARANE_BASELINE_FILE]["content"])
+            for key in _default_ekhtelaf_sarane_baseline_store():
+                store.setdefault(key, {"date": None, "baseline": None})
+            EKHTELAF_SARANE_BASELINE_CACHE = store
+            return store
+
+    except Exception as e:
+        logger.error(f"خطا در خواندن ekhtelaf_sarane_baseline: {e}")
+        if EKHTELAF_SARANE_BASELINE_CACHE:
+            logger.info("استفاده از کش محلی baseline اختلاف سرانه")
+            return EKHTELAF_SARANE_BASELINE_CACHE
+
+    default = _default_ekhtelaf_sarane_baseline_store()
+    EKHTELAF_SARANE_BASELINE_CACHE = default
+    return default
+
+
+def save_ekhtelaf_sarane_baseline_store(store):
+    """ذخیره‌ی store در فایل Gist جدای EKHTELAF_SARANE_BASELINE_FILE — این فایل با اولین
+    PATCH موفق خودکار داخل همون Gist ساخته می‌شه (نیازی به ساخت دستی نیست)."""
+    global EKHTELAF_SARANE_BASELINE_CACHE
+
+    try:
+        if not GIST_ID or not GIST_TOKEN:
+            return
+
+        url = f"https://api.github.com/gists/{GIST_ID}"
+        headers = {"Authorization": f"token {GIST_TOKEN}"}
+
+        response = requests.patch(
+            url,
+            headers=headers,
+            json={
+                "files": {
+                    EKHTELAF_SARANE_BASELINE_FILE: {
+                        "content": json.dumps(store, ensure_ascii=False)
+                    }
+                }
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        if response.status_code == 200:
+            EKHTELAF_SARANE_BASELINE_CACHE = store
+
+    except Exception as e:
+        logger.error(f"خطا در ذخیره ekhtelaf_sarane_baseline: {e}")
+
+
+def get_ekhtelaf_sarane_baseline(commodity):
+    """
+    میانگین وزنی «اختلاف سرانه» بازار روی آخرین SARANE_KHARID_MA_DAYS روز کاری «بسته»
+    را برمی‌گرداند — مثل get_sarane_kharid_baseline، همون کش روزانه‌ی Gist.
+
+    Returns:
+        float | None — None یعنی هنوز baseline معتبری محاسبه نشده.
+    """
+    tz = pytz.timezone(TIMEZONE)
+    today = datetime.now(tz).date()
+    today_str = today.isoformat()
+
+    store = get_ekhtelaf_sarane_baseline_store()
+    entry = store.get(commodity, {"date": None, "baseline": None})
+
+    if entry.get("date") == today_str and entry.get("baseline") is not None:
+        return entry["baseline"]
+
+    baseline = _compute_ekhtelaf_sarane_baseline(commodity, today)
+
+    store[commodity] = {"date": today_str, "baseline": baseline}
+    save_ekhtelaf_sarane_baseline_store(store)
+
+    return baseline
+
+
+def _compute_ekhtelaf_sarane_baseline(commodity, today):
+    """محاسبه‌ی واقعی میانگین (بدون کش/Gist) — یک‌بار در روز از get_ekhtelaf_sarane_baseline صدا زده می‌شود."""
+    try:
+        rows = read_from_sheets(commodity, limit=SARANE_KHARID_HISTORY_LOOKBACK_ROWS)
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows, columns=STANDARD_HEADER)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["ekhtelaf_sarane_weighted"] = pd.to_numeric(
+            df["ekhtelaf_sarane_weighted"], errors="coerce"
+        )
+        df = df.dropna(subset=["timestamp", "ekhtelaf_sarane_weighted"])
+        if df.empty:
+            return None
+
+        df["date"] = df["timestamp"].dt.date
+
+        daily = (
+            df[df["date"] < today]
+            .sort_values("timestamp")
+            .groupby("date", as_index=False)
+            .last()
+            .sort_values("date")
+        )
+
+        if len(daily) < SARANE_KHARID_MA_MIN_DAYS:
+            logger.debug(
+                f"[{commodity}] تاریخچه‌ی کافی برای میانگین اختلاف سرانه نیست "
+                f"({len(daily)} روز < حداقل {SARANE_KHARID_MA_MIN_DAYS} روز)"
+            )
+            return None
+
+        window = daily["ekhtelaf_sarane_weighted"].tail(SARANE_KHARID_MA_DAYS)
+        return float(window.mean())
+
+    except Exception as e:
+        logger.error(f"[{commodity}] خطا در محاسبه‌ی میانگین اختلاف سرانه: {e}")
         return None
 
 
