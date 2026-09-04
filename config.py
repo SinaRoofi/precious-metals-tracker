@@ -39,6 +39,7 @@ EKHTELAF_THRESHOLD = 20
 SARANE_KHARID_MA_DAYS = 10       # تعداد روزهای گذشته (بسته، بدون امروز) برای میانگین پایه
 SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم — کمتر از این، سیگنال نامعتبر است
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
+SARANE_FOROSH_SPIKE_MULTIPLIER = 1.5  # سرانه فروش فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
 DEFAULT_GOLD_PRICE = 4367
