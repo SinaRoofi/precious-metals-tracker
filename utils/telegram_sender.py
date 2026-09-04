@@ -26,6 +26,7 @@ from config import (
     SILVER_YEAR_END_OUNCE_TARGET,
 )
 from utils.chart_creator import create_market_charts
+from utils.alerts import get_sarane_kharid_baseline, get_sarane_forosh_baseline
 
 logger = logging.getLogger(__name__)
 
@@ -928,6 +929,29 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
     value_to_avg_ratio = (total_value / total_avg_monthly * 100) if total_avg_monthly > 0 else 0
 
+    # سرانه خرید/سرانه فروش وزنی بازار — هم‌الگوی sarane_kharid_w/sarane_forosh_w در main.py
+    # (هر دو همیشه غیرمنفی‌ان — سرانه فروش هم مثل سرانه خرید یک مقداره، نه یک اختلاف علامت‌دار)
+    if total_value > 0:
+        sarane_kharid_w = (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
+        sarane_forosh_w = (df_funds["sarane_forosh"] * df_funds["value"]).sum() / total_value
+    else:
+        sarane_kharid_w = sarane_forosh_w = 0
+
+    def ratio_to_baseline_str(current, baseline):
+        """نسبت مقدار فعلی به میانگین ۱۰روزه، برای نمایش داخل پرانتز — «—» یعنی baseline هنوز موجود نیست.
+        برای سرانه خرید و سرانه فروش هر دو مناسبه، چون هر دو همیشه غیرمنفی‌ان."""
+        if baseline is None or baseline == 0:
+            return "—"
+        return f"{(current / baseline * 100):.0f}%"
+
+    sarane_kharid_baseline = get_sarane_kharid_baseline(commodity)
+    sarane_forosh_baseline = get_sarane_forosh_baseline(commodity)
+    sarane_kharid_ratio_str = ratio_to_baseline_str(sarane_kharid_w, sarane_kharid_baseline)
+    sarane_forosh_ratio_str = ratio_to_baseline_str(sarane_forosh_w, sarane_forosh_baseline)
+
+    sarane_kharid_emoji = "💚"  # سبز، ولی متمایز از 🟢/🟩 که جای دیگه‌ی کپشن استفاده شدن
+    sarane_forosh_emoji = "❤️"  # قرمز، جفتِ قلبی 💚 — متمایز از 🔴/🟥 که جای دیگه‌ی کپشن استفاده شدن
+
     dollar_last = dollar_prices["last_trade"]
 
     low_pct = (low_total - dollar_last) / dollar_last * 100
@@ -945,6 +969,13 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
     dfp = data["dfp"]
     pricing_col = f"pricing_{commodity}"
+
+    def calc_diffs(row):
+        d_calc = row.get("pricing_dollar", 0)
+        o_calc = row.get(pricing_col, 0)
+        diff_d_pct = ((d_calc - dollar_last) / dollar_last * 100) if dollar_last else 0
+        diff_o_pct = ((o_calc - global_price) / global_price * 100) if global_price else 0
+        return d_calc, diff_d_pct, o_calc, diff_o_pct
 
     pol_to_value_ratio = (total_pol / total_value * 100) if total_value != 0 else 0
 
@@ -982,15 +1013,18 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
+    fund_emoji = "🥇" if commodity == "gold" else "🥈"
     ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>
 \u200F💰 ${global_price:,.2f} ({global_change:+.1f}%){ounce_time_str}
 
-<b>📊 صندوق‌های {label}</b>
+<b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
 💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.1f}%)
+{sarane_kharid_emoji} سرانه خرید: {sarane_kharid_w:,.0f} ({sarane_kharid_ratio_str})
+{sarane_forosh_emoji} سرانه فروش: {sarane_forosh_w:,.0f} ({sarane_forosh_ratio_str})
 🎈 میانگین حباب: {avg_bubble_weighted:+.1f}%
 🎯 میانه حباب: {median_bubble:+.1f}%
 """
@@ -1016,7 +1050,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 continue
 
             row = dfp.loc[key]
-            d_calc, o_calc = row.get("pricing_dollar", 0), row.get(pricing_col, 0)
+            d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
             price = row["close_price"] / asset_cfg["divisor"]
             trade_time = row.get("last_trade_time")
             time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
