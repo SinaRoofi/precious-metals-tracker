@@ -37,6 +37,7 @@ from config import (
     SARANE_KHARID_MA_DAYS,
     SARANE_KHARID_MA_MIN_DAYS,
     SARANE_KHARID_SPIKE_MULTIPLIER,
+    SARANE_FOROSH_SPIKE_MULTIPLIER,
     CURRENT_HOLDING,
     SWITCH_FEE_BUY,
     SWITCH_FEE_SELL,
@@ -87,6 +88,7 @@ def _default_alert_status():
         status[f"{c}_pol_hagigi"] = "normal"
         status[f"{c}_hard_signal"] = "normal"
         status[f"{c}_sarane_kharid_spike"] = "normal"
+        status[f"{c}_sarane_forosh_spike"] = "normal"
         status[f"{c}_switch_signal"] = "normal"
     for symbol in FUND_PRICE_ALERTS:
         status[f"fund_{symbol}"] = "normal"
@@ -603,6 +605,75 @@ def send_sarane_kharid_spike_alert(bot_token, chat_id, current_value, baseline, 
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
+def check_sarane_forosh_spike_alert(
+    bot_token, chat_id, current_sarane_forosh, baseline, status, tz, now, commodity, label
+):
+    """
+    عیناً هم‌الگوی check_sarane_kharid_spike_alert بالا، فقط برای سرانه فروش —
+    وقتی سرانه فروش فعلی حداقل SARANE_FOROSH_SPIKE_MULTIPLIER برابر میانگین
+    SARANE_KHARID_MA_DAYS روزه‌ش بشه، هشدار می‌ره. state-based، فقط موقع ورود
+    به حالت «جهش» پیام می‌ره.
+
+    current_sarane_forosh و baseline باید هر دو مثبت باشن (مثل سرانه خرید) —
+    baseline از get_sarane_forosh_baseline میاد که خودش قبلاً علامتش رو
+    نسبت به ستون شیت (که منفی ذخیره می‌شه) برگردونده مثبت.
+    """
+    status_key = f"{commodity}_sarane_forosh_spike"
+
+    if baseline is None or baseline <= 0:
+        logger.warning(
+            f"⚠️ [{commodity}] بررسی جهش سرانه فروش رد شد — baseline نامعتبر است "
+            f"(baseline={baseline}). فعلی: {current_sarane_forosh:,.2f}. "
+            f"ممکن است تاریخچه‌ی کافی (حداقل {SARANE_KHARID_MA_MIN_DAYS} روز) در Sheets نباشد، "
+            f"یا خواندن Gist/Sheets خطا داده باشد — لاگ‌های بالاتر را چک کن."
+        )
+        return False
+
+    ratio = current_sarane_forosh / baseline
+    logger.info(
+        f"📊 [{commodity}] سرانه فروش: فعلی {current_sarane_forosh:,.2f} | "
+        f"میانگین {SARANE_KHARID_MA_DAYS}روزه {baseline:,.2f} | "
+        f"نسبت {ratio:.2f}× (آستانه {SARANE_FOROSH_SPIKE_MULTIPLIER:.1f}×)"
+    )
+
+    is_spike = current_sarane_forosh >= baseline * SARANE_FOROSH_SPIKE_MULTIPLIER
+
+    if is_spike:
+        if status[status_key] != "spike":
+            send_sarane_forosh_spike_alert(
+                bot_token, chat_id, current_sarane_forosh, baseline, tz, now, label
+            )
+            status[status_key] = "spike"
+            logger.info(
+                f"🚀 [{commodity}] جهش سرانه فروش: فعلی {current_sarane_forosh:,.2f} "
+                f"≥ {SARANE_FOROSH_SPIKE_MULTIPLIER:.0f}× میانگین {baseline:,.2f}"
+            )
+            return True
+        return False
+
+    if status[status_key] != "normal":
+        status[status_key] = "normal"
+        return True
+
+    return False
+
+
+def send_sarane_forosh_spike_alert(bot_token, chat_id, current_value, baseline, tz, now, label):
+    """ارسال هشدار جهش سرانه فروش بازار"""
+    ratio = current_value / baseline if baseline else 0
+
+    main_text = f"""
+📉 هشدار جهش سرانه فروش بازار — {label}
+
+📊 سرانه فروش فعلی: {current_value:,.2f}
+📈 میانگین {SARANE_KHARID_MA_DAYS} روزه: {baseline:,.2f}
+✖️ نسبت: {ratio:,.2f} برابر
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
+
+
 # ════════════════════════════════════════════════════════════════
 # ارکستراسیون اصلی — یک‌بار به ازای هر کالا در main.py صدا زده می‌شود
 # ════════════════════════════════════════════════════════════════
@@ -658,6 +729,11 @@ def check_and_send_alerts(
     current_pol = df_funds["pol_hagigi"].sum() if not df_funds.empty else 0
     current_sarane_kharid = (
         (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
+        if total_value > 0
+        else 0
+    )
+    current_sarane_forosh = (
+        (df_funds["sarane_forosh"] * df_funds["value"]).sum() / total_value
         if total_value > 0
         else 0
     )
@@ -733,6 +809,15 @@ def check_and_send_alerts(
         status, tz, now, commodity, label,
     )
     if sarane_spike_changed:
+        changed = True
+
+    # هشدار جهش سرانه فروش بازار نسبت به میانگین چند روزه
+    sarane_forosh_baseline = get_sarane_forosh_baseline(commodity)
+    sarane_forosh_spike_changed = check_sarane_forosh_spike_alert(
+        bot_token, chat_id, current_sarane_forosh, sarane_forosh_baseline,
+        status, tz, now, commodity, label,
+    )
+    if sarane_forosh_spike_changed:
         changed = True
 
     # آستانه‌های قیمتی
