@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گوهر": {"high": 1_100_000, "low": 1_110_000},
+    "گوهر": {"high": 1_109_000, "low": 1_095_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
