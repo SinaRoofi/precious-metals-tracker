@@ -6,12 +6,12 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 222_000
-DOLLAR_LOW = 220_000
+DOLLAR_HIGH = 225_000
+DOLLAR_LOW = 224_000
 
 # --- طلا ---
-SHAMS_HIGH = 30_500_000
-SHAMS_LOW = 30_000_000
+SHAMS_HIGH = 31_500_000
+SHAMS_LOW = 31_000_000
 
 GOLD_HIGH = 4500
 GOLD_LOW = 4400
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 46_303, "low": 44_540},
+    "گوهر": {"high": 1_100_000, "low": 1_110_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -74,7 +74,7 @@ SILVER_YEAR_END_OUNCE_TARGET = 70
 # نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
 # در اون کالا نداری و چک سوئیچ برای اون کالا انجام نمی‌شود.
 CURRENT_HOLDING = {
-    "gold": "گلدا",
+    "gold": "گوهر",
     "silver": None,
 }
 
