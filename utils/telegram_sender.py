@@ -1009,7 +1009,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         if dollar_from_dirham is not None:
             caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.1f}%)\n\n"
 
-        caption += f"💵 معامله: {dollar_last:,.0f} ({dollar_change:+.1f}%) {tick}\n"
+        caption += f"💵 معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
@@ -1017,16 +1017,16 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>
-\u200F💰 ${global_price:,.2f} ({global_change:+.1f}%){ounce_time_str}
+\u200F💰 ${global_price:,.2f} ({global_change:+.2f}%){ounce_time_str}
 
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
 💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
-📈 آخرین قیمت: ({avg_change_percent_weighted:+.1f}%)
+📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
 {sarane_kharid_emoji} سرانه خرید: {sarane_kharid_w:,.0f} ({sarane_kharid_ratio_str})
 {sarane_forosh_emoji} سرانه فروش: {sarane_forosh_w:,.0f} ({sarane_forosh_ratio_str})
-🎈 میانگین حباب: {avg_bubble_weighted:+.1f}%
-🎯 میانه حباب: {median_bubble:+.1f}%
+🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
+🎯 میانه حباب: {median_bubble:+.2f}%
 """
 
     header = caption
