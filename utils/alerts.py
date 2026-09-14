@@ -38,6 +38,10 @@ from config import (
     SARANE_KHARID_MA_MIN_DAYS,
     SARANE_KHARID_SPIKE_MULTIPLIER,
     SARANE_FOROSH_SPIKE_MULTIPLIER,
+    TRADE_VALUE_ABOVE_AVG_MULTIPLIER,
+    TRADE_VALUE_SPIKE_MULTIPLIER,
+    TRADE_VALUE_DOD_GROWTH_THRESHOLD,
+    TRADE_VALUE_SHARP_CHANGE_RATIO,
     CURRENT_HOLDING,
     SWITCH_FEE_BUY,
     SWITCH_FEE_SELL,
@@ -89,6 +93,8 @@ def _default_alert_status():
         status[f"{c}_hard_signal"] = "normal"
         status[f"{c}_sarane_kharid_spike"] = "normal"
         status[f"{c}_sarane_forosh_spike"] = "normal"
+        status[f"{c}_trade_value_level"] = "normal"
+        status[f"{c}_trade_value_dod_growth"] = "normal"
         status[f"{c}_switch_signal"] = "normal"
     for symbol in FUND_PRICE_ALERTS:
         status[f"fund_{symbol}"] = "normal"
@@ -179,6 +185,7 @@ def get_previous_state_from_sheet(commodity):
         "bubble_weighted": None,
         "pol_hagigi": None,
         "same_day": None,
+        "trade_value": None,
     }
 
     try:
@@ -228,6 +235,9 @@ def get_previous_state_from_sheet(commodity):
                 float(prev_row[12]) if len(prev_row) > 12 and prev_row[12] else None
             ),
             "same_day": same_day,
+            "trade_value": (
+                float(prev_row[14]) if len(prev_row) > 14 and prev_row[14] else None
+            ),
         }
 
     except Exception as e:
@@ -675,6 +685,230 @@ def send_sarane_forosh_spike_alert(bot_token, chat_id, current_value, baseline, 
 
 
 # ════════════════════════════════════════════════════════════════
+# 💹 هشدار ارزش معاملات — نسبت به میانگین ماهانه‌ی زنده (avg_monthly_value از Fund_df،
+# دقیقاً همون فیلدی که در telegram_sender.py برای کپشن استفاده می‌شه، نه baseline
+# جدا محاسبه‌شده) — دو سطح + رشد روز به روز + جهش ناگهانی بین دو خوانش پیاپی
+# ════════════════════════════════════════════════════════════════
+
+# سطوح به ترتیب صعودی — ترتیب مهمه چون موقع جهش چندسطحی، پیام‌ها به همین ترتیب
+# (اول عبور از میانگین، بعد ۲برابر) ارسال می‌شن تا هیچ سطحی جا نمونه.
+_TRADE_VALUE_LEVELS = [
+    ("above_avg", TRADE_VALUE_ABOVE_AVG_MULTIPLIER, "send_trade_value_above_avg_alert"),
+    ("spike_2x", TRADE_VALUE_SPIKE_MULTIPLIER, "send_trade_value_spike_alert"),
+]
+_TRADE_VALUE_LEVEL_ORDER = ["normal"] + [lvl[0] for lvl in _TRADE_VALUE_LEVELS]
+
+
+def check_trade_value_alerts(bot_token, chat_id, current_trade_value, prev_trade_value,
+                              monthly_avg, status, tz, now, commodity, label, same_day=None):
+    """
+    بررسی و ارسال هشدارهای ارزش معاملات نسبت به میانگین ماهانه‌ی زنده:
+      ۱) عبور از میانگین ماهانه (سطح «above_avg»)
+      ۲) عبور از ۲ برابر میانگین ماهانه (سطح «spike_2x»)
+      ۳) جهش ناگهانی بین دو خوانش پیاپی، نسبت به میانگین ماهانه سنجیده می‌شه
+         (نه یه عدد ریالی ثابت، چون مقیاس طلا/نقره فرق داره)، فقط در همون روز
+         (same_day=True) مقایسه می‌شه — درست مثل تغییر شدید پول حقیقی.
+
+    ۱ و ۲ حالت‌محورن (مثل جهش سرانه): فقط موقع ورود به سطح بالاتر پیام می‌ره،
+    برگشت به زیر آستانه بی‌صدا ریست می‌شه. اگه در یک خوانش مستقیم از «normal»
+    به «spike_2x» بپره، هر دو پیام («above_avg» و بعدش «spike_2x») به‌ترتیب
+    ارسال می‌شن تا سابقه‌ی عبور از میانگین گم نشه.
+    """
+    status_key = f"{commodity}_trade_value_level"
+
+    if monthly_avg is None or monthly_avg <= 0:
+        logger.debug(
+            f"[{commodity}] بررسی ارزش معاملات رد شد — avg_monthly_value نامعتبر است "
+            f"({monthly_avg}). فعلی: {current_trade_value:,.0f}"
+        )
+        return False
+
+    ratio = current_trade_value / monthly_avg
+    logger.info(
+        f"📊 [{commodity}] ارزش معاملات: فعلی {current_trade_value:,.0f} | "
+        f"میانگین ماهانه {monthly_avg:,.0f} | نسبت {ratio:.2f}×"
+    )
+
+    current_level = "normal"
+    for level_name, multiplier, _ in _TRADE_VALUE_LEVELS:
+        if ratio >= multiplier:
+            current_level = level_name  # صعودیه، پس بالاترین سطح برنده می‌مونه
+
+    prev_level = status.get(status_key, "normal")
+    status_changed = False
+    sender_by_name = {
+        "send_trade_value_above_avg_alert": send_trade_value_above_avg_alert,
+        "send_trade_value_spike_alert": send_trade_value_spike_alert,
+    }
+
+    prev_idx = _TRADE_VALUE_LEVEL_ORDER.index(prev_level)
+    current_idx = _TRADE_VALUE_LEVEL_ORDER.index(current_level)
+
+    if current_idx > prev_idx:
+        for level_name, _, sender_name in _TRADE_VALUE_LEVELS:
+            level_idx = _TRADE_VALUE_LEVEL_ORDER.index(level_name)
+            if prev_idx < level_idx <= current_idx:
+                sender_by_name[sender_name](
+                    bot_token, chat_id, current_trade_value, monthly_avg, tz, now, label
+                )
+        status[status_key] = current_level
+        status_changed = True
+        logger.info(f"📈 [{commodity}] ارزش معاملات وارد سطح «{current_level}» شد ({ratio:.2f}×)")
+
+    elif current_idx < prev_idx:
+        status[status_key] = current_level
+        status_changed = True
+
+    if prev_trade_value is not None and same_day is True:
+        change = current_trade_value - prev_trade_value
+        if change >= monthly_avg * TRADE_VALUE_SHARP_CHANGE_RATIO:
+            send_trade_value_sharp_change_alert(
+                bot_token, chat_id, prev_trade_value, current_trade_value,
+                change, monthly_avg, tz, now, label,
+            )
+
+    return status_changed
+
+
+def send_trade_value_above_avg_alert(bot_token, chat_id, current_value, monthly_avg, tz, now, label):
+    """ارسال هشدار عبور ارزش معاملات از میانگین ماهانه"""
+    ratio = current_value / monthly_avg if monthly_avg else 0
+
+    main_text = f"""
+📈 هشدار ارزش معاملات {label}
+
+ارزش معاملات از میانگین ماهانه عبور کرد.
+💰 ارزش معاملات فعلی: {current_value:,.1f} میلیارد تومان
+📊 میانگین ماهانه: {monthly_avg:,.1f} میلیارد تومان
+✖️ نسبت: {ratio:,.2f} برابر
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
+
+
+def send_trade_value_spike_alert(bot_token, chat_id, current_value, monthly_avg, tz, now, label):
+    """ارسال هشدار جهش ارزش معاملات به ۲ برابر میانگین ماهانه"""
+    ratio = current_value / monthly_avg if monthly_avg else 0
+
+    main_text = f"""
+🚀 هشدار جهش ارزش معاملات {label}
+
+ارزش معاملات به {TRADE_VALUE_SPIKE_MULTIPLIER:.0f} برابر میانگین ماهانه رسید.
+💰 ارزش معاملات فعلی: {current_value:,.1f} میلیارد تومان
+📊 میانگین ماهانه: {monthly_avg:,.1f} میلیارد تومان
+✖️ نسبت: {ratio:,.2f} برابر
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
+
+
+def send_trade_value_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, monthly_avg, tz, now, label):
+    """ارسال هشدار جهش ناگهانی ارزش معاملات بین دو خوانش پیاپی"""
+    change_ratio = (change / monthly_avg * 100) if monthly_avg else 0
+
+    main_text = f"""
+🚨 جهش ناگهانی ارزش معاملات {label} 📈
+
+⏱ افزایش در 1 دقیقه: {change:,.1f} میلیارد تومان ({change_ratio:,.0f}% میانگین ماهانه)
+🔴 قبلی: {prev_value:,.1f} میلیارد تومان
+🟢 فعلی: {curr_value:,.1f} میلیارد تومان
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
+
+
+# ════════════════════════════════════════════════════════════════
+# 📅 رشد ارزش معاملات نسبت به روز قبل (day-over-day)
+# ════════════════════════════════════════════════════════════════
+
+
+def get_previous_day_trade_value(commodity, today):
+    """
+    آخرین (پایانی) مقدار trade_value روز کاری قبل رو برمی‌گردونه — بدون کش،
+    چون فقط یه خوندن سبک شیته (نه محاسبه‌ی سنگین روی تاریخچه‌ی بلند مثل baseline).
+
+    Returns:
+        float | None
+    """
+    try:
+        rows = read_from_sheets(commodity, limit=400)
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows, columns=STANDARD_HEADER)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["trade_value"] = pd.to_numeric(df["trade_value"], errors="coerce")
+        df = df.dropna(subset=["timestamp", "trade_value"])
+        df = df[df["timestamp"].dt.date < today]
+        if df.empty:
+            return None
+
+        yesterday = df["timestamp"].dt.date.max()
+        yesterday_rows = df[df["timestamp"].dt.date == yesterday].sort_values("timestamp")
+        return float(yesterday_rows["trade_value"].iloc[-1])
+
+    except Exception as e:
+        logger.error(f"[{commodity}] خطا در خواندن ارزش معاملات روز قبل: {e}")
+        return None
+
+
+def check_trade_value_dod_growth_alert(bot_token, chat_id, current_trade_value, prev_day_trade_value,
+                                        status, tz, now, commodity, label, same_day=None):
+    """
+    بررسی رشد ارزش معاملات امروز (تا این لحظه) نسبت به کل ارزش معاملات دیروز.
+    وقتی رشد از TRADE_VALUE_DOD_GROWTH_THRESHOLD (پیش‌فرض ۵۰٪) بیشتر بشه، یه‌بار
+    پیام می‌ره (حالت‌محور، مثل بقیه). چون trade_value هر روز از صفر شروع می‌شه،
+    وضعیت با شروع هر روز جدید (same_day=False) خودکار ریست می‌شه تا فردا دوباره
+    بشه هشدار داد.
+    """
+    status_key = f"{commodity}_trade_value_dod_growth"
+
+    if same_day is False:
+        status[status_key] = "normal"
+
+    if prev_day_trade_value is None or prev_day_trade_value <= 0:
+        logger.debug(f"[{commodity}] بررسی رشد روز به روز رد شد — ارزش معاملات دیروز نامعتبر است")
+        return False
+
+    growth = (current_trade_value - prev_day_trade_value) / prev_day_trade_value
+
+    if growth >= TRADE_VALUE_DOD_GROWTH_THRESHOLD:
+        if status.get(status_key, "normal") != "triggered":
+            send_trade_value_dod_growth_alert(
+                bot_token, chat_id, current_trade_value, prev_day_trade_value, growth, tz, now, label
+            )
+            status[status_key] = "triggered"
+            logger.info(f"📅 [{commodity}] رشد روز به روز ارزش معاملات: {growth:+.0%}")
+            return True
+        return False
+
+    if status.get(status_key, "normal") != "normal":
+        status[status_key] = "normal"
+        return True
+
+    return False
+
+
+def send_trade_value_dod_growth_alert(bot_token, chat_id, current_value, prev_day_value, growth, tz, now, label):
+    """ارسال هشدار رشد ارزش معاملات نسبت به روز قبل"""
+    main_text = f"""
+📅 هشدار رشد ارزش معاملات {label}
+
+ارزش معاملات امروز (تا این لحظه) بیش از {TRADE_VALUE_DOD_GROWTH_THRESHOLD:.0%} نسبت به کل دیروز رشد داشته.
+💰 ارزش معاملات امروز (تاکنون): {current_value:,.1f} میلیارد تومان
+📊 ارزش معاملات کل دیروز: {prev_day_value:,.1f} میلیارد تومان
+📈 رشد: {growth:+.0%}
+""".strip()
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
+
+
+
+# ════════════════════════════════════════════════════════════════
 # ارکستراسیون اصلی — یک‌بار به ازای هر کالا در main.py صدا زده می‌شود
 # ════════════════════════════════════════════════════════════════
 
@@ -818,6 +1052,26 @@ def check_and_send_alerts(
         status, tz, now, commodity, label,
     )
     if sarane_forosh_spike_changed:
+        changed = True
+
+    # هشدار ارزش معاملات: عبور از میانگین ماهانه، ۲برابر میانگین، جهش ناگهانی
+    # میانگین ماهانه از همون فیلد زنده‌ی avg_monthly_value در Fund_df میاد —
+    # دقیقاً همونی که telegram_sender.py برای کپشن استفاده می‌کنه، نه baseline جدا.
+    total_avg_monthly = df_funds["avg_monthly_value"].sum() if not df_funds.empty else 0
+    trade_value_changed = check_trade_value_alerts(
+        bot_token, chat_id, total_value, prev["trade_value"], total_avg_monthly,
+        status, tz, now, commodity, label, same_day=prev["same_day"],
+    )
+    if trade_value_changed:
+        changed = True
+
+    # هشدار رشد ارزش معاملات امروز نسبت به کل دیروز (>=۵۰٪)
+    prev_day_trade_value = get_previous_day_trade_value(commodity, now.date())
+    trade_value_dod_changed = check_trade_value_dod_growth_alert(
+        bot_token, chat_id, total_value, prev_day_trade_value,
+        status, tz, now, commodity, label, same_day=prev["same_day"],
+    )
+    if trade_value_dod_changed:
         changed = True
 
     # آستانه‌های قیمتی
@@ -1276,7 +1530,7 @@ def send_price_alert(bot_token, chat_id, asset_name, price, change_5min, unit="�
 
     price_formatted = f"${price:,.2f}" if is_ounce else f"{int(round(price)):,} {unit}"
 
-    main_text = f"🚨 هشدار نوسان {asset_name}\n\n💰 قیمت: {price_formatted}\n📊 تغییر: {change_text}"
+    main_text = f"🚨 هشدار نوسان {asset_name}\n\n💰 قیمت: {price_formatted}\n📊 تغییر نسبت به 1 دقیقه پیش: {change_text}"
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
