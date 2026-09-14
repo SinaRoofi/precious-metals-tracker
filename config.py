@@ -6,15 +6,15 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 233_000
-DOLLAR_LOW = 232_000
+DOLLAR_HIGH = 235_000
+DOLLAR_LOW = 234_000
 
 # --- طلا ---
 SHAMS_HIGH = 31_500_000
 SHAMS_LOW = 30_500_000
 
-GOLD_HIGH = 4500
-GOLD_LOW = 4400
+GOLD_HIGH = 4300
+GOLD_LOW = 4200
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
@@ -42,8 +42,8 @@ SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید ح
 SARANE_FOROSH_SPIKE_MULTIPLIER = 1.5  # سرانه فروش فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4400
-DEFAULT_DOLLAR_PRICE = 226_000
+DEFAULT_GOLD_PRICE = 4300
+DEFAULT_DOLLAR_PRICE = 234_000
 DEFAULT_SILVER_PRICE = 64
 
 # 🎈 آستانه‌های هشدار حباب
