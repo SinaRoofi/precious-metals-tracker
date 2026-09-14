@@ -6,15 +6,15 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 228_000
-DOLLAR_LOW = 227_000
+DOLLAR_HIGH = 235_000
+DOLLAR_LOW = 234_000
 
 # --- طلا ---
 SHAMS_HIGH = 31_500_000
-SHAMS_LOW = 31_000_000
+SHAMS_LOW = 30_500_000
 
-GOLD_HIGH = 4500
-GOLD_LOW = 4400
+GOLD_HIGH = 4300
+GOLD_LOW = 4200
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
