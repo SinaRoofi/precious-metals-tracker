@@ -6,15 +6,15 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 236_000
-DOLLAR_LOW = 235_000
+DOLLAR_HIGH = 228_000
+DOLLAR_LOW = 227_000
 
 # --- طلا ---
 SHAMS_HIGH = 31_500_000
-SHAMS_LOW = 30_500_000
+SHAMS_LOW = 31_000_000
 
-GOLD_HIGH = 4300
-GOLD_LOW = 4200
+GOLD_HIGH = 4500
+GOLD_LOW = 4400
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
@@ -25,7 +25,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 48_064, "low": 47_600},
+    "زروان": {"high": 46_800, "low": 46_478},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -41,9 +41,19 @@ SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم —
 SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
 SARANE_FOROSH_SPIKE_MULTIPLIER = 1.5  # سرانه فروش فعلی باید حداقل این‌قدر برابر میانگین باشد
 
+# 💹 هشدار ارزش معاملات (نسبت به میانگین ماهانه‌ی زنده‌ی avg_monthly_value، همون
+# فیلدی که در کپشن telegram_sender.py هم استفاده می‌شه — نه baseline جدا) —
+# دو سطح + رشد روز به روز + جهش ناگهانی بین دو خوانش پیاپی
+TRADE_VALUE_ABOVE_AVG_MULTIPLIER = 1.0   # عبور از میانگین ماهانه
+TRADE_VALUE_SPIKE_MULTIPLIER = 2.0       # دو برابر میانگین ماهانه
+TRADE_VALUE_DOD_GROWTH_THRESHOLD = 0.5   # رشد امروز نسبت به کل دیروز (۵۰٪)
+# جهش بین دو خوانش پیاپی به نسبت میانگین ماهانه سنجیده می‌شه، نه یه عدد
+# ریالی ثابت — چون مقیاس ارزش معاملات طلا و نقره خیلی فرق داره.
+TRADE_VALUE_SHARP_CHANGE_RATIO = 0.15
+
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4300
-DEFAULT_DOLLAR_PRICE = 234_000
+DEFAULT_GOLD_PRICE = 4400
+DEFAULT_DOLLAR_PRICE = 226_000
 DEFAULT_SILVER_PRICE = 64
 
 # 🎈 آستانه‌های هشدار حباب
