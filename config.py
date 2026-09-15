@@ -6,15 +6,14 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 235_000
-DOLLAR_LOW = 234_000
-
+DOLLAR_HIGH = 232_000
+DOLLAR_LOW = 231_000
 # --- طلا ---
-SHAMS_HIGH = 31_500_000
+SHAMS_HIGH = 31_000_000
 SHAMS_LOW = 30_500_000
 
 GOLD_HIGH = 4300
-GOLD_LOW = 4200
+GOLD_LOW = 4250
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
@@ -25,7 +24,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 46_800, "low": 46_478},
+    "زروان": {"high": 45_000, "low": 46_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
