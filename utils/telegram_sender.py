@@ -199,7 +199,7 @@ CAPTION_ASSETS = {
         {"key": "طلا-گرم-24-عیار", "title": "🔸 طلای ۲۴", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلای ۱۸", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "سکه-امامی-طرح-جدید", "title": "🟠 سکه امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
+        {"key": "سکه-امامی-طرح-جدید", "title": "🟡 سکه امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⬜ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
@@ -1060,10 +1060,12 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 # فقط قبل از اولین آیتم کپسولی یه خط خالی می‌ذاریم تا از بلاک کامل
                 # قبلی جدا دیده بشه؛ بین خودِ آیتم‌های کپسولی پشت‌سرهم فاصله نمی‌خواد.
                 prefix = "\n" if not prev_was_capsule else ""
+                trade_time = row.get("last_trade_time")
+                time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
                 block += (
-                    f"{prefix}{asset_cfg['title']}:\n"
-                    f"{price:,.0f} {asset_cfg['unit']}\n"
-                    f"تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%\n"
+                    f"{prefix}{asset_cfg['title']}\n"
+                    f"💰 {price:,.0f} {asset_cfg['unit']}{time_str}\n"
+                    f"📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%\n"
                 )
                 prev_was_capsule = True
                 continue
