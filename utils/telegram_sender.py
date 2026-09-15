@@ -199,7 +199,7 @@ CAPTION_ASSETS = {
         {"key": "طلا-گرم-24-عیار", "title": "🔸 طلای ۲۴", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلای ۱۸", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "سکه-امامی-طرح-جدید", "title": "🟠 امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
+        {"key": "سکه-امامی-طرح-جدید", "title": "🟠 سکه امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⬜ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
@@ -1055,13 +1055,15 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             price = row["close_price"] / asset_cfg["divisor"]
 
             if asset_cfg.get("style") == "capsule":
-                # فرمت فشرده‌ی تک‌خطی — بدون تیتر جدا، بدون دلار ضمنی/اونس ضمنی/R-R.
+                # فرمت فشرده‌ی ۳خطی (تیتر / قیمت / تغییر+حباب) — بدون دلار ضمنی/اونس ضمنی/R-R.
+                # قبلاً تک‌خطی بود ولی رو موبایل خودش می‌رفت خط دوم، پس بی‌فایده بود.
                 # فقط قبل از اولین آیتم کپسولی یه خط خالی می‌ذاریم تا از بلاک کامل
                 # قبلی جدا دیده بشه؛ بین خودِ آیتم‌های کپسولی پشت‌سرهم فاصله نمی‌خواد.
                 prefix = "\n" if not prev_was_capsule else ""
                 block += (
-                    f"{prefix}{asset_cfg['title']}: {price:,.0f} "
-                    f"({row['close_price_change_percent']:+.1f}% | حباب {row['Bubble']:+.1f}%)\n"
+                    f"{prefix}{asset_cfg['title']}:\n"
+                    f"{price:,.0f} {asset_cfg['unit']}\n"
+                    f"تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%\n"
                 )
                 prev_was_capsule = True
                 continue
