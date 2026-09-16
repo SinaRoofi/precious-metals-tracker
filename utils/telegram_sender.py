@@ -782,11 +782,11 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     table_header = [
         "نماد", "آخرین", "NAV", "% آخرین", "% حباب",
-        "میانگین حباب ماه", "ورود پول", "ورود پول ماهانه", "سرانه خرید",
-        "اختلاف سرانه", "ارزش معاملات", "بازده ماهانه", "بازده ماهانه قیمت-NAV", "نماد",
+        "حباب ماه<br>(Avg)", "ورود پول", "ورود پول ماه", "سرانه خرید",
+        "اختلاف سرانه", "ارزش معاملات", "بازده ماهانه", "بازده ماهانه<br>(قیمت-NAV)", "نماد",
     ]
 
-    # بازده ماهانه قیمت-NAV = بازده_قیمتی ماهانه منفی بازده_NAV ماهانه (تفاضل ساده،
+    # بازده ماهانه (قیمت-NAV) = بازده_قیمتی ماهانه منفی بازده_NAV ماهانه (تفاضل ساده،
     # نه فرمول ترکیبی؛ این دو بازده مستقل‌ان، نه سطح/تغییر یک نسبت واحد)
     price_minus_nav_return = top_10["monthly_return"] - top_10["nav_monthly_return"]
 
@@ -808,8 +808,8 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
     ]
 
     # ایندکس ستون‌های رنگی (۰-based در table_cells)
-    # 3: % آخرین | 4: % حباب | 5: میانگین حباب ماه | 6: ورود پول | 7: ورود پول ماهانه
-    # 8: سرانه خرید | 9: اختلاف سرانه | 11: بازده ماهانه | 12: بازده ماهانه قیمت-NAV
+    # 3: % آخرین | 4: % حباب | 5: حباب ماه(Avg) | 6: ورود پول | 7: ورود پول ماه
+    # 8: سرانه خرید | 9: اختلاف سرانه | 11: بازده ماهانه | 12: بازده ماهانه (قیمت-NAV)
     vmin_3, vmax_3 = get_symmetric_vrange(table_cells[3])
     vmin_4, vmax_4 = get_symmetric_vrange(table_cells[4])
     vmin_5, vmax_5 = get_symmetric_vrange(table_cells[5])
@@ -825,23 +825,34 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         ["#1C2733"] * 10,  # NAV
         apply_gradient_colors(table_cells[3], vmin=vmin_3, vmax=vmax_3),   # % آخرین
         apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4),   # % حباب
-        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),   # میانگین حباب ماه
+        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),   # حباب ماه(Avg)
         apply_gradient_colors(table_cells[6], vmin=vmin_6, vmax=vmax_6),   # ورود پول
-        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),   # ورود پول ماهانه
+        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),   # ورود پول ماه
         apply_gradient_colors(table_cells[8], force_positive=True),        # سرانه خرید
         apply_gradient_colors(table_cells[9], vmin=vmin_9, vmax=vmax_9),   # اختلاف سرانه
         ["#1C2733"] * 10,  # ارزش معاملات
         apply_gradient_colors(table_cells[11], vmin=vmin_11, vmax=vmax_11),  # بازده ماهانه
-        apply_gradient_colors(table_cells[12], vmin=vmin_12, vmax=vmax_12),  # بازده ماهانه قیمت-NAV
+        apply_gradient_colors(table_cells[12], vmin=vmin_12, vmax=vmax_12),  # بازده ماهانه (قیمت-NAV)
         ["#1C2733"] * 10,  # نماد (تکراری)
+    ]
+
+    # عرض نسبی ستون‌ها: ستون‌هایی با هدر بلندتر (حباب ماه(Avg)/ورود پول ماه/
+    # اختلاف سرانه/ارزش معاملات/بازده ماهانه/بازده ماهانه (قیمت-NAV)) عرض
+    # بیشتری می‌گیرن تا هدرشون تک‌خط بمونه؛ نماد/NAV/درصدها کوتاه‌ترن.
+    column_widths = [
+        1.3, 1.3, 1.3, 1.0, 1.0,   # نماد | آخرین | NAV | % آخرین | % حباب
+        1.3, 1.0, 1.2, 1.2,        # حباب ماه(Avg) | ورود پول | ورود پول ماه | سرانه خرید
+        1.3, 1.2, 1.2, 1.4,        # اختلاف سرانه | ارزش معاملات | بازده ماهانه | بازده ماهانه (قیمت-NAV)
+        1.0,                       # نماد (تکراری)
     ]
 
     fig.add_trace(
         go.Table(
+            columnwidth=column_widths,
             header=dict(
                 values=[f"<b>{h}</b>" for h in table_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=14, family=treemap_font_family), height=32,
+                font=dict(color="white", size=12, family=treemap_font_family), height=44,
             ),
             cells=dict(
                 values=table_cells, fill_color=cell_colors, align="center",
