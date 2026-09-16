@@ -168,8 +168,8 @@ WEEKLY_CHART_HEIGHT = 3000  # 6 subplot (بازده دلار/اونس/شمش، �
 MONTHLY_CHART_WIDTH = 2000  # پهن‌تر از هفتگی چون ~۲۲-۲۶ تیک روزانه باید جا بشه
 MONTHLY_CHART_HEIGHT = WEEKLY_CHART_HEIGHT  # همون ۶ پنل، فقط بازه‌ی زمانی متفاوت
 
-TREEMAP_WIDTH = 1350
-TREEMAP_HEIGHT = 1350
+TREEMAP_WIDTH = 1580
+TREEMAP_HEIGHT = 1420
 TREEMAP_SCALE = 2
 
 COLOR_POSITIVE = '#00E676'
