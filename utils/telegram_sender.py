@@ -199,7 +199,7 @@ CAPTION_ASSETS = {
         {"key": "طلا-گرم-24-عیار", "title": "🔸 طلای ۲۴", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلای ۱۸", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
-        {"key": "سکه-امامی-طرح-جدید", "title": "🟡 سکه امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
+        {"key": "سکه-امامی-طرح-جدید", "title": "🟡 امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⬜ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
@@ -1035,37 +1035,47 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
     rr = calculate_bullion_rr(commodity, dfp)
 
-    def build_assets_block(only_primary_ounce, include_rr):
+    def build_assets_block(include_capsule_items):
         """
-        only_primary_ounce=True یعنی «اونس ضمنی» فقط برای اولین دارایی
-        (شمش — که اولویت اصلی است) نشون داده می‌شه، نه بقیه.
-        include_rr=False یعنی خط R/R (زیرمجموعه‌ی شمش) نشون داده نمی‌شه.
-        هر دو برای وقتی که کپشن کامل از حد مجاز تلگرام رد می‌شه استفاده
-        می‌شن (fallback درجه‌دوم/سوم).
+        include_capsule_items=False یعنی دارایی‌های با style="capsule"
+        (فعلاً فقط «سکه امامی») کلاً از کپشن حذف می‌شن.
+
+        این تنها fallback کپشنه — «اونس ضمنی» (برای هر دارایی که
+        show_ounce_calc=True داره) و خط R/R شمش همیشه، بدون قید و شرط،
+        نشون داده می‌شن؛ هیچ‌وقت به‌خاطر طول کپشن حذف نمی‌شن. وقتی کپشن
+        کامل از حد مجاز تلگرام رد می‌شه، تنها چیزی که کم می‌شه بخش سکه
+        امامی است (چون در قیاس با بقیه‌ی بخش‌ها کم‌اهمیت‌تره).
         """
         block = ""
         prev_was_capsule = False
-        for i, asset_cfg in enumerate(assets_config):
+        for asset_cfg in assets_config:
             key = asset_cfg["key"]
             if key not in dfp.index:
                 logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن حذف شد")
+                continue
+
+            if asset_cfg.get("style") == "capsule" and not include_capsule_items:
+                # fallback: این بخش (سکه امامی) موقتاً از کپشن کنار گذاشته می‌شه
+                # تا جا برای اونس ضمنی و R/R (که همیشه باید بمونن) باز بشه.
                 continue
 
             row = dfp.loc[key]
             price = row["close_price"] / asset_cfg["divisor"]
 
             if asset_cfg.get("style") == "capsule":
-                # فرمت فشرده‌ی ۳خطی (تیتر / قیمت / تغییر+حباب) — بدون دلار ضمنی/اونس ضمنی/R-R.
-                # قبلاً تک‌خطی بود ولی رو موبایل خودش می‌رفت خط دوم، پس بی‌فایده بود.
+                # فرمت فوق‌فشرده‌ی تک‌خطی (تیتر کوتاه + قیمت + درصدِ بدون اعشار) —
+                # بدون واحد («تومان»)، بدون ساعت معامله، بدون خط حباب، بدون
+                # دلار ضمنی/اونس ضمنی/R-R. عمداً تا این حد فشرده شده چون حاشیه‌ی
+                # کپشن نسبت به حد تلگرام خیلی تنگه (ارقام دلار/سکه چندرقمی‌ان)؛
+                # حتی با این حال یک تضمین قطعی نیست — روزهایی که ارقام رقمی
+                # بیشتر دارن ممکنه هنوز لازم باشه طبق fallback زیر این بخش کلاً
+                # حذف بشه.
                 # فقط قبل از اولین آیتم کپسولی یه خط خالی می‌ذاریم تا از بلاک کامل
                 # قبلی جدا دیده بشه؛ بین خودِ آیتم‌های کپسولی پشت‌سرهم فاصله نمی‌خواد.
                 prefix = "\n" if not prev_was_capsule else ""
-                trade_time = row.get("last_trade_time")
-                time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
                 block += (
-                    f"{prefix}{asset_cfg['title']}\n"
-                    f"💰 {price:,.0f} {asset_cfg['unit']}{time_str}\n"
-                    f"📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%\n"
+                    f"{prefix}{asset_cfg['title']}: {price:,.0f} "
+                    f"({row['close_price_change_percent']:+.0f}%)\n"
                 )
                 prev_was_capsule = True
                 continue
@@ -1076,18 +1086,16 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             trade_time = row.get("last_trade_time")
             time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
 
-            show_ounce = asset_cfg["show_ounce_calc"] and not (only_primary_ounce and i != 0)
-
             block += f"""
 <b>{asset_cfg['title']}</b>
 💰 {price:,.0f} {asset_cfg['unit']}{time_str}
 📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%
 💵 دلار ضمنی: {d_calc:,.0f}
 """
-            if show_ounce:
+            if asset_cfg["show_ounce_calc"]:
                 block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f}\n"
 
-            if key == BULLION_KEY.get(commodity) and include_rr and rr:
+            if key == BULLION_KEY.get(commodity) and rr:
                 rr_lines = []
                 if rr["rr_high"] is not None:
                     rr_lines.append(
@@ -1105,24 +1113,18 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                         block += f"{line}\n"
         return block
 
-    caption = (header + build_assets_block(only_primary_ounce=False, include_rr=True) + footer).strip()
+    caption = (header + build_assets_block(include_capsule_items=True) + footer).strip()
 
     if len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.warning(
             f"⚠️ [{commodity}] کپشن {len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
-            f"«اونس ضمنی» فقط برای اولین دارایی نگه داشته می‌شه"
+            f"بخش سکه امامی از کپشن حذف می‌شه (اونس ضمنی و R/R همیشه نگه داشته می‌شن)"
         )
-        caption = (header + build_assets_block(only_primary_ounce=True, include_rr=True) + footer).strip()
-
-    if len(caption) > TELEGRAM_CAPTION_LIMIT and rr:
-        logger.warning(
-            f"⚠️ [{commodity}] کپشن هنوز {len(caption)} کاراکتره — خط R/R حذف می‌شه"
-        )
-        caption = (header + build_assets_block(only_primary_ounce=True, include_rr=False) + footer).strip()
+        caption = (header + build_assets_block(include_capsule_items=False) + footer).strip()
 
     if len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.error(
-            f"❌ [{commodity}] کپشن حتی بعد از حذف اونس محاسباتی و R/R هم {len(caption)} کاراکتره — truncate اضطراری"
+            f"❌ [{commodity}] کپشن حتی بعد از حذف سکه امامی هم {len(caption)} کاراکتره — truncate اضطراری"
         )
         caption = caption[: TELEGRAM_CAPTION_LIMIT - 1] + "…"
 
