@@ -29,7 +29,6 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 BUBBLE_MONTHLY_MA_DAYS = 20
 BUBBLE_MONTHLY_MA_MIN_DAYS = 10
 
-
 def round_to_nearest(value, step=Y_AXIS_STEP):
     """گرد کردن عدد به نزدیک‌ترین مضرب step"""
     return round(value / step) * step
@@ -60,7 +59,7 @@ def create_market_charts(commodity):
     accent_color = COMMODITY_COLOR[commodity]
 
     try:
-        data_rows = read_from_sheets(commodity, limit=800)
+        data_rows = read_from_sheets(commodity, limit=12000)
         if not data_rows:
             logger.warning(f"⚠️ [{commodity}] داده‌ای از Sheets دریافت نشد")
             return None
