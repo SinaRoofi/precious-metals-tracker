@@ -174,11 +174,15 @@ def process_funds_data(data, commodity):
             "NAV": _dig(row, "live", "fund", "currentNav"),
             "nominal_bubble": _dig(row, "live", "fund", "bubblePercent"),
             "NAV_change_percent": _dig(row, "live", "fund", "navReturns", "1"),
+            "nav_monthly_return": _dig(row, "live", "fund", "navReturns", "20"),
             "avg_monthly_bubble": _dig(row, "static", "fund", "bubbleHistory", "average", "20"),
 
             # میانگین ارزش معاملات ماهانه (۲۰ روزه)
             "avg_monthly_value": _dig(row, "static", "marketHistory", "averageValue", "20"),
             "value_to_avg_ratio": _dig(row, "live", "market", "historyDerived", "valueToAverage", "20"),
+
+            # ورود پول تجمعی ماهانه (۲۰ روز معاملاتی)
+            "cumulative_money_flow_20": _dig(row, "static", "marketHistory", "cumulativeMoneyFlow", "20"),
         }
         extracted_data.append(extracted_row)
 
@@ -195,11 +199,15 @@ def process_funds_data(data, commodity):
         .pipe(pd.to_numeric, errors="coerce") / 10_000_000_000
     )
 
+    Fund_df["cumulative_money_flow_20"] = (
+        pd.to_numeric(Fund_df["cumulative_money_flow_20"], errors="coerce") / 10_000_000_000
+    )
+
     Fund_df["NAV_change_percent"] = pd.to_numeric(
         Fund_df["NAV_change_percent"], errors="coerce"
     ).round(2)
 
-    for col in ["weekly_return", "monthly_return", "3_month_return"]:
+    for col in ["weekly_return", "monthly_return", "3_month_return", "nav_monthly_return"]:
         if col in Fund_df.columns:
             Fund_df[col] = pd.to_numeric(Fund_df[col], errors="coerce").round(2)
 
@@ -230,9 +238,10 @@ def process_funds_data(data, commodity):
     final_columns = [
         "close_price", "NAV", "nominal_bubble", "avg_monthly_bubble",
         "NAV_change_percent", "close_price_change_percent", "final_price_change",
-        "weekly_return", "monthly_return", "3_month_return", "net_asset",
-        "sarane_kharid", "sarane_forosh", "ekhtelaf_sarane", "pol_hagigi",
-        "pol_to_value_ratio", "value", "avg_monthly_value", "value_to_avg_ratio",
+        "weekly_return", "monthly_return", "nav_monthly_return", "3_month_return",
+        "net_asset", "sarane_kharid", "sarane_forosh", "ekhtelaf_sarane",
+        "pol_hagigi", "cumulative_money_flow_20", "pol_to_value_ratio",
+        "value", "avg_monthly_value", "value_to_avg_ratio",
     ]
     existing_columns = [col for col in final_columns if col in Fund_df.columns]
     Fund_df = Fund_df[existing_columns]
