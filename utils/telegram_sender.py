@@ -1018,7 +1018,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>
-\u200F💰 ${global_price:,.2f} ({global_change:+.2f}%){ounce_time_str}
+\u200F💰 {global_price:,.0f} ({global_change:+.2f}%){ounce_time_str}
 
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
@@ -1075,7 +1075,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 prefix = "\n" if not prev_was_capsule else ""
                 block += (
                     f"{prefix}{asset_cfg['title']}: {price:,.0f} "
-                    f"({row['close_price_change_percent']:+.0f}%)\n"
+                    f"({row['close_price_change_percent']:+.1f}%)\n"
                 )
                 prev_was_capsule = True
                 continue
@@ -1093,7 +1093,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 💵 دلار ضمنی: {d_calc:,.0f}
 """
             if asset_cfg["show_ounce_calc"]:
-                block += f"{ounce_emoji} اونس ضمنی: ${o_calc:,.0f}\n"
+                block += f"{ounce_emoji} اونس ضمنی: {o_calc:,.0f}\n"
 
             if key == BULLION_KEY.get(commodity) and rr:
                 rr_lines = []
