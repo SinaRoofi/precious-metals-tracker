@@ -100,6 +100,17 @@ def create_market_charts(commodity):
             if len(daily_shams_bubble) >= BUBBLE_MONTHLY_MA_MIN_DAYS else None
         )
 
+        if fund_bubble_monthly_avg is None:
+            logger.info(
+                f"ℹ️ [{commodity}] خط میانگین ماهانهٔ حباب صندوق رسم نشد — فقط "
+                f"{len(daily_fund_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {BUBBLE_MONTHLY_MA_MIN_DAYS})"
+            )
+        if shams_bubble_monthly_avg is None:
+            logger.info(
+                f"ℹ️ [{commodity}] خط میانگین ماهانهٔ حباب شمش رسم نشد — فقط "
+                f"{len(daily_shams_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {BUBBLE_MONTHLY_MA_MIN_DAYS})"
+            )
+
         df = df[df['timestamp'].dt.date == today].copy()
 
         if df.empty:
