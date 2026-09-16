@@ -33,7 +33,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: uv pip install -r requirements.txt --system
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
 
       - name: Run Market Tracker
         env:
@@ -48,7 +50,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-        run: python main.py
+        run: .venv/bin/python main.py
 
       - name: Upload logs on failure
         if: failure()
