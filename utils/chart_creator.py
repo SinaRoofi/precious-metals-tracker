@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
+# میانگین ماهانه‌ی حباب (برای خط نقطه‌چین مرجع رو پنل‌های حباب) — ۲۰ روز گذشته‌ی
+# بسته، هم‌رده با «۲۰» که در avg_monthly_bubble زنده‌ی صندوق‌ها هم استفاده می‌شه.
+BUBBLE_MONTHLY_MA_DAYS = 20
+BUBBLE_MONTHLY_MA_MIN_DAYS = 10
+
 
 def round_to_nearest(value, step=Y_AXIS_STEP):
     """گرد کردن عدد به نزدیک‌ترین مضرب step"""
@@ -76,6 +81,25 @@ def create_market_charts(commodity):
 
         tehran_tz = pytz.timezone(TIMEZONE)
         today = datetime.now(tehran_tz).date()
+
+        # میانگین ماهانه (۲۰ روز گذشته‌ی بسته) حباب صندوق و شمش — از همون ۸۰۰ ردیف
+        # تاریخچه‌ای که همین الان خوندیم محاسبه می‌شه (بدون خوندن اضافه‌ی Sheet/Gist)،
+        # چون این تابع (برخلاف alerts.py) به Fund_df زنده دسترسی نداره تا از
+        # avg_monthly_bubble آماده‌ش استفاده کنه.
+        df_history = df[df['timestamp'].dt.date < today].copy()
+        df_history['date'] = df_history['timestamp'].dt.date
+        daily_fund_bubble = df_history.groupby('date')['fund_weighted_bubble_percent'].mean()
+        daily_shams_bubble = df_history.groupby('date')['shams_bubble_percent'].mean()
+
+        fund_bubble_monthly_avg = (
+            daily_fund_bubble.tail(BUBBLE_MONTHLY_MA_DAYS).mean()
+            if len(daily_fund_bubble) >= BUBBLE_MONTHLY_MA_MIN_DAYS else None
+        )
+        shams_bubble_monthly_avg = (
+            daily_shams_bubble.tail(BUBBLE_MONTHLY_MA_DAYS).mean()
+            if len(daily_shams_bubble) >= BUBBLE_MONTHLY_MA_MIN_DAYS else None
+        )
+
         df = df[df['timestamp'].dt.date == today].copy()
 
         if df.empty:
@@ -142,7 +166,19 @@ def create_market_charts(commodity):
         # نمودار 4: حباب شمش بورس کالا (پنل جدید، مستقل، کنار پنل قیمت شمش)
         # ═══════════════════════════════════════════════════════
         add_conditional_line(fig, df, 'shams_bubble_percent', 4)
-        set_y_range(fig, df, 'shams_bubble_percent', 4)
+
+        if shams_bubble_monthly_avg is not None:
+            range_series_4 = pd.concat([df['shams_bubble_percent'], pd.Series([shams_bubble_monthly_avg])])
+            set_y_range_for_series(fig, range_series_4, 4)
+            fig.add_hline(
+                y=shams_bubble_monthly_avg, row=4, col=1,
+                line=dict(color='#8B949E', width=2, dash='dash'),
+                annotation_text=f'میانگین ماهانه: {shams_bubble_monthly_avg:+.2f}%',
+                annotation_position='bottom left',
+                annotation_font=dict(size=18, color='#8B949E', family=chart_font_family),
+            )
+        else:
+            set_y_range(fig, df, 'shams_bubble_percent', 4)
 
         # ═══════════════════════════════════════════════════════
         # نمودار 5: آخرین قیمت + قیمت پایانی
@@ -170,7 +206,19 @@ def create_market_charts(commodity):
         # رنگ شرطی سبز/قرمز استفاده می‌شه.
         # ═══════════════════════════════════════════════════════
         add_conditional_line(fig, df, 'fund_weighted_bubble_percent', 6)
-        set_y_range(fig, df, 'fund_weighted_bubble_percent', 6)
+
+        if fund_bubble_monthly_avg is not None:
+            range_series_6 = pd.concat([df['fund_weighted_bubble_percent'], pd.Series([fund_bubble_monthly_avg])])
+            set_y_range_for_series(fig, range_series_6, 6)
+            fig.add_hline(
+                y=fund_bubble_monthly_avg, row=6, col=1,
+                line=dict(color='#8B949E', width=2, dash='dash'),
+                annotation_text=f'میانگین ماهانه: {fund_bubble_monthly_avg:+.2f}%',
+                annotation_position='bottom left',
+                annotation_font=dict(size=18, color='#8B949E', family=chart_font_family),
+            )
+        else:
+            set_y_range(fig, df, 'fund_weighted_bubble_percent', 6)
 
         # ═══════════════════════════════════════════════════════
         # نمودار 7: پول حقیقی
