@@ -781,10 +781,14 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
     top_10 = df_sorted.head(10)
 
     table_header = [
-        "نماد", "آخرین", "NAV", "آخرین %", "حباب %",
-        "حباب ماه", "ورود پول", "ورود پول ماه", "سرانه خرید",
-        "اختلاف سرانه", "ارزش معاملات", "بازده ماه", "بازده ماه NAV",
+        "نماد", "آخرین", "NAV", "% آخرین", "% حباب",
+        "میانگین حباب ماه", "ورود پول", "ورود پول ماهانه", "سرانه خرید",
+        "اختلاف سرانه", "ارزش معاملات", "بازده ماهانه", "بازده ماهانه قیمت-NAV", "نماد",
     ]
+
+    # بازده ماهانه قیمت-NAV = بازده_قیمتی ماهانه منفی بازده_NAV ماهانه (تفاضل ساده،
+    # نه فرمول ترکیبی؛ این دو بازده مستقل‌ان، نه سطح/تغییر یک نسبت واحد)
+    price_minus_nav_return = top_10["monthly_return"] - top_10["nav_monthly_return"]
 
     table_cells = [
         top_10.index.tolist(),
@@ -799,12 +803,13 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],
         [f"{x:,.0f}" for x in top_10["value"]],
         [f"{x:+.2f}%" for x in top_10["monthly_return"]],
-        [f"{x:+.2f}%" for x in top_10["nav_monthly_return"]],
+        [f"{x:+.2f}%" for x in price_minus_nav_return],
+        top_10.index.tolist(),
     ]
 
     # ایندکس ستون‌های رنگی (۰-based در table_cells)
-    # 3: آخرین % | 4: حباب % | 5: حباب ماه | 6: ورود پول | 7: ورود پول ماه
-    # 8: سرانه خرید | 9: اختلاف سرانه | 11: بازده ماه | 12: بازده ماه NAV
+    # 3: % آخرین | 4: % حباب | 5: میانگین حباب ماه | 6: ورود پول | 7: ورود پول ماهانه
+    # 8: سرانه خرید | 9: اختلاف سرانه | 11: بازده ماهانه | 12: بازده ماهانه قیمت-NAV
     vmin_3, vmax_3 = get_symmetric_vrange(table_cells[3])
     vmin_4, vmax_4 = get_symmetric_vrange(table_cells[4])
     vmin_5, vmax_5 = get_symmetric_vrange(table_cells[5])
@@ -818,16 +823,17 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         ["#1C2733"] * 10,  # نماد
         ["#1C2733"] * 10,  # آخرین
         ["#1C2733"] * 10,  # NAV
-        apply_gradient_colors(table_cells[3], vmin=vmin_3, vmax=vmax_3),   # آخرین %
-        apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4),   # حباب %
-        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),   # حباب ماه
+        apply_gradient_colors(table_cells[3], vmin=vmin_3, vmax=vmax_3),   # % آخرین
+        apply_gradient_colors(table_cells[4], vmin=vmin_4, vmax=vmax_4),   # % حباب
+        apply_gradient_colors(table_cells[5], vmin=vmin_5, vmax=vmax_5),   # میانگین حباب ماه
         apply_gradient_colors(table_cells[6], vmin=vmin_6, vmax=vmax_6),   # ورود پول
-        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),   # ورود پول ماه
+        apply_gradient_colors(table_cells[7], vmin=vmin_7, vmax=vmax_7),   # ورود پول ماهانه
         apply_gradient_colors(table_cells[8], force_positive=True),        # سرانه خرید
         apply_gradient_colors(table_cells[9], vmin=vmin_9, vmax=vmax_9),   # اختلاف سرانه
         ["#1C2733"] * 10,  # ارزش معاملات
-        apply_gradient_colors(table_cells[11], vmin=vmin_11, vmax=vmax_11),  # بازده ماه
-        apply_gradient_colors(table_cells[12], vmin=vmin_12, vmax=vmax_12),  # بازده ماه NAV
+        apply_gradient_colors(table_cells[11], vmin=vmin_11, vmax=vmax_11),  # بازده ماهانه
+        apply_gradient_colors(table_cells[12], vmin=vmin_12, vmax=vmax_12),  # بازده ماهانه قیمت-NAV
+        ["#1C2733"] * 10,  # نماد (تکراری)
     ]
 
     fig.add_trace(
