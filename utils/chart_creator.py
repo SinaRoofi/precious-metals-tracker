@@ -29,6 +29,13 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 BUBBLE_MONTHLY_MA_DAYS = 20
 BUBBLE_MONTHLY_MA_MIN_DAYS = 10
 
+# برای محاسبهٔ میانگین ماهانه باید به اندازهٔ کافی روز گذشته داشته باشیم.
+# اسکریپت هر ۱ دقیقه از ۱۲ تا ۱۸ اجرا می‌شه → حدود ۳۶۰ ردیف/روز.
+# برای پوشش امن ۲۰–۳۰ روز کاری (با احتساب تعطیلات) حدود ۱۰–۱۲ هزار ردیف لازم است.
+# KEEP_DAYS=40 است، پس حداکثر داده موجود ≈ ۱۴۰۰۰ ردیف.
+BUBBLE_HISTORY_LOOKBACK_ROWS = 12000
+
+
 def round_to_nearest(value, step=Y_AXIS_STEP):
     """گرد کردن عدد به نزدیک‌ترین مضرب step"""
     return round(value / step) * step
@@ -59,7 +66,7 @@ def create_market_charts(commodity):
     accent_color = COMMODITY_COLOR[commodity]
 
     try:
-        data_rows = read_from_sheets(commodity, limit=12000)
+        data_rows = read_from_sheets(commodity, limit=BUBBLE_HISTORY_LOOKBACK_ROWS)
         if not data_rows:
             logger.warning(f"⚠️ [{commodity}] داده‌ای از Sheets دریافت نشد")
             return None
@@ -81,10 +88,10 @@ def create_market_charts(commodity):
         tehran_tz = pytz.timezone(TIMEZONE)
         today = datetime.now(tehran_tz).date()
 
-        # میانگین ماهانه (۲۰ روز گذشته‌ی بسته) حباب صندوق و شمش — از همون ۸۰۰ ردیف
-        # تاریخچه‌ای که همین الان خوندیم محاسبه می‌شه (بدون خوندن اضافه‌ی Sheet/Gist)،
-        # چون این تابع (برخلاف alerts.py) به Fund_df زنده دسترسی نداره تا از
-        # avg_monthly_bubble آماده‌ش استفاده کنه.
+        # میانگین ماهانه (۲۰ روز گذشته‌ی بسته) حباب صندوق و شمش —
+        # از ردیف‌های تاریخچه‌ای که همین الان خوندیم محاسبه می‌شه (بدون خوندن اضافه‌ی Sheet/Gist).
+        # limit با BUBBLE_HISTORY_LOOKBACK_ROWS بزرگ‌تر شده تا حتی با اجرای پرتکرار روزانه
+        # حداقل ۱۰–۲۰ روز گذشته در دسترس باشه.
         df_history = df[df['timestamp'].dt.date < today].copy()
         df_history['date'] = df_history['timestamp'].dt.date
         daily_fund_bubble = df_history.groupby('date')['fund_weighted_bubble_percent'].mean()
@@ -183,8 +190,8 @@ def create_market_charts(commodity):
             fig.add_hline(
                 y=shams_bubble_monthly_avg, row=4, col=1,
                 line=dict(color='#8B949E', width=2, dash='dash'),
-                annotation_text=f'میانگین ماهانه: {shams_bubble_monthly_avg:+.2f}%',
-                annotation_position='bottom left',
+                annotation_text=f'میانگین ماهانه: %{shams_bubble_monthly_avg:+.2f}',
+                annotation_position='top right',
                 annotation_font=dict(size=18, color='#8B949E', family=chart_font_family),
             )
         else:
@@ -223,8 +230,8 @@ def create_market_charts(commodity):
             fig.add_hline(
                 y=fund_bubble_monthly_avg, row=6, col=1,
                 line=dict(color='#8B949E', width=2, dash='dash'),
-                annotation_text=f'میانگین ماهانه: {fund_bubble_monthly_avg:+.2f}%',
-                annotation_position='bottom left',
+                annotation_text=f'میانگین ماهانه: %{fund_bubble_monthly_avg:+.2f}',
+                annotation_position='top right',
                 annotation_font=dict(size=18, color='#8B949E', family=chart_font_family),
             )
         else:
