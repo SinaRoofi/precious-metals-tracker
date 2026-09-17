@@ -169,7 +169,7 @@ MONTHLY_CHART_WIDTH = 2000  # پهن‌تر از هفتگی چون ~۲۲-۲۶ ت
 MONTHLY_CHART_HEIGHT = WEEKLY_CHART_HEIGHT  # همون ۶ پنل، فقط بازه‌ی زمانی متفاوت
 
 TREEMAP_WIDTH = 1580
-TREEMAP_HEIGHT = 1420
+TREEMAP_HEIGHT = 2100  # treemap + دو جدول جدا (امروز/ماهانه) به‌جای یک جدول ۱۴ستونی
 TREEMAP_SCALE = 2
 
 COLOR_POSITIVE = '#00E676'
