@@ -739,9 +739,10 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     fig = make_subplots(
         rows=3, cols=1,
-        row_heights=[0.54, 0.23, 0.23],
+        row_heights=[0.50, 0.235, 0.245],
         vertical_spacing=0.025,
         specs=[[{"type": "treemap"}], [{"type": "table"}], [{"type": "table"}]],
+        subplot_titles=["", "جدول معاملات روزانه", "جدول عملکرد ماهانه"],
     )
 
     df_sorted = Fund_df.copy()
@@ -819,11 +820,11 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table1_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=18, family=treemap_font_family), height=42,
+                font=dict(color="white", size=20, family=treemap_font_family), height=48,
             ),
             cells=dict(
                 values=table1_cells, fill_color=table1_colors, align="center",
-                font=dict(color="white", size=19, family=treemap_font_family), height=42,
+                font=dict(color="white", size=21, family=treemap_font_family), height=46,
             ),
         ),
         row=2, col=1,
@@ -832,7 +833,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
     # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۶ ستون، عرض میانگین ~۲۶۳px هر ستون —
     # فضای کافی برای هدر کامل بدون نیاز به مخفف یا شکست خط اجباری) ───
     table2_header = [
-        "نماد", "میانگین حباب ماهانه", "ورود پول ماه", "بازده ماهانه",
+        "نماد", "میانگین حباب ماهانه", "ورود پول ماهانه", "بازده ماهانه قیمتی",
         "اختلاف بازده ماه<br>(Price-NAV)", "نماد",
     ]
 
@@ -867,11 +868,11 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table2_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=18, family=treemap_font_family), height=64,
+                font=dict(color="white", size=20, family=treemap_font_family), height=72,
             ),
             cells=dict(
                 values=table2_cells, fill_color=table2_colors, align="center",
-                font=dict(color="white", size=19, family=treemap_font_family), height=42,
+                font=dict(color="white", size=21, family=treemap_font_family), height=46,
             ),
         ),
         row=3, col=1,
@@ -890,6 +891,10 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         ),
         showlegend=False,
     )
+
+    # subplot_titles پیش‌فرض plotly رنگ تیره داره (روی پس‌زمینه‌ی سیاه دیده نمی‌شه)،
+    # اینجا استایلش می‌کنیم تا هم‌رنگ/هم‌سبک عنوان اصلی باشه
+    fig.update_annotations(font=dict(size=26, color="#DDDDDD", family=treemap_font_family))
 
     img_bytes = fig.to_image(format="png", width=TREEMAP_WIDTH, height=TREEMAP_HEIGHT, scale=TREEMAP_SCALE)
     img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
@@ -916,7 +921,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     padding = 30
     x_pos = padding
-    y_pos = int(TREEMAP_HEIGHT * 0.54) - text_height - padding
+    y_pos = int(TREEMAP_HEIGHT * 0.51) - text_height - padding
 
     draw.text((x_pos, y_pos), wtext, font=wfont, fill=(255, 255, 255, 120))
 
