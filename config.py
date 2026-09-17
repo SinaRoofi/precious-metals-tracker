@@ -169,7 +169,7 @@ MONTHLY_CHART_WIDTH = 2000  # پهن‌تر از هفتگی چون ~۲۲-۲۶ ت
 MONTHLY_CHART_HEIGHT = WEEKLY_CHART_HEIGHT  # همون ۶ پنل، فقط بازه‌ی زمانی متفاوت
 
 TREEMAP_WIDTH = 1580
-TREEMAP_HEIGHT = 2400  # +300 نسبت به قبل چون فونت/ارتفاع ردیف جدول‌ها بزرگ‌تر شد
+TREEMAP_HEIGHT = 2600  # +200 دوباره چون فونت جدول از ۱۸/۱۹ به ۲۰/۲۱ رفت بالا
 TREEMAP_SCALE = 2
 
 COLOR_POSITIVE = '#00E676'
