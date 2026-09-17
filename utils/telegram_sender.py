@@ -739,7 +739,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     fig = make_subplots(
         rows=3, cols=1,
-        row_heights=[0.55, 0.21, 0.21],
+        row_heights=[0.54, 0.23, 0.23],
         vertical_spacing=0.025,
         specs=[[{"type": "treemap"}], [{"type": "table"}], [{"type": "table"}]],
     )
@@ -819,11 +819,11 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table1_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=14, family=treemap_font_family), height=34,
+                font=dict(color="white", size=18, family=treemap_font_family), height=42,
             ),
             cells=dict(
                 values=table1_cells, fill_color=table1_colors, align="center",
-                font=dict(color="white", size=15, family=treemap_font_family), height=32,
+                font=dict(color="white", size=19, family=treemap_font_family), height=42,
             ),
         ),
         row=2, col=1,
@@ -867,11 +867,11 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table2_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=14, family=treemap_font_family), height=44,
+                font=dict(color="white", size=18, family=treemap_font_family), height=64,
             ),
             cells=dict(
                 values=table2_cells, fill_color=table2_colors, align="center",
-                font=dict(color="white", size=15, family=treemap_font_family), height=32,
+                font=dict(color="white", size=19, family=treemap_font_family), height=42,
             ),
         ),
         row=3, col=1,
@@ -916,7 +916,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     padding = 30
     x_pos = padding
-    y_pos = int(TREEMAP_HEIGHT * 0.55) - text_height - padding
+    y_pos = int(TREEMAP_HEIGHT * 0.54) - text_height - padding
 
     draw.text((x_pos, y_pos), wtext, font=wfont, fill=(255, 255, 255, 120))
 
