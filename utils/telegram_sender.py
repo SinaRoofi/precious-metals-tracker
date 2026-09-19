@@ -1173,10 +1173,12 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
             # واحد فقط برای دارایی‌های «ریال» (شمش طلا) نوشته می‌شه؛ بقیه بدون واحدن.
             # درصد تغییر داخل پرانتز جلوی قیمته و ساعت کنار تیتر.
+            # \u200F اول خط قیمت لازمه: بعد از حذف «تومان»، این خط هیچ حرف فارسی نداره و
+            # تلگرام جهتش رو LTR (چپ‌چین) می‌گیره؛ RLM جهت پاراگراف رو راست‌به‌چپ می‌کنه.
             unit_str = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
             block += f"""
 <b>{asset_cfg['title']}</b>{time_str}
-💰 {price:,.0f}{unit_str} ({row['close_price_change_percent']:+.1f}%)
+\u200F💰 {price:,.0f}{unit_str} ({row['close_price_change_percent']:+.1f}%)
 📊 حباب: {row['Bubble']:+.1f}%
 💵 دلار ضمنی: {d_calc:,.0f}
 """
