@@ -823,8 +823,28 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         ["#1C2733"] * 10,  # نماد (تکراری)
     ]
 
+    # عرض دستی ستون‌های جدول ۱ (نسبت‌ها، نه پیکسل؛ plotly خودش نرمال می‌کنه).
+    # ترتیب = ترتیب table1_header. مجموع = ۱۱ (برابر حالت پیش‌فرضِ ۱ برای هر ستون)،
+    # پس عرض کل جدول تغییر نمی‌کنه: ۰.۴ به «ارزش معاملات» اضافه شد و از
+    # دو ستون «نماد» (۰.۱۵ هرکدوم) و «ورود پول» (۰.۱) کم شد.
+    TABLE1_COLUMN_WIDTHS = [
+        0.85,  # نماد
+        1.0,   # آخرین
+        1.0,   # NAV
+        1.0,   # % آخرین
+        1.0,   # % حباب
+        1.0,   # سرانه خرید
+        1.0,   # اختلاف سرانه
+        1.4,   # ارزش معاملات
+        0.9,   # ورود پول
+        1.0,   # قدرت پول
+        0.85,  # نماد
+    ]
+    assert len(TABLE1_COLUMN_WIDTHS) == len(table1_header)
+
     fig.add_trace(
         go.Table(
+            columnwidth=TABLE1_COLUMN_WIDTHS,
             header=dict(
                 values=[f"<b>{h}</b>" for h in table1_header],
                 fill_color="#242F3D", align="center",
