@@ -739,7 +739,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     fig = make_subplots(
         rows=3, cols=1,
-        row_heights=[0.50, 0.235, 0.245],
+        row_heights=[0.49, 0.23, 0.26],
         vertical_spacing=0.025,
         specs=[[{"type": "treemap"}], [{"type": "table"}], [{"type": "table"}]],
         subplot_titles=["", "جدول معاملات روزانه", "جدول عملکرد ماهانه"],
@@ -830,11 +830,13 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         row=2, col=1,
     )
 
-    # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۶ ستون، عرض میانگین ~۲۶۳px هر ستون —
-    # فضای کافی برای هدر کامل بدون نیاز به مخفف یا شکست خط اجباری) ───
+    # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۶ ستون). هر خط هدر دقیقاً یه کلمه‌ست
+    # (نه دو-سه‌تایی) — چون هر بار مشکل بهم‌ریختگی وقتی بود که یه خط بیش از
+    # یه کلمه داشت و خودش دوباره auto-wrap می‌شد. تک‌کلمه‌ای یعنی هیچ‌وقت
+    # لازم نیست خودش بشکنه، پس این ریسک عملاً حذف می‌شه.
     table2_header = [
-        "نماد", "میانگین حباب ماهانه", "ورود پول ماهانه", "بازده ماهانه قیمتی",
-        "اختلاف بازده ماه<br>(Price-NAV)", "نماد",
+        "نماد", "میانگین<br>حباب<br>ماهانه", "ورود<br>پول<br>ماهانه",
+        "بازده<br>ماهانه<br>قیمتی", "اختلاف<br>بازده<br>ماه<br>(Price-NAV)", "نماد",
     ]
 
     # اختلاف بازده ماه (Price-NAV) = بازده_قیمتی ماهانه منفی بازده_NAV ماهانه
@@ -868,7 +870,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table2_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=20, family=treemap_font_family), height=72,
+                font=dict(color="white", size=20, family=treemap_font_family), height=130,
             ),
             cells=dict(
                 values=table2_cells, fill_color=table2_colors, align="center",
@@ -921,7 +923,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     padding = 30
     x_pos = padding
-    y_pos = int(TREEMAP_HEIGHT * 0.51) - text_height - padding
+    y_pos = int(TREEMAP_HEIGHT * 0.50) - text_height - padding
 
     draw.text((x_pos, y_pos), wtext, font=wfont, fill=(255, 255, 255, 120))
 
