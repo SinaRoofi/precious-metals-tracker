@@ -6,14 +6,14 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 230_000
-DOLLAR_LOW = 229_000
+DOLLAR_HIGH = 231_000
+DOLLAR_LOW = 230_000
 # --- طلا ---
-SHAMS_HIGH = 32_000_000
-SHAMS_LOW = 31_500_000
+SHAMS_HIGH = 31_500_000
+SHAMS_LOW = 31_000_000
 
-GOLD_HIGH = 4400
-GOLD_LOW = 4300
+GOLD_HIGH = 4350
+GOLD_LOW = 4250
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
@@ -24,7 +24,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "عیار": {"high": 660_000, "low": 650_000},
+    "عیار": {"high": 640_000, "low": 635_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -169,7 +169,7 @@ MONTHLY_CHART_WIDTH = 2000  # پهن‌تر از هفتگی چون ~۲۲-۲۶ ت
 MONTHLY_CHART_HEIGHT = WEEKLY_CHART_HEIGHT  # همون ۶ پنل، فقط بازه‌ی زمانی متفاوت
 
 TREEMAP_WIDTH = 1580
-TREEMAP_HEIGHT = 2600  # +200 دوباره چون فونت جدول از ۱۸/۱۹ به ۲۰/۲۱ رفت بالا
+TREEMAP_HEIGHT = 2600  # برگشت به نسخه‌ی قبل از آزمایش هدر تک‌کلمه‌ای
 TREEMAP_SCALE = 2
 
 COLOR_POSITIVE = '#00E676'
