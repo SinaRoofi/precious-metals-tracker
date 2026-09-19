@@ -689,14 +689,40 @@ def get_positive_gradient_color(value, vmin, vmax):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+NEUTRAL_CELL_COLOR = "#1C2733"  # رنگ سلول‌های بدون داده (همون رنگ ستون‌های ساده‌ی جدول)
+NO_DATA_TEXT = "—"
+
+
+def fmt_num(x, spec, suffix=""):
+    """
+    فرمت عدد برای سلول جدول. مقدار نامعتبر (NaN / ±inf / غیرعددی) به‌جای
+    «+nan%» یا «+inf%» به «—» تبدیل می‌شه. این مقادیر برای صندوق‌های تازه‌وارد
+    (تاریخچه‌ی ناکافی) یا وقتی مخرج نسبت (مثلاً میانگین ارزش معاملات ماهانه)
+    صفره طبیعی‌ان.
+    """
+    try:
+        xf = float(x)
+    except (TypeError, ValueError):
+        return NO_DATA_TEXT
+    if not math.isfinite(xf):
+        return NO_DATA_TEXT
+    return f"{xf:{spec}}{suffix}"
+
+
+def _parse_cell_number(v):
+    """متن سلول → float، یا None اگه عدد متناهی نباشه (مثل «—»، nan، inf)."""
+    try:
+        clean = str(v).replace("%", "").replace("+", "").replace(",", "")
+        x = float(clean)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
 def get_symmetric_vrange(values):
-    numeric_values = []
-    for v in values:
-        try:
-            clean = str(v).replace("%", "").replace("+", "").replace(",", "")
-            numeric_values.append(float(clean))
-        except Exception:
-            numeric_values.append(0)
+    # فقط مقادیر متناهی در محاسبه‌ی بازه شرکت می‌کنن — یه inf/nan نباید
+    # بازه رو خراب کنه (قبلاً inf باعث می‌شد کل ستون سبز بشه)
+    numeric_values = [x for x in (_parse_cell_number(v) for v in values) if x is not None]
 
     if not numeric_values:
         return 0, 0
@@ -706,25 +732,23 @@ def get_symmetric_vrange(values):
 
 
 def apply_gradient_colors(values, vmin=None, vmax=None, force_positive=False):
-    numeric_values = []
-    for v in values:
-        try:
-            clean = str(v).replace("%", "").replace("+", "").replace(",", "")
-            numeric_values.append(float(clean))
-        except Exception:
-            numeric_values.append(0)
+    parsed = [_parse_cell_number(v) for v in values]
+    finite = [x for x in parsed if x is not None]
+
+    if not finite:
+        return [NEUTRAL_CELL_COLOR] * len(parsed)
 
     if vmin is None:
-        vmin = min(numeric_values)
+        vmin = min(finite)
     if vmax is None:
-        vmax = max(numeric_values)
+        vmax = max(finite)
 
     if force_positive or (vmin >= 0 and vmax >= 0):
         if vmax == vmin and vmax == 0:
-            return [get_positive_gradient_color(v, 0, 1) for v in numeric_values]
-        return [get_positive_gradient_color(v, vmin, vmax) for v in numeric_values]
+            return [NEUTRAL_CELL_COLOR if x is None else get_positive_gradient_color(x, 0, 1) for x in parsed]
+        return [NEUTRAL_CELL_COLOR if x is None else get_positive_gradient_color(x, vmin, vmax) for x in parsed]
 
-    return [get_gradient_color(v, vmin, vmax) for v in numeric_values]
+    return [NEUTRAL_CELL_COLOR if x is None else get_gradient_color(x, vmin, vmax) for x in parsed]
 
 
 # ────────────────── ساخت تصویر Treemap + جدول ──────────────────
@@ -793,15 +817,15 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
     ]
     table1_cells = [
         top_10.index.tolist(),
-        [f"{x:,.0f}" for x in top_10["close_price"]],
-        [f"{x:,.0f}" for x in top_10["NAV"]],
-        [f"{x:+.2f}%" for x in top_10["close_price_change_percent"]],
-        [f"{x:+.2f}%" for x in top_10["nominal_bubble"]],
-        [f"{x:+.2f}" for x in top_10["sarane_kharid"]],
-        [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],
-        [f"{x:,.0f}" for x in top_10["value"]],
-        [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],
-        [f"{x:+.1f}%" for x in pol_strength],
+        [fmt_num(x, ",.0f") for x in top_10["close_price"]],
+        [fmt_num(x, ",.0f") for x in top_10["NAV"]],
+        [fmt_num(x, "+.2f", "%") for x in top_10["close_price_change_percent"]],
+        [fmt_num(x, "+.2f", "%") for x in top_10["nominal_bubble"]],
+        [fmt_num(x, "+.2f") for x in top_10["sarane_kharid"]],
+        [fmt_num(x, "+.2f") for x in top_10["ekhtelaf_sarane"]],
+        [fmt_num(x, ",.0f") for x in top_10["value"]],
+        [fmt_num(x, "+,.0f") for x in top_10["pol_hagigi"]],
+        [fmt_num(x, "+.1f", "%") for x in pol_strength],
         top_10.index.tolist(),
     ]
     vmin_t1_3, vmax_t1_3 = get_symmetric_vrange(table1_cells[3])
@@ -878,11 +902,11 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     table2_cells = [
         top_10.index.tolist(),
-        [f"{x:+.2f}%" for x in top_10["avg_monthly_bubble"]],
-        [f"{x:+,.0f}" for x in top_10["cumulative_money_flow_20"]],
-        [f"{x:+.2f}%" for x in top_10["monthly_return"]],
-        [f"{x:+.2f}%" for x in price_minus_nav_return],
-        [f"{x:+.1f}%" for x in pol_strength_monthly],
+        [fmt_num(x, "+.2f", "%") for x in top_10["avg_monthly_bubble"]],
+        [fmt_num(x, "+,.0f") for x in top_10["cumulative_money_flow_20"]],
+        [fmt_num(x, "+.2f", "%") for x in top_10["monthly_return"]],
+        [fmt_num(x, "+.2f", "%") for x in price_minus_nav_return],
+        [fmt_num(x, "+.1f", "%") for x in pol_strength_monthly],
         top_10.index.tolist(),
     ]
     vmin_t2_1, vmax_t2_1 = get_symmetric_vrange(table2_cells[1])
