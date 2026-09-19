@@ -739,7 +739,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     fig = make_subplots(
         rows=3, cols=1,
-        row_heights=[0.49, 0.23, 0.26],
+        row_heights=[0.50, 0.235, 0.245],
         vertical_spacing=0.025,
         specs=[[{"type": "treemap"}], [{"type": "table"}], [{"type": "table"}]],
         subplot_titles=["", "جدول معاملات روزانه", "جدول عملکرد ماهانه"],
@@ -781,10 +781,15 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     top_10 = df_sorted.head(10)
 
-    # ─── جدول ۱: اطلاعات امروز (۱۰ ستون، عرض میانگین ~۱۵۸px هر ستون) ───
+    # قدرت پول (روزانه) = ورود پول ÷ ارزش معاملات ×۱۰۰ — نسبت خالص ورود پول
+    # حقیقی به کل ارزش معاملات همون روز
+    pol_strength = (top_10["pol_hagigi"] / top_10["value"]) * 100
+
+    # ─── جدول ۱: اطلاعات امروز (۱۱ ستون). «ورود پول» کنار «ارزش معاملات»
+    # اومد (طبق خواسته) و ستون جدید «قدرت پول» بعدش اضافه شد ───
     table1_header = [
         "نماد", "آخرین", "NAV", "% آخرین", "% حباب",
-        "ورود پول", "سرانه خرید", "اختلاف سرانه", "ارزش معاملات", "نماد",
+        "سرانه خرید", "اختلاف سرانه", "ارزش معاملات", "ورود پول", "قدرت پول", "نماد",
     ]
     table1_cells = [
         top_10.index.tolist(),
@@ -792,26 +797,29 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         [f"{x:,.0f}" for x in top_10["NAV"]],
         [f"{x:+.2f}%" for x in top_10["close_price_change_percent"]],
         [f"{x:+.2f}%" for x in top_10["nominal_bubble"]],
-        [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],
         [f"{x:+.2f}" for x in top_10["sarane_kharid"]],
         [f"{x:+.2f}" for x in top_10["ekhtelaf_sarane"]],
         [f"{x:,.0f}" for x in top_10["value"]],
+        [f"{x:+,.0f}" for x in top_10["pol_hagigi"]],
+        [f"{x:+.1f}%" for x in pol_strength],
         top_10.index.tolist(),
     ]
     vmin_t1_3, vmax_t1_3 = get_symmetric_vrange(table1_cells[3])
     vmin_t1_4, vmax_t1_4 = get_symmetric_vrange(table1_cells[4])
-    vmin_t1_5, vmax_t1_5 = get_symmetric_vrange(table1_cells[5])
-    vmin_t1_7, vmax_t1_7 = get_symmetric_vrange(table1_cells[7])
+    vmin_t1_6, vmax_t1_6 = get_symmetric_vrange(table1_cells[6])
+    vmin_t1_8, vmax_t1_8 = get_symmetric_vrange(table1_cells[8])
+    vmin_t1_9, vmax_t1_9 = get_symmetric_vrange(table1_cells[9])
     table1_colors = [
         ["#1C2733"] * 10,  # نماد
         ["#1C2733"] * 10,  # آخرین
         ["#1C2733"] * 10,  # NAV
         apply_gradient_colors(table1_cells[3], vmin=vmin_t1_3, vmax=vmax_t1_3),  # % آخرین
         apply_gradient_colors(table1_cells[4], vmin=vmin_t1_4, vmax=vmax_t1_4),  # % حباب
-        apply_gradient_colors(table1_cells[5], vmin=vmin_t1_5, vmax=vmax_t1_5),  # ورود پول
-        apply_gradient_colors(table1_cells[6], force_positive=True),             # سرانه خرید
-        apply_gradient_colors(table1_cells[7], vmin=vmin_t1_7, vmax=vmax_t1_7),  # اختلاف سرانه
+        apply_gradient_colors(table1_cells[5], force_positive=True),             # سرانه خرید
+        apply_gradient_colors(table1_cells[6], vmin=vmin_t1_6, vmax=vmax_t1_6),  # اختلاف سرانه
         ["#1C2733"] * 10,  # ارزش معاملات
+        apply_gradient_colors(table1_cells[8], vmin=vmin_t1_8, vmax=vmax_t1_8),  # ورود پول
+        apply_gradient_colors(table1_cells[9], vmin=vmin_t1_9, vmax=vmax_t1_9),  # قدرت پول
         ["#1C2733"] * 10,  # نماد (تکراری)
     ]
 
@@ -830,13 +838,14 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         row=2, col=1,
     )
 
-    # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۶ ستون). هر خط هدر دقیقاً یه کلمه‌ست
-    # (نه دو-سه‌تایی) — چون هر بار مشکل بهم‌ریختگی وقتی بود که یه خط بیش از
-    # یه کلمه داشت و خودش دوباره auto-wrap می‌شد. تک‌کلمه‌ای یعنی هیچ‌وقت
-    # لازم نیست خودش بشکنه، پس این ریسک عملاً حذف می‌شه.
+    # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۷ ستون). برگشت به هدرهای عادی
+    # تک/دوخطی (نه تک‌کلمه‌ای) — همون نسخه‌ای که قبلاً با ۶ ستون درست کار
+    # می‌کرد. فقط یه ستون «قدرت پول ماهانه» اضافه شد؛ میانگین ارزش معاملات
+    # ماهانه به‌عنوان ستون مستقل اضافه نشد (چون قبلاً باعث بهم‌ریختگی شد)،
+    # فقط تو مخرج این نسبت به‌کار رفته، بدون نمایش مستقیم.
     table2_header = [
-        "نماد", "میانگین<br>حباب<br>ماهانه", "ورود<br>پول<br>ماهانه",
-        "بازده<br>ماهانه<br>قیمتی", "اختلاف<br>بازده<br>ماه<br>(Price-NAV)", "نماد",
+        "نماد", "میانگین حباب ماهانه", "ورود پول ماهانه", "بازده ماهانه قیمتی",
+        "اختلاف بازده ماه<br>(Price-NAV)", "قدرت پول ماهانه", "نماد",
     ]
 
     # اختلاف بازده ماه (Price-NAV) = بازده_قیمتی ماهانه منفی بازده_NAV ماهانه
@@ -844,24 +853,30 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
     # فقط انگلیسیه (بدون خط‌تیره‌ی چسبیده به فارسی) تا مشکل bidi قبلی تکرار نشه.
     price_minus_nav_return = top_10["monthly_return"] - top_10["nav_monthly_return"]
 
+    # قدرت پول ماهانه = ورود پول ماهانه ÷ میانگین ارزش معاملات ماه ×۱۰۰
+    pol_strength_monthly = (top_10["cumulative_money_flow_20"] / top_10["avg_monthly_value"]) * 100
+
     table2_cells = [
         top_10.index.tolist(),
         [f"{x:+.2f}%" for x in top_10["avg_monthly_bubble"]],
         [f"{x:+,.0f}" for x in top_10["cumulative_money_flow_20"]],
         [f"{x:+.2f}%" for x in top_10["monthly_return"]],
         [f"{x:+.2f}%" for x in price_minus_nav_return],
+        [f"{x:+.1f}%" for x in pol_strength_monthly],
         top_10.index.tolist(),
     ]
     vmin_t2_1, vmax_t2_1 = get_symmetric_vrange(table2_cells[1])
     vmin_t2_2, vmax_t2_2 = get_symmetric_vrange(table2_cells[2])
     vmin_t2_3, vmax_t2_3 = get_symmetric_vrange(table2_cells[3])
     vmin_t2_4, vmax_t2_4 = get_symmetric_vrange(table2_cells[4])
+    vmin_t2_5, vmax_t2_5 = get_symmetric_vrange(table2_cells[5])
     table2_colors = [
         ["#1C2733"] * 10,  # نماد
         apply_gradient_colors(table2_cells[1], vmin=vmin_t2_1, vmax=vmax_t2_1),  # میانگین حباب ماهانه
         apply_gradient_colors(table2_cells[2], vmin=vmin_t2_2, vmax=vmax_t2_2),  # ورود پول ماهانه
         apply_gradient_colors(table2_cells[3], vmin=vmin_t2_3, vmax=vmax_t2_3),  # بازده ماهانه قیمتی
         apply_gradient_colors(table2_cells[4], vmin=vmin_t2_4, vmax=vmax_t2_4),  # اختلاف بازده ماه
+        apply_gradient_colors(table2_cells[5], vmin=vmin_t2_5, vmax=vmax_t2_5),  # قدرت پول ماهانه
         ["#1C2733"] * 10,  # نماد (تکراری)
     ]
 
@@ -870,7 +885,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table2_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=20, family=treemap_font_family), height=130,
+                font=dict(color="white", size=20, family=treemap_font_family), height=72,
             ),
             cells=dict(
                 values=table2_cells, fill_color=table2_colors, align="center",
@@ -923,7 +938,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
     padding = 30
     x_pos = padding
-    y_pos = int(TREEMAP_HEIGHT * 0.50) - text_height - padding
+    y_pos = int(TREEMAP_HEIGHT * 0.51) - text_height - padding
 
     draw.text((x_pos, y_pos), wtext, font=wfont, fill=(255, 255, 255, 120))
 
