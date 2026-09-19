@@ -1077,9 +1077,10 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
     fund_emoji = "🥇" if commodity == "gold" else "🥈"
     ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
+    ounce_sign = "+" if global_change >= 0 else "-"
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>
-\u200F💰 {global_price:,.0f} \u2066({global_change:+.2f}%)\u2069{ounce_time_str}
+\u200F💰 {global_price:,.0f} \u2066(%{abs(global_change):.2f}{ounce_sign})\u2069{ounce_time_str}
 
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
