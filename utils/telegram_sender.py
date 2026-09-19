@@ -830,10 +830,10 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
         row=2, col=1,
     )
 
-    # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۸ ستون). چون هم فونت این‌بار بزرگ‌تر
-    # شد (۲۰/۲۱) هم دو ستون اضافه شد (یعنی سهم هر ستون کمتر می‌شه)، این‌بار
-    # همه‌ی هدرهای بلند رو با <br> دوخطی کردیم (نه فقط اونایی که قبلاً مشکل
-    # داشتن) تا به عرض دقیق ستون تکیه نکنیم — هر خط زیر ۱۴ کاراکتره.
+    # ─── جدول ۲: اطلاعات ماهانه/تاریخی (۸ ستون). با ۸ ستون سهم هر ستون کم
+    # می‌شه و حتی نسخه‌ی <br>دوخطی‌شده هم گاهی داخل خودش دوباره می‌شکست و
+    # بهم می‌ریخت. اینجا فونت هدر رو (فقط هدر، نه سلول‌های داده) به ۱۳ کم
+    # کردیم تا مطمئن‌تر تو عرض ستون جا بشه؛ فونت داده‌ها (۲۱) دست‌نخورده موند.
     table2_header = [
         "نماد", "میانگین<br>حباب ماهانه", "ورود پول<br>ماهانه",
         "میانگین ارزش<br>معاملات ماهانه", "بازده ماهانه<br>قیمتی",
@@ -882,7 +882,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
             header=dict(
                 values=[f"<b>{h}</b>" for h in table2_header],
                 fill_color="#242F3D", align="center",
-                font=dict(color="white", size=20, family=treemap_font_family), height=72,
+                font=dict(color="white", size=13, family=treemap_font_family), height=46,
             ),
             cells=dict(
                 values=table2_cells, fill_color=table2_colors, align="center",
