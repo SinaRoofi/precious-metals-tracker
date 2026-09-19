@@ -24,6 +24,7 @@ from config import (
     MAX_RETRIES, RETRY_DELAY,
     ASSET_ORDER, PRICING_FACTORS, TROY_OZ, GOLD_YEAR_END_OUNCE_TARGET,
     SILVER_YEAR_END_OUNCE_TARGET,
+    SALAF_AFTER_ASSET_KEY,
 )
 from utils.chart_creator import create_market_charts
 from utils.alerts import get_sarane_kharid_baseline, get_sarane_forosh_baseline
@@ -391,7 +392,7 @@ def get_today_date():
 
 def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_price,
                       global_yesterday, global_time, yesterday_close, dirham_price=None,
-                      tether_price=None, tether_change_percent=None):
+                      tether_price=None, tether_change_percent=None, salaf_lines=None):
     """ارسال گزارش یک کالا (gold یا silver) به کانال تلگرام مشترک، به‌صورت پیام مستقل"""
     if commodity not in CAPTION_ASSETS:
         raise ValueError(f"کالای نامعتبر: {commodity}")
@@ -417,7 +418,7 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
         caption = create_simple_caption(
             commodity, data, dollar_prices, global_price,
             global_yesterday, yesterday_close, global_time, dirham_price,
-            tether_price, tether_change_percent,
+            tether_price, tether_change_percent, salaf_lines,
         )
 
         gist_data, gist_status = get_gist_data(commodity)
@@ -996,7 +997,7 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
                            yesterday_close, global_time, dirham_price=None,
-                           tether_price=None, tether_change_percent=None):
+                           tether_price=None, tether_change_percent=None, salaf_lines=None):
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
 
@@ -1140,11 +1141,14 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 """
 
     header = caption
+    # نسخه‌ی بدون خط «میانه حباب» — اولین چیزی که وقتی جا برای عسکه کم باشه کنار می‌ره
+    median_line = f"🎯 میانه حباب: {median_bubble:+.2f}%\n"
+    header_no_median = header.replace(median_line, "", 1)
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
     rr = calculate_bullion_rr(commodity, dfp)
 
-    def build_assets_block(include_capsule_items):
+    def build_assets_block(include_capsule_items, include_salaf=True):
         """
         include_capsule_items=False یعنی دارایی‌های با style="capsule"
         (فعلاً فقط «سکه امامی») کلاً از کپشن حذف می‌شن.
@@ -1186,6 +1190,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     f"{prefix}{asset_cfg['title']}: {price:,.0f} "
                     f"({row['close_price_change_percent']:+.1f}%)\n"
                 )
+                if include_salaf and salaf_lines and key == SALAF_AFTER_ASSET_KEY:
+                    block += salaf_lines  # عسکه — درست زیر امامی
                 prev_was_capsule = True
                 continue
 
@@ -1228,6 +1234,24 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         return block
 
     caption = (header + build_assets_block(include_capsule_items=True) + footer).strip()
+
+    # فاصله‌ی اولویت وقتی جا کم بیاد (به ترتیب):
+    #   ۱) میانه حباب حذف می‌شه (عسکه می‌مونه)
+    #   ۲) عسکه حذف می‌شه (میانه حباب برمی‌گرده)
+    #   ۳) سکه امامی هم حذف می‌شه (fallback قبلی، پایین‌تر)
+    if len(caption) > TELEGRAM_CAPTION_LIMIT and salaf_lines:
+        logger.warning(
+            f"⚠️ [{commodity}] کپشن {len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
+            f"خط «میانه حباب» حذف می‌شه تا جا برای عسکه باز شه"
+        )
+        caption = (header_no_median + build_assets_block(include_capsule_items=True) + footer).strip()
+
+        if len(caption) > TELEGRAM_CAPTION_LIMIT:
+            logger.warning(
+                f"⚠️ [{commodity}] کپشن هنوز {len(caption)} کاراکتره — خط‌های عسکه حذف می‌شن "
+                f"(میانه حباب برمی‌گرده)"
+            )
+            caption = (header + build_assets_block(include_capsule_items=True, include_salaf=False) + footer).strip()
 
     if len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.warning(
