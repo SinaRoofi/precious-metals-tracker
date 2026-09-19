@@ -1100,17 +1100,15 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
-
-💵 معامله: {dollar_last:,.0f} ({dollar_change:+.1f}%) {tick}
+🤝 معامله: {dollar_last:,.0f} ({dollar_change:+.1f}%) {tick}
 """
     else:
         caption = f"""
 🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
-
 🟥 کف: {low_total:,.0f} ({low_pct:.1f}%)
-💵 ارزش: {value_total:,.0f} ({value_pct:.1f}%)
+🧮 ارزش: {value_total:,.0f} ({value_pct:.1f}%)
 🟢 سقف: {high_total:,.0f} ({high_pct:.1f}%)
 """
         if tether_price is not None:
@@ -1119,7 +1117,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         if dollar_from_dirham is not None:
             caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.1f}%)\n\n"
 
-        caption += f"💵 معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
+        caption += f"🤝 معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
     caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
