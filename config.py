@@ -55,7 +55,7 @@ DEFAULT_GOLD_PRICE = 4400
 DEFAULT_DOLLAR_PRICE = 226_000
 DEFAULT_SILVER_PRICE = 64
 
-# 🎈 آستانه‌های هشدار حباب
+# 🫧 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
 
 # ✅ آستانه‌های هشدار پول حقیقی
