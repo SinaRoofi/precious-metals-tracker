@@ -896,11 +896,10 @@ def send_trade_value_dod_growth_alert(bot_token, chat_id, current_value, prev_da
     """ارسال هشدار رشد ارزش معاملات نسبت به روز قبل"""
     main_text = f"""
 📅 هشدار رشد ارزش معاملات {label}
+📈 رشد نسبت به کل دیروز: {growth:+.0%}
 
-ارزش معاملات امروز (تا این لحظه) بیش از {TRADE_VALUE_DOD_GROWTH_THRESHOLD:.0%} نسبت به کل دیروز رشد داشته.
-💰 ارزش معاملات امروز (تاکنون): {current_value:,.1f} میلیارد تومان
-📊 ارزش معاملات کل دیروز: {prev_day_value:,.1f} میلیارد تومان
-📈 رشد: {growth:+.0%}
+💰 امروز (تاکنون): {current_value:,.0f} میلیارد تومان
+📊 کل دیروز: {prev_day_value:,.0f} میلیارد تومان
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
