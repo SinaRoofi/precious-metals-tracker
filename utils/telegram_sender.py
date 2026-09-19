@@ -1128,7 +1128,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_sign = "+" if global_change >= 0 else "-"
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>{ounce_time_str}
-\u200F💰 {global_price:,.0f} \u2066(%{abs(global_change):.2f}{ounce_sign})\u2069
+\u200F📊 {global_price:,.0f} \u2066(%{abs(global_change):.2f}{ounce_sign})\u2069
 
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
@@ -1136,13 +1136,13 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
 {sarane_kharid_emoji} سرانه خرید: {sarane_kharid_w:,.0f} ({sarane_kharid_ratio_str})
 {sarane_forosh_emoji} سرانه فروش: {sarane_forosh_w:,.0f} ({sarane_forosh_ratio_str})
-🎈 میانگین حباب: {avg_bubble_weighted:+.2f}%
-🎯 میانه حباب: {median_bubble:+.2f}%
+🫧 میانگین حباب: {avg_bubble_weighted:+.2f}%
+🫧 میانه حباب: {median_bubble:+.2f}%
 """
 
     header = caption
     # نسخه‌ی بدون خط «میانه حباب» — اولین چیزی که وقتی جا برای عسکه کم باشه کنار می‌ره
-    median_line = f"🎯 میانه حباب: {median_bubble:+.2f}%\n"
+    median_line = f"🫧 میانه حباب: {median_bubble:+.2f}%\n"
     header_no_median = header.replace(median_line, "", 1)
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
@@ -1208,8 +1208,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             unit_str = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
             block += f"""
 <b>{asset_cfg['title']}</b>{time_str}
-\u200F💰 {price:,.0f}{unit_str} ({row['close_price_change_percent']:+.1f}%)
-📊 حباب: {row['Bubble']:+.1f}%
+\u200F📊 {price:,.0f}{unit_str} ({row['close_price_change_percent']:+.1f}%)
+🫧 حباب: {row['Bubble']:+.1f}%
 💵 دلار ضمنی: {d_calc:,.0f}
 """
             if asset_cfg["show_ounce_calc"]:
