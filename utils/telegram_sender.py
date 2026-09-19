@@ -1107,7 +1107,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
-🟥 کف: {low_total:,.0f} ({low_pct:.1f}%)
+🔴 کف: {low_total:,.0f} ({low_pct:.1f}%)
 🧮 ارزش: {value_total:,.0f} ({value_pct:.1f}%)
 🟢 سقف: {high_total:,.0f} ({high_pct:.1f}%)
 """
