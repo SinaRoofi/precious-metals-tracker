@@ -1102,8 +1102,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
     ounce_sign = "+" if global_change >= 0 else "-"
     caption += f"""
-<b>{ounce_emoji} اونس {label}</b>
-\u200F💰 {global_price:,.0f} \u2066(%{abs(global_change):.2f}{ounce_sign})\u2069{ounce_time_str}
+<b>{ounce_emoji} اونس {label}</b>{ounce_time_str}
+\u200F💰 {global_price:,.0f} \u2066(%{abs(global_change):.2f}{ounce_sign})\u2069
 
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
@@ -1171,10 +1171,13 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             trade_time = row.get("last_trade_time")
             time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
 
+            # واحد فقط برای دارایی‌های «ریال» (شمش طلا) نوشته می‌شه؛ بقیه بدون واحدن.
+            # درصد تغییر داخل پرانتز جلوی قیمته و ساعت کنار تیتر.
+            unit_str = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
             block += f"""
-<b>{asset_cfg['title']}</b>
-💰 {price:,.0f} {asset_cfg['unit']}{time_str}
-📊 تغییر: {row['close_price_change_percent']:+.1f}% | حباب: {row['Bubble']:+.1f}%
+<b>{asset_cfg['title']}</b>{time_str}
+💰 {price:,.0f}{unit_str} ({row['close_price_change_percent']:+.1f}%)
+📊 حباب: {row['Bubble']:+.1f}%
 💵 دلار ضمنی: {d_calc:,.0f}
 """
             if asset_cfg["show_ounce_calc"]:
