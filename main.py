@@ -19,6 +19,7 @@ from config import (
     BULLION_ASSET,
 )
 from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dollar_prices, fetch_dirham_price
+from utils.salaf import fetch_salaf_lines  # عسکه — بعد از ۱۸ آذر ۱۴۰۵ حذف شه
 from utils.data_processor import process_market_data
 from utils.telegram_sender import send_to_telegram
 from utils.holidays import is_iranian_holiday
@@ -135,7 +136,8 @@ async def fetch_commodity_inputs(commodity):
 # ════════════════════════════════════════════════════════════════
 
 def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
-                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None):
+                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None,
+                          salaf_lines=None):
     bullion_key = BULLION_ASSET[commodity]
 
     if not light_chart or light_chart.get("price", 0) <= 0:
@@ -237,6 +239,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         dirham_price=dirham_price,
         tether_price=tether_price,
         tether_change_percent=tether_change_percent,
+        salaf_lines=salaf_lines,
     )
     logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
 
@@ -314,9 +317,10 @@ async def main():
                 logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
 
             logger.info("🇦🇪 دریافت قیمت درهم امارات + خواندن تب gold برای قیمت دیروز (موازی)...")
-            dirham_price, gold_yesterday_rows = await asyncio.gather(
+            dirham_price, gold_yesterday_rows, salaf_lines = await asyncio.gather(
                 asyncio.to_thread(fetch_dirham_price),
                 asyncio.to_thread(read_from_sheets, "gold", 800),
+                asyncio.to_thread(fetch_salaf_lines),  # عسکه
             )
 
             dollar_yesterday, _, dollar_found = get_dollar_yesterday_from_sheet(
@@ -347,6 +351,7 @@ async def main():
                     dirham_price=dirham_price,
                     check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
                     preloaded_yesterday_rows=(gold_yesterday_rows if commodity == "gold" else None),
+                    salaf_lines=(salaf_lines if commodity == "gold" else None),
                 )
 
         logger.info("=" * 60)
