@@ -1175,7 +1175,7 @@ def send_bubble_state_alert(bot_token, chat_id, bubble_value, state, tz, now, la
         dir_emoji, description = "🔴", "حباب منفی شد"
 
     main_text = f"""
-🎈 هشدار حباب {label} {dir_emoji}
+🫧 هشدار حباب {label} {dir_emoji}
 
 {description}
 💹 حباب فعلی: {bubble_value:+.2f}%
@@ -1343,7 +1343,7 @@ def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz
     main_text = f"""
 🚨 {title} — {label} {dir_emoji}
 
-🎈 حباب: {bubble:+.2f}%
+🫧 حباب: {bubble:+.2f}%
 💸 ورود پول حقیقی: {pol:+,.0f} میلیارد تومان
 📊 اختلاف سرانه: {ekhtelaf:+,.0f}
 """.strip()
