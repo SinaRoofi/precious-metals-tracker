@@ -9,7 +9,7 @@ import os
 DOLLAR_HIGH = 231_000
 DOLLAR_LOW = 230_000
 # --- طلا ---
-SHAMS_HIGH = 32_700_000
+SHAMS_HIGH = 32_500_000
 SHAMS_LOW = 32_000_000
 
 GOLD_HIGH = 4400
@@ -24,7 +24,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گنج": {"high": 207_100, "low": 206_500},
+    "زروان": {"high": 49_000, "low": 48_120},
 }
 
 ALERT_THRESHOLD_PERCENT = {
