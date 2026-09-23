@@ -23,6 +23,7 @@ from config import (
     ALERT_THRESHOLD_PERCENT,
     EKHTELAF_THRESHOLD,
     BUBBLE_SHARP_CHANGE_THRESHOLD,
+    HARD_SIGNAL_BUBBLE_THRESHOLD,
     FUND_PRICE_ALERTS,
     GIST_ID,
     GIST_TOKEN,
@@ -1296,14 +1297,20 @@ def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
     """
     بررسی و ارسال هشدار سخت خرید/فروش.
 
-    سخت خرید: حباب، پول حقیقی و اختلاف سرانه‌ی کل هر سه مثبت.
-    سخت فروش: هر سه منفی.
+    سخت خرید: حباب > +HARD_SIGNAL_BUBBLE_THRESHOLD، پول حقیقی و اختلاف سرانه‌ی
+    کل هر دو مثبت.
+    سخت فروش: حباب < -HARD_SIGNAL_BUBBLE_THRESHOLD، پول حقیقی و اختلاف سرانه
+    هر دو منفی.
     state-based (مثل حباب/پول حقیقی) — فقط موقع تغییر وضعیت پیام می‌ره.
     """
     status_changed = False
     status_key = f"{commodity}_hard_signal"
 
-    if current_bubble > 0 and current_pol > 0 and current_ekhtelaf > 0:
+    if (
+        current_bubble > HARD_SIGNAL_BUBBLE_THRESHOLD
+        and current_pol > 0
+        and current_ekhtelaf > 0
+    ):
         if status[status_key] != "buy":
             send_hard_signal_alert(bot_token, chat_id, "buy", current_bubble,
                                     current_pol, current_ekhtelaf, tz, now, label)
@@ -1314,7 +1321,11 @@ def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
                 f"پول {current_pol:+,.0f} | اختلاف سرانه {current_ekhtelaf:+,.0f}"
             )
 
-    elif current_bubble < 0 and current_pol < 0 and current_ekhtelaf < 0:
+    elif (
+        current_bubble < -HARD_SIGNAL_BUBBLE_THRESHOLD
+        and current_pol < 0
+        and current_ekhtelaf < 0
+    ):
         if status[status_key] != "sell":
             send_hard_signal_alert(bot_token, chat_id, "sell", current_bubble,
                                     current_pol, current_ekhtelaf, tz, now, label)
