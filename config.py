@@ -58,6 +58,12 @@ DEFAULT_SILVER_PRICE = 66
 # 🫧 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
 
+# شرط حباب در هشدار سخت خرید/فروش (check_hard_signal_alert): به‌جای عبور
+# صرف از صفر، حباب باید حداقل این‌مقدار درصد فاصله از صفر داشته باشه.
+# سخت خرید: bubble > +HARD_SIGNAL_BUBBLE_THRESHOLD
+# سخت فروش: bubble < -HARD_SIGNAL_BUBBLE_THRESHOLD
+HARD_SIGNAL_BUBBLE_THRESHOLD = 0.2
+
 # ✅ آستانه‌های هشدار پول حقیقی
 POL_SHARP_CHANGE_THRESHOLD = 100
 
