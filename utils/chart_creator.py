@@ -24,10 +24,11 @@ logger = logging.getLogger(__name__)
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
-# میانگین ماهانه‌ی حباب (برای خط نقطه‌چین مرجع رو پنل‌های حباب) — ۲۰ روز گذشته‌ی
-# بسته، هم‌رده با «۲۰» که در avg_monthly_bubble زنده‌ی صندوق‌ها هم استفاده می‌شه.
-BUBBLE_MONTHLY_MA_DAYS = 20
-BUBBLE_MONTHLY_MA_MIN_DAYS = 10
+# میانگین ماهانه (برای خط نقطه‌چین مرجع) — ۲۰ روز گذشته‌ی بسته، هم‌رده با «۲۰»
+# که در avg_monthly_bubble زنده‌ی صندوق‌ها هم استفاده می‌شه. هم برای پنل‌های حباب
+# (۴ و ۶) و هم برای سرانه‌ی خرید/فروش (پنل ۸) استفاده می‌شه.
+MONTHLY_MA_DAYS = 20
+MONTHLY_MA_MIN_DAYS = 10
 
 # برای محاسبهٔ میانگین ماهانه باید به اندازهٔ کافی روز گذشته داشته باشیم.
 # اسکریپت هر ۱ دقیقه از ۱۲ تا ۱۸ اجرا می‌شه → حدود ۳۶۰ ردیف/روز.
@@ -98,23 +99,48 @@ def create_market_charts(commodity):
         daily_shams_bubble = df_history.groupby('date')['shams_bubble_percent'].mean()
 
         fund_bubble_monthly_avg = (
-            daily_fund_bubble.tail(BUBBLE_MONTHLY_MA_DAYS).mean()
-            if len(daily_fund_bubble) >= BUBBLE_MONTHLY_MA_MIN_DAYS else None
+            daily_fund_bubble.tail(MONTHLY_MA_DAYS).mean()
+            if len(daily_fund_bubble) >= MONTHLY_MA_MIN_DAYS else None
         )
         shams_bubble_monthly_avg = (
-            daily_shams_bubble.tail(BUBBLE_MONTHLY_MA_DAYS).mean()
-            if len(daily_shams_bubble) >= BUBBLE_MONTHLY_MA_MIN_DAYS else None
+            daily_shams_bubble.tail(MONTHLY_MA_DAYS).mean()
+            if len(daily_shams_bubble) >= MONTHLY_MA_MIN_DAYS else None
         )
 
         if fund_bubble_monthly_avg is None:
             logger.info(
                 f"ℹ️ [{commodity}] خط میانگین ماهانهٔ حباب صندوق رسم نشد — فقط "
-                f"{len(daily_fund_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {BUBBLE_MONTHLY_MA_MIN_DAYS})"
+                f"{len(daily_fund_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {MONTHLY_MA_MIN_DAYS})"
             )
         if shams_bubble_monthly_avg is None:
             logger.info(
                 f"ℹ️ [{commodity}] خط میانگین ماهانهٔ حباب شمش رسم نشد — فقط "
-                f"{len(daily_shams_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {BUBBLE_MONTHLY_MA_MIN_DAYS})"
+                f"{len(daily_shams_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {MONTHLY_MA_MIN_DAYS})"
+            )
+
+        # میانگین ماهانه‌ی سرانه‌ی خرید/فروش حقیقی — همون منطق پنل‌های حباب،
+        # از همون df_history (بدون خوندن اضافه‌ی Sheet/Gist).
+        daily_kharid = df_history.groupby('date')['sarane_kharid_weighted'].mean()
+        daily_forosh = df_history.groupby('date')['sarane_forosh_weighted'].mean()
+
+        kharid_monthly_avg = (
+            daily_kharid.tail(MONTHLY_MA_DAYS).mean()
+            if len(daily_kharid) >= MONTHLY_MA_MIN_DAYS else None
+        )
+        forosh_monthly_avg = (
+            daily_forosh.tail(MONTHLY_MA_DAYS).mean()
+            if len(daily_forosh) >= MONTHLY_MA_MIN_DAYS else None
+        )
+
+        if kharid_monthly_avg is None:
+            logger.info(
+                f"ℹ️ [{commodity}] خط میانگین ماهانهٔ سرانهٔ خرید رسم نشد — فقط "
+                f"{len(daily_kharid)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {MONTHLY_MA_MIN_DAYS})"
+            )
+        if forosh_monthly_avg is None:
+            logger.info(
+                f"ℹ️ [{commodity}] خط میانگین ماهانهٔ سرانهٔ فروش رسم نشد — فقط "
+                f"{len(daily_forosh)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {MONTHLY_MA_MIN_DAYS})"
             )
 
         df = df[df['timestamp'].dt.date == today].copy()
@@ -283,12 +309,39 @@ def create_market_charts(commodity):
 
         lines_min = min(kharid_min, forosh_min)
         lines_max = max(kharid_max, forosh_max)
+
+        # میانگین‌های ماهانه هم باید داخل رنج بیفتن، وگرنه خط نقطه‌چین ممکنه
+        # بیرون از محدودهٔ دیده‌شدهٔ محور Y بیفته (مثل الگوی پنل‌های حباب).
+        if kharid_monthly_avg is not None:
+            lines_min = min(lines_min, kharid_monthly_avg)
+            lines_max = max(lines_max, kharid_monthly_avg)
+        if forosh_monthly_avg is not None:
+            lines_min = min(lines_min, forosh_monthly_avg)
+            lines_max = max(lines_max, forosh_monthly_avg)
+
         lines_padding = max(10, (lines_max - lines_min) * 0.15)
 
         fig.update_yaxes(
             range=[lines_min - lines_padding, lines_max + lines_padding],
             row=8, col=1
         )
+
+        if kharid_monthly_avg is not None:
+            fig.add_hline(
+                y=kharid_monthly_avg, row=8, col=1,
+                line=dict(color=COLOR_POSITIVE, width=2, dash='dash'),
+                annotation_text=f'میانگین ماهانهٔ خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
+                annotation_position='top left',
+                annotation_font=dict(size=18, color=COLOR_POSITIVE, family=chart_font_family),
+            )
+        if forosh_monthly_avg is not None:
+            fig.add_hline(
+                y=forosh_monthly_avg, row=8, col=1,
+                line=dict(color=COLOR_NEGATIVE, width=2, dash='dash'),
+                annotation_text=f'میانگین ماهانهٔ فروش: {int(forosh_monthly_avg):,}'.replace(',', '٬'),
+                annotation_position='bottom left',
+                annotation_font=dict(size=18, color=COLOR_NEGATIVE, family=chart_font_family),
+            )
 
         ekhtelaf_min = df['ekhtelaf_sarane_weighted'].min()
         ekhtelaf_max = df['ekhtelaf_sarane_weighted'].max()
