@@ -36,6 +36,18 @@ MONTHLY_MA_MIN_DAYS = 10
 # KEEP_DAYS=40 است، پس حداکثر داده موجود ≈ ۱۴۰۰۰ ردیف.
 BUBBLE_HISTORY_LOOKBACK_ROWS = 12000
 
+# اجرای اول هر روز: بخش clientType اسنپ‌شات تریدرآرنا (که سرانهٔ خرید/فروش و
+# پول حقیقی ازش می‌آد) دیرتر از trading.value آپدیت می‌شه، پس این ۴ ستون تو
+# اولین ردیف(های) روز دقیقاً صفرن در حالی که بقیهٔ ستون‌ها (دلار/شمش/حباب) از
+# همون لحظه مقدار واقعی دارن. این صفر کاذبِ لحظهٔ باز شدن بازاره، نه یک صفر
+# واقعی وسط روز — پس فقط پیشوند ابتدای روز رو NaN می‌کنیم تا خط چارت (پنل ۷ و
+# ۸) با یه افت جعلی به صفر شروع نشه؛ داده‌ی ذخیره‌شده در Sheets دست‌نخورده
+# می‌مونه (میانگین ماهانه هم عمداً همون‌جوری از Sheets محاسبه می‌شه).
+COLD_START_ZERO_COLUMNS = [
+    'pol_hagigi', 'sarane_kharid_weighted',
+    'sarane_forosh_weighted', 'ekhtelaf_sarane_weighted',
+]
+
 
 def round_to_nearest(value, step=Y_AXIS_STEP):
     """گرد کردن عدد به نزدیک‌ترین مضرب step"""
@@ -93,10 +105,19 @@ def create_market_charts(commodity):
         # از ردیف‌های تاریخچه‌ای که همین الان خوندیم محاسبه می‌شه (بدون خوندن اضافه‌ی Sheet/Gist).
         # limit با BUBBLE_HISTORY_LOOKBACK_ROWS بزرگ‌تر شده تا حتی با اجرای پرتکرار روزانه
         # حداقل ۱۰–۲۰ روز گذشته در دسترس باشه.
+        #
+        # «مقدار روزانه» = آخرین ردیف اون روز (.last()) — نه میانگین کل روز —
+        # هم‌رنگ با قراردادِ همه‌جای پروژه (weekly_report.py، monthly_report.py،
+        # alerts.py). این کار یه فایده‌ی جانبی هم داره: چون فقط آخرین ردیفِ هر
+        # روزِ گذشته رو در نظر می‌گیریم، صفرِ کاذبِ clientType در لحظه‌ی باز شدن
+        # بازار (که فقط رو اولین ردیف‌های هر روز می‌افته) خودبه‌خود اثری رو
+        # میانگین ماهانه نداره.
         df_history = df[df['timestamp'].dt.date < today].copy()
         df_history['date'] = df_history['timestamp'].dt.date
-        daily_fund_bubble = df_history.groupby('date')['fund_weighted_bubble_percent'].mean()
-        daily_shams_bubble = df_history.groupby('date')['shams_bubble_percent'].mean()
+        daily_history = df_history.sort_values('timestamp').groupby('date', as_index=False).last()
+
+        daily_fund_bubble = daily_history['fund_weighted_bubble_percent']
+        daily_shams_bubble = daily_history['shams_bubble_percent']
 
         fund_bubble_monthly_avg = (
             daily_fund_bubble.tail(MONTHLY_MA_DAYS).mean()
@@ -118,10 +139,11 @@ def create_market_charts(commodity):
                 f"{len(daily_shams_bubble)} روز تاریخچهٔ گذشته موجوده (حداقل لازم: {MONTHLY_MA_MIN_DAYS})"
             )
 
-        # میانگین ماهانه‌ی سرانه‌ی خرید/فروش حقیقی — همون منطق پنل‌های حباب،
-        # از همون df_history (بدون خوندن اضافه‌ی Sheet/Gist).
-        daily_kharid = df_history.groupby('date')['sarane_kharid_weighted'].mean()
-        daily_forosh = df_history.groupby('date')['sarane_forosh_weighted'].mean()
+        # میانگین ماهانه‌ی سرانه‌ی خرید/فروش حقیقی — همون daily_history بالا
+        # (آخرین ردیف هر روز)، هم‌رنگ با alerts.py که دقیقاً همین محاسبه رو
+        # برای فیلتر/هشدار سرانه استفاده می‌کنه.
+        daily_kharid = daily_history['sarane_kharid_weighted']
+        daily_forosh = daily_history['sarane_forosh_weighted']
 
         kharid_monthly_avg = (
             daily_kharid.tail(MONTHLY_MA_DAYS).mean()
@@ -149,7 +171,8 @@ def create_market_charts(commodity):
             logger.info(f"ℹ️ [{commodity}] داده‌ای برای امروز پیدا نشد")
             return None
 
-        df = df.sort_values('timestamp')
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        df = mask_cold_start_clienttype(df, commodity)
         jalali_now = JalaliDateTime.now(tehran_tz)
         date_time_str = jalali_now.strftime("%Y/%m/%d - %H:%M")
 
@@ -326,21 +349,39 @@ def create_market_charts(commodity):
             row=8, col=1
         )
 
+        # برخلاف پنل‌های حباب (۴ و ۶)، پنل ۸ دو خط پُررنگ و پُرنوسان داره که
+        # عملاً کل ارتفاع پنل رو اشغال می‌کنن (width=5، از نزدیک min تا نزدیک
+        # max). یعنی هر annotation ای که به‌روش معمولِ add_hline وصل بشه (روی
+        # ارتفاعِ خودِ خط میانگین) بالاخره یه جای روز، زیر همون خط زندهٔ
+        # پُرنوسان قایم می‌شه (دقیقاً همون چیزی که گزارش دادید). برای پنل ۸،
+        # به‌جای annotation وابسته به مقدار داده، متن رو به یه گوشهٔ ثابت از
+        # خودِ پنل (نسبت به domain پنل، نه مقدار y) می‌چسبونیم و پس‌زمینه‌ی
+        # تیره می‌دیم — این‌جوری مهم نیست خط زنده از کجا رد بشه، متن همیشه
+        # رو یه زمینهٔ توپر و خونا می‌مونه.
+        annotation_bg = 'rgba(13,17,23,0.85)'  # هم‌رنگ COLOR_BACKGROUND با کمی شفافیت
         if kharid_monthly_avg is not None:
             fig.add_hline(
                 y=kharid_monthly_avg, row=8, col=1,
                 line=dict(color=COLOR_POSITIVE, width=2, dash='dash'),
-                annotation_text=f'میانگین ماهانهٔ خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
-                annotation_position='top left',
-                annotation_font=dict(size=18, color=COLOR_POSITIVE, family=chart_font_family),
+            )
+            fig.add_annotation(
+                text=f'میانگین ماهانهٔ خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
+                xref='x8 domain', yref='y8 domain',
+                x=0.01, y=0.97, xanchor='left', yanchor='top', showarrow=False,
+                font=dict(size=18, color=COLOR_POSITIVE, family=chart_font_family),
+                bgcolor=annotation_bg,
             )
         if forosh_monthly_avg is not None:
             fig.add_hline(
                 y=forosh_monthly_avg, row=8, col=1,
                 line=dict(color=COLOR_NEGATIVE, width=2, dash='dash'),
-                annotation_text=f'میانگین ماهانهٔ فروش: {int(forosh_monthly_avg):,}'.replace(',', '٬'),
-                annotation_position='bottom left',
-                annotation_font=dict(size=18, color=COLOR_NEGATIVE, family=chart_font_family),
+            )
+            fig.add_annotation(
+                text=f'میانگین ماهانهٔ فروش: {int(forosh_monthly_avg):,}'.replace(',', '٬'),
+                xref='x8 domain', yref='y8 domain',
+                x=0.99, y=0.97, xanchor='right', yanchor='top', showarrow=False,
+                font=dict(size=18, color=COLOR_NEGATIVE, family=chart_font_family),
+                bgcolor=annotation_bg,
             )
 
         ekhtelaf_min = df['ekhtelaf_sarane_weighted'].min()
@@ -589,6 +630,38 @@ def create_market_charts(commodity):
         return None
 
 
+def mask_cold_start_clienttype(df, commodity):
+    """
+    فقط پیشوندِ ابتدای روز رو که پول حقیقی و هر سه سرانه هم‌زمان صفرن (تاخیر
+    آپدیت clientType در اسنپ‌شات تریدرآرنا، نه صفر واقعی) با NaN جایگزین
+    می‌کنه — تا خط چارت پنل ۷/۸ به‌جای شروع با یه افت جعلی به صفر، درست از
+    اولین مقدار واقعی شروع بشه. df باید از قبل بر اساس timestamp مرتب و
+    reset_index شده باشه (ترتیبِ ردیف‌ها مبنای تشخیص «پیشوند» است، نه ایندکس).
+    """
+    df = df.copy()
+    is_cold = (df[COLD_START_ZERO_COLUMNS] == 0).all(axis=1)
+    leading_cold = is_cold.cumprod().astype(bool)
+
+    n_masked = int(leading_cold.sum())
+    if n_masked == len(df):
+        # کل روز صفره (clientType کل روز آپدیت نشده) — این دیگه صفر کاذبِ
+        # لحظهٔ باز شدن نیست، یه خرابی جدی‌تره. اگه همه رو NaN کنیم، min/max
+        # و annotation های پایین‌دستی رو می‌شکنه؛ پس دست‌نخورده برمی‌گردونیم و
+        # فقط لاگ می‌کنیم تا جداگانه بررسی بشه.
+        logger.warning(
+            f"⚠️ [{commodity}] تمام {n_masked} ردیف امروز صفرِ clientType دارن "
+            f"— به‌جای صفر کاذبِ اول روز، این می‌تونه یه خرابی واقعی داده باشه؛ ماسک نشد"
+        )
+        return df
+    if n_masked:
+        df.loc[leading_cold, COLD_START_ZERO_COLUMNS] = float('nan')
+        logger.info(
+            f"ℹ️ [{commodity}] {n_masked} ردیف ابتدای روز (صفر کاذب clientType "
+            f"در اولین اجرا) از پنل پول حقیقی/سرانه حذف شد"
+        )
+    return df
+
+
 def set_y_range(fig, df, column, row, padding_percent=0.3):
     """تنظیم محدوده محور Y"""
     col_min = df[column].min()
@@ -612,6 +685,12 @@ def add_conditional_line(fig, df, column, row, positive_color=COLOR_POSITIVE):
         next_val = df[column].iloc[i + 1]
         curr_time = df['timestamp'].iloc[i]
         next_time = df['timestamp'].iloc[i + 1]
+
+        # NaN (مثلاً صفر کاذب clienType ماسک‌شده در اول روز) نباید به‌عنوان
+        # منفی رنگ بشه یا خط جعلی به صفر بکشه — این بازه رو کامل رد می‌کنیم
+        # تا مثل Scatter معمولی، یه گپ (شکاف) تو خط بیفته.
+        if pd.isna(curr_val) or pd.isna(next_val):
+            continue
 
         color = positive_color if curr_val >= 0 else COLOR_NEGATIVE
 
