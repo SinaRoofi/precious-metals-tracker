@@ -359,16 +359,22 @@ def create_market_charts(commodity):
         # تیره می‌دیم — این‌جوری مهم نیست خط زنده از کجا رد بشه، متن همیشه
         # رو یه زمینهٔ توپر و خونا می‌مونه.
         annotation_bg = 'rgba(13,17,23,0.85)'  # هم‌رنگ COLOR_BACKGROUND با کمی شفافیت
+
+        # دو annotation جدا (سبز=خرید، قرمز=فروش)، هر دو گوشهٔ بالا-چپ ولی
+        # رو-هم (نه دو سر مخالف پنل) — چون عرض واقعی متنِ رندرشده رو اینجا
+        # نمی‌تونیم اندازه بگیریم، «کنار هم» رو با چیدمانِ عمودی (یکی زیر
+        # اون یکی) پیاده کردیم تا مطمئن باشیم روی هم نمی‌افتن؛ اگه پهلوی هم
+        # رو یه خط افقی مدنظرتونه، بگید تا با تخمین عرض دوباره جابه‌جا کنم.
         if kharid_monthly_avg is not None:
             fig.add_hline(
                 y=kharid_monthly_avg, row=8, col=1,
                 line=dict(color=COLOR_POSITIVE, width=2, dash='dash'),
             )
             fig.add_annotation(
-                text=f'میانگین ماهانهٔ خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
+                text=f'میانگین ماهانه سرانه خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
                 xref='x8 domain', yref='y8 domain',
-                x=0.01, y=0.97, xanchor='left', yanchor='top', showarrow=False,
-                font=dict(size=18, color=COLOR_POSITIVE, family=chart_font_family),
+                x=0.01, y=1.09, xanchor='left', yanchor='bottom', showarrow=False,
+                font=dict(size=20, color=COLOR_POSITIVE, family=chart_font_family),
                 bgcolor=annotation_bg,
             )
         if forosh_monthly_avg is not None:
@@ -377,10 +383,10 @@ def create_market_charts(commodity):
                 line=dict(color=COLOR_NEGATIVE, width=2, dash='dash'),
             )
             fig.add_annotation(
-                text=f'میانگین ماهانهٔ فروش: {int(forosh_monthly_avg):,}'.replace(',', '٬'),
+                text=f'میانگین ماهانه سرانه فروش: {int(forosh_monthly_avg):,}'.replace(',', '٬'),
                 xref='x8 domain', yref='y8 domain',
-                x=0.99, y=0.97, xanchor='right', yanchor='top', showarrow=False,
-                font=dict(size=18, color=COLOR_NEGATIVE, family=chart_font_family),
+                x=0.01, y=1.0, xanchor='left', yanchor='bottom', showarrow=False,
+                font=dict(size=20, color=COLOR_NEGATIVE, family=chart_font_family),
                 bgcolor=annotation_bg,
             )
 
