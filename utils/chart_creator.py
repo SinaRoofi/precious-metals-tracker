@@ -373,7 +373,7 @@ def create_market_charts(commodity):
             fig.add_annotation(
                 text=f'میانگین ماهانه سرانه خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
                 xref='x8 domain', yref='y8 domain',
-                x=0.01, y=1.09, xanchor='left', yanchor='bottom', showarrow=False,
+                x=0.01, y=1.10, xanchor='left', yanchor='bottom', showarrow=False,
                 font=dict(size=20, color=COLOR_POSITIVE, family=chart_font_family),
                 bgcolor=annotation_bg,
             )
