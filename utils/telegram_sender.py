@@ -1118,7 +1118,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.1f}%)\n\n"
 
         caption += f"🤝 معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
-    caption += f"🟢 خرید: {dollar_prices['bid']:,.0f} | 🔴 فروش: {dollar_prices['ask']:,.0f}\n"
+    caption += f"🟢 {dollar_prices['bid']:,.0f} | 🔴 {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
     fund_emoji = "🥇" if commodity == "gold" else "🥈"
