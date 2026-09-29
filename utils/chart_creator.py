@@ -383,7 +383,11 @@ def create_market_charts(commodity):
                 line=dict(color=COLOR_NEGATIVE, width=2, dash='dash'),
             )
             fig.add_annotation(
-                text=f'میانگین ماهانه سرانه فروش: {int(forosh_monthly_avg):,}'.replace(',', '٬'),
+                # برای رسم (خط نقطه‌چین و رنج محور Y) باید منفی بمونه، ولی تو
+                # متن annotation فقط قدرمطلق نشون داده می‌شه (سرانه فروش با
+                # علامت منفی گیج‌کننده‌ست، چون خودِ خط زندهٔ فروش هم منفیه و
+                # کاربر می‌دونه این پنل «فروش»ه، نیازی به علامت نیست).
+                text=f'میانگین ماهانه سرانه فروش: {int(abs(forosh_monthly_avg)):,}'.replace(',', '٬'),
                 xref='x8 domain', yref='y8 domain',
                 x=0.01, y=1.0, xanchor='left', yanchor='bottom', showarrow=False,
                 font=dict(size=20, color=COLOR_NEGATIVE, family=chart_font_family),
