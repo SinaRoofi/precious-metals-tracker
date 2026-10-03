@@ -40,17 +40,20 @@ def process_market_data(
 
         assets_df = pd.DataFrame(intrinsic_json["assets"])
         try:
-            warehouse_json = intrinsic_json["warehouse_receipt_systems"]
+            # ⚠️ ۱۴۰۵/۰۷/۱۱: رهاورد (اندپوینت intrinsic-values) این کلید رو از
+            # 'warehouse_receipt_systems' به 'commodity_contracts' تغییر نام داد
+            # (تأیید شده با نمونه‌ی واقعی JSON — ساختار آیتم‌ها یکسانه: slug،
+            # trade_symbol، name، value، volume، asset_id, ...، و slug شمش
+            # طلا/نقره هنوز دقیقاً 'شمش-طلا'/'شمش-نقره'ست، هم‌خونِ BULLION_KEY).
+            warehouse_json = intrinsic_json["commodity_contracts"]
         except KeyError:
-            # این کلید رو API بالادستی (تریدرآرنا، اندپوینت intrinsic-values)
-            # می‌سازه، نه خودِ ما — اگه نبود، یعنی احتمالاً ساختار جواب API
-            # عوض شده، نه یه باگ تو کد ما. لاگ کلیدهای سطح بالای واقعی رو
-            # اضافه می‌کنیم تا بدون حدس زدن، دفعه‌ی بعد مستقیم ببینیم اسم
-            # جدید (اگه وجود داشته باشه) چیه.
+            # اگه بازم این کلید نبود (مثلاً دوباره تغییر نام داد)، به‌جای یه
+            # traceback خام، کلیدهای سطح بالای واقعی رو لاگ می‌کنیم تا دفعه‌ی
+            # بعد بدون حدس زدن مستقیم بفهمیم اسم جدید چیه.
             logger.error(
-                f"❌ [{commodity}] کلید 'warehouse_receipt_systems' تو پاسخ "
-                f"intrinsic-values نیست — احتمالاً API بالادستی ساختار جوابش "
-                f"رو عوض کرده. کلیدهای سطح بالای موجود الان: "
+                f"❌ [{commodity}] کلید 'commodity_contracts' تو پاسخ "
+                f"intrinsic-values نیست — احتمالاً API بالادستی دوباره ساختار "
+                f"جوابش رو عوض کرده. کلیدهای سطح بالای موجود الان: "
                 f"{list(intrinsic_json.keys())}"
             )
             raise
