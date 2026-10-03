@@ -39,7 +39,22 @@ def process_market_data(
         funds_raw = market_data["funds_data"]
 
         assets_df = pd.DataFrame(intrinsic_json["assets"])
-        warehouse_df = pd.DataFrame(intrinsic_json["warehouse_receipt_systems"])
+        try:
+            warehouse_json = intrinsic_json["warehouse_receipt_systems"]
+        except KeyError:
+            # این کلید رو API بالادستی (تریدرآرنا، اندپوینت intrinsic-values)
+            # می‌سازه، نه خودِ ما — اگه نبود، یعنی احتمالاً ساختار جواب API
+            # عوض شده، نه یه باگ تو کد ما. لاگ کلیدهای سطح بالای واقعی رو
+            # اضافه می‌کنیم تا بدون حدس زدن، دفعه‌ی بعد مستقیم ببینیم اسم
+            # جدید (اگه وجود داشته باشه) چیه.
+            logger.error(
+                f"❌ [{commodity}] کلید 'warehouse_receipt_systems' تو پاسخ "
+                f"intrinsic-values نیست — احتمالاً API بالادستی ساختار جوابش "
+                f"رو عوض کرده. کلیدهای سطح بالای موجود الان: "
+                f"{list(intrinsic_json.keys())}"
+            )
+            raise
+        warehouse_df = pd.DataFrame(warehouse_json)
 
         assets_df = flatten_entities(assets_df, "related_entities")
         warehouse_df = flatten_entities(warehouse_df, "related_entities")
