@@ -700,8 +700,22 @@ _TRADE_VALUE_LEVELS = [
 _TRADE_VALUE_LEVEL_ORDER = ["normal"] + [lvl[0] for lvl in _TRADE_VALUE_LEVELS]
 
 
+def _format_avg_lines(weekly_avg, monthly_avg, decimals=1):
+    """
+    خطوط میانگین هفتگی (۵ روزه) و ماهانه (۲۰ روزه) ارزش معاملات برای پیام‌های هشدار.
+    مقدار نامعتبر (None / NaN / ≤۰) بی‌صدا حذف می‌شه تا پیام خراب نشه.
+    """
+    lines = []
+    if weekly_avg is not None and pd.notna(weekly_avg) and weekly_avg > 0:
+        lines.append(f"📆 میانگین هفتگی: {weekly_avg:,.{decimals}f} میلیارد تومان")
+    if monthly_avg is not None and pd.notna(monthly_avg) and monthly_avg > 0:
+        lines.append(f"📊 میانگین ماهانه: {monthly_avg:,.{decimals}f} میلیارد تومان")
+    return "\n".join(lines)
+
+
 def check_trade_value_alerts(bot_token, chat_id, current_trade_value, prev_trade_value,
-                              monthly_avg, status, tz, now, commodity, label, same_day=None):
+                              monthly_avg, status, tz, now, commodity, label, same_day=None,
+                              weekly_avg=None):
     """
     بررسی و ارسال هشدارهای ارزش معاملات نسبت به میانگین ماهانه‌ی زنده:
       ۱) عبور از میانگین ماهانه (سطح «above_avg»)
@@ -750,7 +764,8 @@ def check_trade_value_alerts(bot_token, chat_id, current_trade_value, prev_trade
             level_idx = _TRADE_VALUE_LEVEL_ORDER.index(level_name)
             if prev_idx < level_idx <= current_idx:
                 sender_by_name[sender_name](
-                    bot_token, chat_id, current_trade_value, monthly_avg, tz, now, label
+                    bot_token, chat_id, current_trade_value, monthly_avg, tz, now, label,
+                    weekly_avg=weekly_avg,
                 )
         status[status_key] = current_level
         status_changed = True
@@ -765,13 +780,13 @@ def check_trade_value_alerts(bot_token, chat_id, current_trade_value, prev_trade
         if change >= monthly_avg * TRADE_VALUE_SHARP_CHANGE_RATIO:
             send_trade_value_sharp_change_alert(
                 bot_token, chat_id, prev_trade_value, current_trade_value,
-                change, monthly_avg, tz, now, label,
+                change, monthly_avg, tz, now, label, weekly_avg=weekly_avg,
             )
 
     return status_changed
 
 
-def send_trade_value_above_avg_alert(bot_token, chat_id, current_value, monthly_avg, tz, now, label):
+def send_trade_value_above_avg_alert(bot_token, chat_id, current_value, monthly_avg, tz, now, label, weekly_avg=None):
     """ارسال هشدار عبور ارزش معاملات از میانگین ماهانه"""
     ratio = current_value / monthly_avg if monthly_avg else 0
 
@@ -780,7 +795,7 @@ def send_trade_value_above_avg_alert(bot_token, chat_id, current_value, monthly_
 
 ارزش معاملات از میانگین ماهانه عبور کرد.
 💰 ارزش معاملات فعلی: {current_value:,.1f} میلیارد تومان
-📊 میانگین ماهانه: {monthly_avg:,.1f} میلیارد تومان
+{_format_avg_lines(weekly_avg, monthly_avg)}
 ✖️ نسبت: {ratio:,.2f} برابر
 """.strip()
 
@@ -788,7 +803,7 @@ def send_trade_value_above_avg_alert(bot_token, chat_id, current_value, monthly_
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
-def send_trade_value_spike_alert(bot_token, chat_id, current_value, monthly_avg, tz, now, label):
+def send_trade_value_spike_alert(bot_token, chat_id, current_value, monthly_avg, tz, now, label, weekly_avg=None):
     """ارسال هشدار جهش ارزش معاملات به ۲ برابر میانگین ماهانه"""
     ratio = current_value / monthly_avg if monthly_avg else 0
 
@@ -797,7 +812,7 @@ def send_trade_value_spike_alert(bot_token, chat_id, current_value, monthly_avg,
 
 ارزش معاملات به {TRADE_VALUE_SPIKE_MULTIPLIER:.0f} برابر میانگین ماهانه رسید.
 💰 ارزش معاملات فعلی: {current_value:,.1f} میلیارد تومان
-📊 میانگین ماهانه: {monthly_avg:,.1f} میلیارد تومان
+{_format_avg_lines(weekly_avg, monthly_avg)}
 ✖️ نسبت: {ratio:,.2f} برابر
 """.strip()
 
@@ -805,7 +820,7 @@ def send_trade_value_spike_alert(bot_token, chat_id, current_value, monthly_avg,
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
-def send_trade_value_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, monthly_avg, tz, now, label):
+def send_trade_value_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, monthly_avg, tz, now, label, weekly_avg=None):
     """ارسال هشدار جهش ناگهانی ارزش معاملات بین دو خوانش پیاپی"""
     change_ratio = (change / monthly_avg * 100) if monthly_avg else 0
 
@@ -815,6 +830,7 @@ def send_trade_value_sharp_change_alert(bot_token, chat_id, prev_value, curr_val
 ⏱ افزایش در 1 دقیقه: {change:,.1f} میلیارد تومان ({change_ratio:,.0f}% میانگین ماهانه)
 🔴 قبلی: {prev_value:,.1f} میلیارد تومان
 🟢 فعلی: {curr_value:,.1f} میلیارد تومان
+{_format_avg_lines(weekly_avg, monthly_avg)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -857,7 +873,8 @@ def get_previous_day_trade_value(commodity, today):
 
 
 def check_trade_value_dod_growth_alert(bot_token, chat_id, current_trade_value, prev_day_trade_value,
-                                        status, tz, now, commodity, label, same_day=None):
+                                        status, tz, now, commodity, label, same_day=None,
+                                        weekly_avg=None, monthly_avg=None):
     """
     بررسی رشد ارزش معاملات امروز (تا این لحظه) نسبت به کل ارزش معاملات دیروز.
     وقتی رشد از TRADE_VALUE_DOD_GROWTH_THRESHOLD (پیش‌فرض ۵۰٪) بیشتر بشه، یه‌بار
@@ -879,7 +896,8 @@ def check_trade_value_dod_growth_alert(bot_token, chat_id, current_trade_value, 
     if growth >= TRADE_VALUE_DOD_GROWTH_THRESHOLD:
         if status.get(status_key, "normal") != "triggered":
             send_trade_value_dod_growth_alert(
-                bot_token, chat_id, current_trade_value, prev_day_trade_value, growth, tz, now, label
+                bot_token, chat_id, current_trade_value, prev_day_trade_value, growth, tz, now, label,
+                weekly_avg=weekly_avg, monthly_avg=monthly_avg,
             )
             status[status_key] = "triggered"
             logger.info(f"📅 [{commodity}] رشد روز به روز ارزش معاملات: {growth:+.0%}")
@@ -893,7 +911,8 @@ def check_trade_value_dod_growth_alert(bot_token, chat_id, current_trade_value, 
     return False
 
 
-def send_trade_value_dod_growth_alert(bot_token, chat_id, current_value, prev_day_value, growth, tz, now, label):
+def send_trade_value_dod_growth_alert(bot_token, chat_id, current_value, prev_day_value, growth, tz, now, label,
+                                       weekly_avg=None, monthly_avg=None):
     """ارسال هشدار رشد ارزش معاملات نسبت به روز قبل"""
     main_text = f"""
 📅 هشدار رشد ارزش معاملات {label}
@@ -901,6 +920,7 @@ def send_trade_value_dod_growth_alert(bot_token, chat_id, current_value, prev_da
 
 💰 امروز (تاکنون): {current_value:,.0f} میلیارد تومان
 📊 کل دیروز: {prev_day_value:,.0f} میلیارد تومان
+{_format_avg_lines(weekly_avg, monthly_avg, decimals=0)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -1058,9 +1078,16 @@ def check_and_send_alerts(
     # میانگین ماهانه از همون فیلد زنده‌ی avg_monthly_value در Fund_df میاد —
     # دقیقاً همونی که telegram_sender.py برای کپشن استفاده می‌کنه، نه baseline جدا.
     total_avg_monthly = df_funds["avg_monthly_value"].sum() if not df_funds.empty else 0
+    # میانگین هفتگی (۵ روزه) هم از همون Fund_df زنده؛ فقط برای نمایش تو پیام‌هاست،
+    # در منطق آستانه‌ها نقشی نداره
+    total_avg_weekly = (
+        df_funds["avg_weekly_value"].sum()
+        if not df_funds.empty and "avg_weekly_value" in df_funds.columns else None
+    )
     trade_value_changed = check_trade_value_alerts(
         bot_token, chat_id, total_value, prev["trade_value"], total_avg_monthly,
         status, tz, now, commodity, label, same_day=prev["same_day"],
+        weekly_avg=total_avg_weekly,
     )
     if trade_value_changed:
         changed = True
@@ -1070,6 +1097,7 @@ def check_and_send_alerts(
     trade_value_dod_changed = check_trade_value_dod_growth_alert(
         bot_token, chat_id, total_value, prev_day_trade_value,
         status, tz, now, commodity, label, same_day=prev["same_day"],
+        weekly_avg=total_avg_weekly, monthly_avg=total_avg_monthly,
     )
     if trade_value_dod_changed:
         changed = True
