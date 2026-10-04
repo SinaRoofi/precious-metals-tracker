@@ -67,6 +67,20 @@ def format_rr_ratio(value):
     return f"{emoji}{value:+.2f}"
 
 
+def fmt_pct(value, decimals=2, sign=True):
+    """
+    فرمت درصد برای کپشن: صفرهای اضافی بعد از اعشار حذف می‌شن تا جا باز بشه —
+    مثلاً با decimals=2: 1.02 → "+1.02"، ولی 2.00 → "+2"، 2.50 → "+2.5".
+    sign=True یعنی جلوی مقادیر مثبت «+» گذاشته بشه (پایتون خودش برای منفی‌ها
+    «-» می‌ذاره، صرف‌نظر از sign). علامت درصد (%) جزو خروجی این تابع نیست؛
+    خودِ caller باید %‌اش رو اضافه کنه.
+    """
+    formatted = f"{value:+.{decimals}f}" if sign else f"{value:.{decimals}f}"
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    return formatted
+
+
 def reward_emoji(reward_percent):
     """ایموجی ابتدای خط بر اساس علامت درصد بازدهی (reward) — مستقل از
     رنگ‌بندی format_rr_ratio که بر اساس کیفیت خودِ نسبت R/R است، نه بازدهی."""
@@ -1100,24 +1114,24 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
-🤝 معامله: {dollar_last:,.0f} ({dollar_change:+.1f}%) {tick}
+🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 1)}%) {tick}
 """
     else:
         caption = f"""
 🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
-🟥 کف: {low_total:,.0f} ({low_pct:.1f}%)
-🧮 ارزش: {value_total:,.0f} ({value_pct:.1f}%)
-🟢 سقف: {high_total:,.0f} ({high_pct:.1f}%)
+🟥 کف: {low_total:,.0f} ({fmt_pct(low_pct, 1, sign=False)}%)
+🧮 ارزش: {value_total:,.0f} ({fmt_pct(value_pct, 1, sign=False)}%)
+🟢 سقف: {high_total:,.0f} ({fmt_pct(high_pct, 1, sign=False)}%)
 """
         if tether_price is not None:
-            caption += f"\u200F💲 تتر: {tether_price:,.0f} ({tether_change_percent:+.1f}%)\n"
+            caption += f"\u200F💲 تتر: {tether_price:,.0f} ({fmt_pct(tether_change_percent, 1)}%)\n"
 
         if dollar_from_dirham is not None:
-            caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({dirham_diff_pct:+.1f}%)\n\n"
+            caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({fmt_pct(dirham_diff_pct, 1)}%)\n\n"
 
-        caption += f"🤝 معامله: {dollar_last:,.0f} ({dollar_change:+.2f}%) {tick}\n"
+        caption += f"🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}\n"
     # \u200F لازمه: این خط (بعد از حذف کلمه‌های «خرید»/«فروش») هیچ حرف
     # فارسی نداره، فقط ایموجی+عدد+چارچوب لاتین — تلگرام همچین خطی رو LTR
     # (چپ‌چین) می‌گیره و می‌ره سمت چپ. RLM جهت پاراگراف رو راست‌به‌چپ
@@ -1131,21 +1145,21 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_sign = "+" if global_change >= 0 else "-"
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>{ounce_time_str}
-\u200F📊 {global_price:,.0f} \u2066(%{abs(global_change):.2f}{ounce_sign})\u2069
+\u200F📊 {global_price:,.0f} \u2066(%{fmt_pct(abs(global_change), 2, sign=False)}{ounce_sign})\u2069
 
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
 💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
-📈 آخرین قیمت: ({avg_change_percent_weighted:+.2f}%)
+📈 آخرین قیمت: ({fmt_pct(avg_change_percent_weighted, 2)}%)
 {sarane_kharid_emoji} سرانه خرید: {sarane_kharid_w:,.0f} ({sarane_kharid_ratio_str})
 {sarane_forosh_emoji} سرانه فروش: {sarane_forosh_w:,.0f} ({sarane_forosh_ratio_str})
-\u200F🫧 میانگین حباب: {avg_bubble_weighted:+.2f}%
-\u200F🫧 میانه حباب: {median_bubble:+.2f}%
+\u200F🫧 میانگین حباب: {fmt_pct(avg_bubble_weighted, 2)}%
+\u200F🫧 میانه حباب: {fmt_pct(median_bubble, 2)}%
 """
 
     header = caption
     # نسخه‌ی بدون خط «میانه حباب» — اولین چیزی که وقتی جا برای عسکه کم باشه کنار می‌ره
-    median_line = f"\u200F🫧 میانه حباب: {median_bubble:+.2f}%\n"
+    median_line = f"\u200F🫧 میانه حباب: {fmt_pct(median_bubble, 2)}%\n"
     header_no_median = header.replace(median_line, "", 1)
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
@@ -1191,7 +1205,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 prefix = "\n" if not prev_was_capsule else ""
                 block += (
                     f"{prefix}{asset_cfg['title']}: {price:,.0f} "
-                    f"({row['close_price_change_percent']:+.1f}%)\n"
+                    f"({fmt_pct(row['close_price_change_percent'], 1)}%)\n"
                 )
                 if include_salaf and salaf_lines and key == SALAF_AFTER_ASSET_KEY:
                     block += salaf_lines  # عسکه — درست زیر امامی
@@ -1211,8 +1225,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             unit_str = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
             block += f"""
 <b>{asset_cfg['title']}</b>{time_str}
-\u200F📊 {price:,.0f}{unit_str} ({row['close_price_change_percent']:+.1f}%)
-\u200F🫧 حباب: {row['Bubble']:+.1f}%
+\u200F📊 {price:,.0f}{unit_str} ({fmt_pct(row['close_price_change_percent'], 1)}%)
+\u200F🫧 حباب: {fmt_pct(row['Bubble'], 1)}%
 💵 دلار ضمنی: {d_calc:,.0f}
 """
             if asset_cfg["show_ounce_calc"]:
@@ -1222,12 +1236,12 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 rr_lines = []
                 if rr["rr_high"] is not None:
                     rr_lines.append(
-                        f"{reward_emoji(rr['reward_high'])} سقف: {rr['reward_high']:+.2f}% "
+                        f"{reward_emoji(rr['reward_high'])} سقف: {fmt_pct(rr['reward_high'], 2)}% "
                         f"→ {format_rr_ratio(rr['rr_high'])}"
                     )
                 if rr["rr_value"] is not None:
                     rr_lines.append(
-                        f"{reward_emoji(rr['reward_value'])} ارزش: {rr['reward_value']:+.2f}% "
+                        f"{reward_emoji(rr['reward_value'])} ارزش: {fmt_pct(rr['reward_value'], 2)}% "
                         f"→ {format_rr_ratio(rr['rr_value'])}"
                     )
                 if rr_lines:
