@@ -43,10 +43,18 @@ from config import (
     TRADE_VALUE_SPIKE_MULTIPLIER,
     TRADE_VALUE_DOD_GROWTH_THRESHOLD,
     TRADE_VALUE_SHARP_CHANGE_RATIO,
+    TRADE_VALUE_AVG_CROSS_BAND,
+    DAY_MOVE_ALERT_PERCENT,
+    DAY_MOVE_REPEAT_EVERY_STEP,
+    DAY_MOVE_HYSTERESIS_PERCENT,
+    DEFAULT_DOLLAR_PRICE,
     CURRENT_HOLDING,
     SWITCH_FEE_BUY,
     SWITCH_FEE_SELL,
     SWITCH_MIN_REAL_GAIN,
+    SWITCH_DEST_BELOW_AVG_MARGIN,
+    SWITCH_HYSTERESIS,
+    SWITCH_REALERT_MIN_IMPROVEMENT,
     SWITCH_TOP_N,
 )
 from utils.sheets_storage import read_from_sheets
@@ -84,6 +92,61 @@ def get_jalali_timestamp(dt):
     return j.strftime("%Y/%m/%d - %H:%M")
 
 
+def _pct_change(current, reference, skip_zero=False):
+    """درصد تغییر current نسبت به reference؛ None اگه هرکدوم نامعتبر باشه.
+    skip_zero=True: تغییر دقیقاً صفر هم None می‌شه (برای وقتی که مرجع جایگزین
+    قیمت فعلی شده و تغییر صفر ساختگیه)."""
+    try:
+        if current is None or reference is None or pd.isna(current) or pd.isna(reference):
+            return None
+        if reference <= 0:
+            return None
+        pct = (current - reference) / reference * 100
+        if skip_zero and abs(pct) < 1e-12:
+            return None
+        return float(pct)
+    except (TypeError, ValueError):
+        return None
+
+
+def _weighted_avg_bubble(df_funds):
+    """میانگین وزنی (به ارزش معاملات) avg_monthly_bubble؛ ردیف‌های ناقص کنار گذاشته
+    می‌شن (هم از صورت، هم از وزن). None اگه چیزی برای محاسبه نباشه."""
+    try:
+        if df_funds is None or df_funds.empty or "avg_monthly_bubble" not in df_funds.columns:
+            return None
+        avg = pd.to_numeric(df_funds["avg_monthly_bubble"], errors="coerce")
+        val = pd.to_numeric(df_funds["value"], errors="coerce")
+        mask = avg.notna() & val.notna()
+        weight = val[mask].sum()
+        if weight <= 0:
+            return None
+        return float((avg[mask] * val[mask]).sum() / weight)
+    except Exception:
+        return None
+
+
+def _avg_bubble_line(avg_bubble):
+    """خط «میانگین ماهانه حباب» برای ته پیام‌ها؛ رشته‌ی خالی اگه مقدار نامعتبر باشه."""
+    if avg_bubble is None or pd.isna(avg_bubble):
+        return ""
+    return f"\n📊 میانگین ماهانه حباب: {avg_bubble:+.2f}%"
+
+
+def _fund_bubble_lines(row):
+    """خطوط حباب و میانگین ماهانه‌ی حباب یک صندوق (برای پیام‌های مربوط به صندوق)."""
+    try:
+        bubble = pd.to_numeric(row.get("nominal_bubble"), errors="coerce")
+        avg = pd.to_numeric(row.get("avg_monthly_bubble"), errors="coerce")
+    except Exception:
+        return ""
+    if pd.isna(bubble):
+        return ""
+    if pd.isna(avg):
+        return f"🫧 حباب: {bubble:+.2f}%"
+    return f"🫧 حباب: {bubble:+.2f}% (میانگین ماهانه {avg:+.2f}%)"
+
+
 def _default_alert_status():
     status = {"dollar": "normal"}
     for c in ("gold", "silver"):
@@ -96,6 +159,7 @@ def _default_alert_status():
         status[f"{c}_sarane_forosh_spike"] = "normal"
         status[f"{c}_trade_value_level"] = "normal"
         status[f"{c}_trade_value_dod_growth"] = "normal"
+        status[f"{c}_trade_value_avg_cross"] = "normal"
         status[f"{c}_switch_signal"] = "normal"
     for symbol in FUND_PRICE_ALERTS:
         status[f"fund_{symbol}"] = "normal"
@@ -929,6 +993,81 @@ def send_trade_value_dod_growth_alert(bot_token, chat_id, current_value, prev_da
 
 
 # ════════════════════════════════════════════════════════════════
+# 📊 شکست میانگین ماهانه‌ی ارزش معاملات توسط میانگین هفتگی (۵ روزه)
+# ════════════════════════════════════════════════════════════════
+
+
+def check_trade_value_avg_cross_alert(bot_token, chat_id, weekly_avg, monthly_avg, current_value,
+                                       status, tz, now, commodity, label):
+    """
+    وقتی میانگین ۵ روزه‌ی ارزش معاملات از میانگین ماهانه (۲۰ روزه) به بالا یا پایین
+    عبور کنه، یه‌بار پیام می‌ره (حالت‌محور: "above" / "below").
+
+    ضد پیام کاذب:
+      - اولین مشاهده (state=normal) فقط ثبت می‌شه و پیام نمی‌ره، چون عبوری دیده نشده.
+      - فاصله‌ی ضد نوسان TRADE_VALUE_AVG_CROSS_BAND: بین (1-band) و (1+band) وضعیت قبلی
+        حفظ می‌شه تا چرخیدن دور برابری، پیام تکراری نسازه.
+    """
+    status_key = f"{commodity}_trade_value_avg_cross"
+
+    def _valid(v):
+        return v is not None and pd.notna(v) and v > 0
+
+    if not (_valid(weekly_avg) and _valid(monthly_avg)):
+        logger.debug(
+            f"[{commodity}] بررسی شکست میانگین ارزش معاملات رد شد — "
+            f"هفتگی={weekly_avg} ماهانه={monthly_avg}"
+        )
+        return False
+
+    ratio = weekly_avg / monthly_avg
+    if ratio >= 1 + TRADE_VALUE_AVG_CROSS_BAND:
+        side = "above"
+    elif ratio <= 1 - TRADE_VALUE_AVG_CROSS_BAND:
+        side = "below"
+    else:
+        return False  # داخل فاصله‌ی ضد نوسان؛ وضعیت قبلی حفظ می‌شه
+
+    prev = status.get(status_key, "normal")
+    if side == prev:
+        return False
+
+    status[status_key] = side
+    if prev == "normal":
+        logger.info(f"📌 [{commodity}] وضعیت اولیه‌ی میانگین ۵ روزه نسبت به ماهانه: {side} ({ratio:.2f}×)")
+        return True
+
+    send_trade_value_avg_cross_alert(
+        bot_token, chat_id, side, weekly_avg, monthly_avg, current_value, tz, now, label,
+    )
+    logger.info(f"📊 [{commodity}] میانگین ۵ روزه ارزش معاملات {side} میانگین ماهانه شد ({ratio:.2f}×)")
+    return True
+
+
+def send_trade_value_avg_cross_alert(bot_token, chat_id, side, weekly_avg, monthly_avg,
+                                      current_value, tz, now, label):
+    """ارسال هشدار شکست میانگین ماهانه توسط میانگین ۵ روزه‌ی ارزش معاملات"""
+    ratio = weekly_avg / monthly_avg if monthly_avg else 0
+    if side == "above":
+        title = f"📈 میانگین ارزش معاملات {label} — شکست رو به بالا 🟢"
+        desc = "میانگین ۵ روزه از میانگین ماهانه عبور کرد (رو به بالا)."
+    else:
+        title = f"📉 میانگین ارزش معاملات {label} — شکست رو به پایین 🔴"
+        desc = "میانگین ۵ روزه به زیر میانگین ماهانه رفت (رو به پایین)."
+
+    lines = [
+        title, "", desc,
+        f"📆 میانگین ۵ روزه: {weekly_avg:,.1f} میلیارد تومان",
+        f"📊 میانگین ماهانه: {monthly_avg:,.1f} میلیارد تومان",
+        f"✖️ نسبت ۵ روزه به ماهانه: {ratio:,.2f} برابر",
+    ]
+    if current_value is not None and pd.notna(current_value) and current_value > 0:
+        lines.append(f"💰 ارزش معاملات امروز (تاکنون): {current_value:,.1f} میلیارد تومان")
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, "\n".join(lines) + f"\n{footer}")
+
+# ════════════════════════════════════════════════════════════════
 # ارکستراسیون اصلی — یک‌بار به ازای هر کالا در main.py صدا زده می‌شود
 # ════════════════════════════════════════════════════════════════
 
@@ -981,6 +1120,7 @@ def check_and_send_alerts(
         else 0
     )
     current_pol = df_funds["pol_hagigi"].sum() if not df_funds.empty else 0
+    current_avg_bubble = _weighted_avg_bubble(df_funds)
     current_sarane_kharid = (
         (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
         if total_value > 0
@@ -1002,7 +1142,10 @@ def check_and_send_alerts(
     if check_dollar and prev["dollar_price"] and prev["dollar_price"] > 0:
         change = (current_dollar - prev["dollar_price"]) / prev["dollar_price"] * 100
         if abs(change) >= ALERT_THRESHOLD_PERCENT["dollar"]:
-            send_price_alert(bot_token, chat_id, "دلار", current_dollar, change, "تومان")
+            send_price_alert(
+                bot_token, chat_id, "دلار", current_dollar, change, "تومان",
+                change_vs_yesterday=_pct_change(current_dollar, yesterday_close, skip_zero=True),
+            )
 
     # نوسان ۵ دقیقه‌ای شمش
     if prev["shams_price"] and prev["shams_price"] > 0:
@@ -1010,9 +1153,14 @@ def check_and_send_alerts(
         if abs(change) >= ALERT_THRESHOLD_PERCENT[commodity]:
             shams_divisor = 10 if commodity == "silver" else 1
             shams_unit = "تومان" if commodity == "silver" else "ریال"
+            shams_vs_yesterday = None
+            if bullion_key in data["dfp"].index:
+                v = data["dfp"].loc[bullion_key, "close_price_change_percent"]
+                shams_vs_yesterday = float(v) if pd.notna(v) else None
             send_price_alert(
                 bot_token, chat_id, f"شمش {label}",
                 current_shams / shams_divisor, change, shams_unit,
+                change_vs_yesterday=shams_vs_yesterday,
             )
 
     # نوسان ۵ دقیقه‌ای انس جهانی
@@ -1022,7 +1170,35 @@ def check_and_send_alerts(
             send_price_alert(
                 bot_token, chat_id, f"اونس {label}", current_ounce, change,
                 "دلار", is_ounce=True,
+                change_vs_yesterday=_pct_change(current_ounce, global_price_yesterday),
             )
+
+    # 🌅 حرکت نسبت به قیمت اول روز: دلار، شمش، و صندوق خودت (CURRENT_HOLDING)
+    day_assets = []
+    if (check_dollar and current_dollar and pd.notna(current_dollar)
+            and current_dollar != DEFAULT_DOLLAR_PRICE):  # قیمت پیش‌فرضِ fallback ساختگیه
+        day_assets.append({
+            "key": "dollar", "name": "دلار", "price": current_dollar,
+            "unit": "تومان", "percent_key": "dollar",
+        })
+    if current_shams and pd.notna(current_shams):
+        shams_div = 10 if commodity == "silver" else 1
+        day_assets.append({
+            "key": f"{commodity}_shams", "name": f"شمش {label}",
+            "price": current_shams / shams_div,
+            "unit": "تومان" if commodity == "silver" else "ریال",
+            "percent_key": commodity,
+        })
+    holding = CURRENT_HOLDING.get(commodity)
+    if holding and not df_funds.empty and holding in df_funds.index:
+        holding_row = df_funds.loc[holding]
+        day_assets.append({
+            "key": f"{commodity}_fund_{holding}", "name": f"صندوق {holding}",
+            "price": holding_row["close_price"], "unit": "ریال",
+            "percent_key": commodity, "extra": _fund_bubble_lines(holding_row),
+        })
+    if check_day_move_alerts(bot_token, chat_id, day_assets, status, now):
+        changed = True
 
     # تغییر شدید اختلاف سرانه
     if prev["ekhtelaf_sarane"] is not None:
@@ -1036,7 +1212,7 @@ def check_and_send_alerts(
     # هشدارهای حباب و پول حقیقی
     bubble_status_changed = check_bubble_alerts(
         bot_token, chat_id, current_bubble, prev["bubble_weighted"],
-        status, tz, now, commodity, label,
+        status, tz, now, commodity, label, avg_bubble=current_avg_bubble,
     )
     if bubble_status_changed:
         changed = True
@@ -1051,7 +1227,7 @@ def check_and_send_alerts(
     # هشدار سخت خرید/فروش
     hard_signal_changed = check_hard_signal_alert(
         bot_token, chat_id, current_bubble, current_pol, current_ekhtelaf,
-        status, tz, now, commodity, label,
+        status, tz, now, commodity, label, avg_bubble=current_avg_bubble,
     )
     if hard_signal_changed:
         changed = True
@@ -1090,6 +1266,14 @@ def check_and_send_alerts(
         weekly_avg=total_avg_weekly,
     )
     if trade_value_changed:
+        changed = True
+
+    # شکست میانگین ماهانه توسط میانگین ۵ روزه‌ی ارزش معاملات (به بالا/پایین)
+    trade_cross_changed = check_trade_value_avg_cross_alert(
+        bot_token, chat_id, total_avg_weekly, total_avg_monthly, total_value,
+        status, tz, now, commodity, label,
+    )
+    if trade_cross_changed:
         changed = True
 
     # هشدار رشد ارزش معاملات امروز نسبت به کل دیروز (>=۵۰٪)
@@ -1161,21 +1345,23 @@ def check_and_send_alerts(
 
 
 def check_bubble_alerts(bot_token, chat_id, current_bubble, prev_bubble,
-                         status, tz, now, commodity, label):
+                         status, tz, now, commodity, label, avg_bubble=None):
     """بررسی و ارسال هشدارهای حباب - کراس صفر + تغییر شدید"""
     status_changed = False
     status_key = f"{commodity}_bubble"
 
     if current_bubble > 0:
         if status[status_key] != "positive":
-            send_bubble_state_alert(bot_token, chat_id, current_bubble, "positive", tz, now, label)
+            send_bubble_state_alert(bot_token, chat_id, current_bubble, "positive", tz, now, label,
+                                    avg_bubble=avg_bubble)
             status[status_key] = "positive"
             status_changed = True
             logger.info(f"🟢 [{commodity}] حباب مثبت شد (کراس صفر): {current_bubble:+.2f}%")
 
     elif current_bubble < 0:
         if status[status_key] != "negative":
-            send_bubble_state_alert(bot_token, chat_id, current_bubble, "negative", tz, now, label)
+            send_bubble_state_alert(bot_token, chat_id, current_bubble, "negative", tz, now, label,
+                                    avg_bubble=avg_bubble)
             status[status_key] = "negative"
             status_changed = True
             logger.info(f"🔴 [{commodity}] حباب منفی شد (کراس صفر): {current_bubble:+.2f}%")
@@ -1190,13 +1376,14 @@ def check_bubble_alerts(bot_token, chat_id, current_bubble, prev_bubble,
         bubble_change = current_bubble - prev_bubble
         if abs(bubble_change) >= BUBBLE_SHARP_CHANGE_THRESHOLD:
             send_bubble_sharp_change_alert(
-                bot_token, chat_id, prev_bubble, current_bubble, bubble_change, tz, now, label
+                bot_token, chat_id, prev_bubble, current_bubble, bubble_change, tz, now, label,
+                avg_bubble=avg_bubble,
             )
 
     return status_changed
 
 
-def send_bubble_state_alert(bot_token, chat_id, bubble_value, state, tz, now, label):
+def send_bubble_state_alert(bot_token, chat_id, bubble_value, state, tz, now, label, avg_bubble=None):
     """ارسال هشدار کراس صفر حباب"""
     if state == "positive":
         dir_emoji, description = "🟢", "حباب مثبت شد"
@@ -1207,14 +1394,14 @@ def send_bubble_state_alert(bot_token, chat_id, bubble_value, state, tz, now, la
 🫧 هشدار حباب {label} {dir_emoji}
 
 {description}
-💹 حباب فعلی: {bubble_value:+.2f}%
+💹 حباب فعلی: {bubble_value:+.2f}%{_avg_bubble_line(avg_bubble)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
-def send_bubble_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, tz, now, label):
+def send_bubble_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, tz, now, label, avg_bubble=None):
     """ارسال هشدار تغییر شدید حباب"""
     direction = "افزایش" if change > 0 else "کاهش"
     dir_emoji = "📈" if change > 0 else "📉"
@@ -1225,7 +1412,7 @@ def send_bubble_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, c
 
 ⏱ {direction} در 1 دقیقه: {change_text}
 🔴 قبلی: {prev_value:+.2f}%
-🟢 فعلی: {curr_value:+.2f}%
+🟢 فعلی: {curr_value:+.2f}%{_avg_bubble_line(avg_bubble)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -1321,7 +1508,7 @@ def send_pol_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, chan
 
 
 def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
-                             current_ekhtelaf, status, tz, now, commodity, label):
+                             current_ekhtelaf, status, tz, now, commodity, label, avg_bubble=None):
     """
     بررسی و ارسال هشدار سخت خرید/فروش.
 
@@ -1341,7 +1528,8 @@ def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
     ):
         if status[status_key] != "buy":
             send_hard_signal_alert(bot_token, chat_id, "buy", current_bubble,
-                                    current_pol, current_ekhtelaf, tz, now, label)
+                                    current_pol, current_ekhtelaf, tz, now, label,
+                                    avg_bubble=avg_bubble)
             status[status_key] = "buy"
             status_changed = True
             logger.info(
@@ -1356,7 +1544,8 @@ def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
     ):
         if status[status_key] != "sell":
             send_hard_signal_alert(bot_token, chat_id, "sell", current_bubble,
-                                    current_pol, current_ekhtelaf, tz, now, label)
+                                    current_pol, current_ekhtelaf, tz, now, label,
+                                    avg_bubble=avg_bubble)
             status[status_key] = "sell"
             status_changed = True
             logger.info(
@@ -1372,7 +1561,7 @@ def check_hard_signal_alert(bot_token, chat_id, current_bubble, current_pol,
     return status_changed
 
 
-def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz, now, label):
+def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz, now, label, avg_bubble=None):
     """ارسال هشدار سخت خرید/فروش"""
     if signal == "buy":
         title, dir_emoji = "هشدار سخت خرید", "🟢"
@@ -1382,7 +1571,7 @@ def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz
     main_text = f"""
 🚨 {title} — {label} {dir_emoji}
 
-🫧 حباب: {bubble:+.2f}%
+🫧 حباب: {bubble:+.2f}%{_avg_bubble_line(avg_bubble)}
 💸 ورود پول حقیقی: {pol:+,.0f} میلیارد تومان
 📊 اختلاف سرانه: {ekhtelaf:+,.0f}
 """.strip()
@@ -1421,13 +1610,15 @@ def check_fund_price_alerts(bot_token, chat_id, df_funds, status):
         if price > high:
             if status[key] != "above":
                 send_alert_threshold(symbol, price, high, above=True,
-                                      bot_token=bot_token, chat_id=chat_id)
+                                      bot_token=bot_token, chat_id=chat_id,
+                                      extra_lines=_fund_bubble_lines(df_funds.loc[symbol]))
                 status[key] = "above"
                 status_changed = True
         elif price < low:
             if status[key] != "below":
                 send_alert_threshold(symbol, price, low, above=False,
-                                      bot_token=bot_token, chat_id=chat_id)
+                                      bot_token=bot_token, chat_id=chat_id,
+                                      extra_lines=_fund_bubble_lines(df_funds.loc[symbol]))
                 status[key] = "below"
                 status_changed = True
         else:
@@ -1439,114 +1630,256 @@ def check_fund_price_alerts(bot_token, chat_id, df_funds, status):
 
 
 # ════════════════════════════════════════════════════════════════
+# 🌅 حرکت نسبت به قیمت اول روز (دلار، شمش، صندوق خودت)
+# ════════════════════════════════════════════════════════════════
+
+
+def check_day_move_alerts(bot_token, chat_id, assets, status, now):
+    """
+    برای هر دارایی، قیمت فعلی رو با «قیمت اول روز» مقایسه می‌کنه و با هر پله‌ی
+    DAY_MOVE_ALERT_PERCENT (بالا یا پایین) پیام می‌ده.
+
+    assets: لیست دیکشنری با کلیدهای key, name, price, unit, percent_key و اختیاری extra.
+    قیمت اول روز = اولین قیمت معتبری که ربات اون روز می‌بینه؛ تو status["day_open"]
+    (همون Gist وضعیت هشدارها) ذخیره می‌شه و با عوض‌شدن روز خودکار پاک می‌شه.
+
+    منطق پله (level = int(تغییر٪ / پله)، یعنی بریده به سمت صفر):
+      - پیام: وقتی از level=0 خارج بشه، جهتش عوض بشه، یا (اگه DAY_MOVE_REPEAT_EVERY_STEP)
+        پله‌ی دورتری از اولین‌بار برسه.
+      - ریست بی‌صدا: فقط وقتی حرکت به‌اندازه‌ی DAY_MOVE_HYSTERESIS_PERCENT پایین‌تر از
+        پله‌ی اعلام‌شده برگرده (ضد اسپم دور مرز).
+    خروجی: True اگه status تغییر کرده (باید ذخیره بشه).
+    """
+    changed = False
+    store = status.get("day_open")
+    if not isinstance(store, dict):
+        store = {}
+        status["day_open"] = store
+
+    today = now.strftime("%Y-%m-%d")
+    for k in [k for k, v in store.items() if not isinstance(v, dict) or v.get("date") != today]:
+        del store[k]  # قیمت‌های اول روزِ روزهای قبل
+        changed = True
+
+    for asset in assets:
+        try:
+            price = asset["price"]
+            if price is None or pd.isna(price) or price <= 0:
+                continue
+            step = DAY_MOVE_ALERT_PERCENT.get(asset["percent_key"])
+            if not step:
+                continue
+
+            rec = store.get(asset["key"])
+            if rec is None:
+                store[asset["key"]] = {"date": today, "open": float(price), "level": 0}
+                changed = True
+                logger.info(f"🌅 قیمت اول روز {asset['name']} ثبت شد: {price:,.0f}")
+                continue
+
+            open_price = rec.get("open")
+            if not open_price or open_price <= 0:
+                continue
+
+            change = (price - open_price) / open_price * 100
+            level_now = int(change / step)
+            last = int(rec.get("level", 0))
+            new_last = last
+            send = False
+
+            if level_now != 0 and (
+                last == 0
+                or level_now * last < 0
+                or (DAY_MOVE_REPEAT_EVERY_STEP and abs(level_now) > abs(last))
+            ):
+                send, new_last = True, level_now
+            elif (
+                last != 0
+                and level_now * last >= 0
+                and abs(level_now) < abs(last)
+                and abs(change) < abs(last) * step - DAY_MOVE_HYSTERESIS_PERCENT
+            ):
+                new_last = level_now  # برگشت قابل‌توجه؛ ریست بی‌صدا
+
+            if send:
+                send_day_move_alert(
+                    bot_token, chat_id, asset["name"], price, open_price, change,
+                    asset["unit"], now, extra_lines=asset.get("extra"),
+                )
+                logger.info(f"🌅 {asset['name']}: {change:+.2f}% نسبت به قیمت اول روز")
+
+            if new_last != last:
+                rec["level"] = new_last
+                changed = True
+        except Exception as e:
+            logger.warning(f"⚠️ خطا در هشدار حرکت روزانه‌ی {asset.get('name')}: {e}")
+
+    return changed
+
+
+def send_day_move_alert(bot_token, chat_id, name, price, open_price, change, unit, now,
+                         extra_lines=None):
+    """ارسال هشدار حرکت نسبت به قیمت اول روز"""
+    up = change > 0
+    arrow, dot = ("📈", "🟢") if up else ("📉", "🔴")
+    diff = price - open_price
+
+    lines = [
+        f"{arrow} هشدار حرکت {name} نسبت به قیمت اول روز {dot}",
+        "",
+        f"💰 قیمت فعلی: {int(round(price)):,} {unit}",
+        f"🌅 قیمت اول روز: {int(round(open_price)):,} {unit}",
+        f"📊 تغییر: {change:+.2f}% ({diff:+,.0f} {unit})",
+    ]
+    if extra_lines:
+        lines.append(extra_lines)
+
+    footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
+    send_alert_message(bot_token, chat_id, "\n".join(lines) + f"\n{footer}")
+
+# ════════════════════════════════════════════════════════════════
 # 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌های هم‌کالا)
 # ════════════════════════════════════════════════════════════════
+
+
+def _switch_gain_percent(from_bubble, to_bubble):
+    """
+    افزایش طلای واقعی (٪) پس از کارمزد رفت‌وبرگشت (دقیق، نه تقریب خطی):
+    gold_ratio = (1-fee_sell)(1-fee_buy) × (1+bubble_from/100)/(1+bubble_to/100)
+    """
+    ratio = (
+        (1 - SWITCH_FEE_SELL) * (1 - SWITCH_FEE_BUY)
+        * (1 + from_bubble / 100) / (1 + to_bubble / 100)
+    )
+    return (ratio - 1) * 100
+
+
+def _switch_conditions_met(cur_bubble, cur_avg, to_bubble, to_avg, slack=0.0):
+    """
+    سه شرط هم‌زمان برای سیگنال سوئیچ:
+      ۱) سود واقعی پس از کارمزد > SWITCH_MIN_REAL_GAIN
+      ۲) حباب صندوق فعلی بالای میانگین ماهانه‌ی خودش
+      ۳) حباب صندوق مقصد حداقل SWITCH_DEST_BELOW_AVG_MARGIN زیر میانگین ماهانه‌ی خودش
+    slack=0 برای ورود؛ slack=SWITCH_HYSTERESIS برای نگه‌داشتن سیگنال فعال (هر سه آستانه
+    به‌اندازه‌ی slack شل می‌شن). اگه میانگین هرکدام NaN باشه محافظه‌کارانه False.
+    """
+    if pd.isna(cur_avg) or pd.isna(to_avg):
+        return False
+    gain = _switch_gain_percent(cur_bubble, to_bubble)
+    return (
+        gain > SWITCH_MIN_REAL_GAIN * 100 - slack
+        and cur_bubble > cur_avg - slack
+        and to_bubble < to_avg - (SWITCH_DEST_BELOW_AVG_MARGIN - slack)
+    )
 
 
 def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity, label):
     """
     بررسی سیگنال سوئیچ بین صندوق‌های هم‌کالا (طلا با طلا، نقره با نقره).
 
-    منطق: صندوق فعلی (CURRENT_HOLDING[commodity]) با بهترین صندوق (کمترین
-    nominal_bubble) در بین SWITCH_TOP_N صندوق پرحجم‌تر مقایسه می‌شود. اگر
-    صندوق فعلی خودش جزو top-N نباشد، جداگانه به مجموعه‌ی مقایسه اضافه می‌شود.
+    صندوق فعلی (CURRENT_HOLDING[commodity]) با هر یک از SWITCH_TOP_N صندوق پرحجم‌تر
+    (به‌جز خودش) مقایسه می‌شود. مقصدی «واجد شرایط» است که هر سه شرط
+    _switch_conditions_met را داشته باشد. بین واجدین شرایط، کم‌حباب‌ترین (= بیشترین
+    سود واقعی) انتخاب می‌شود — نه صرفاً کم‌حباب‌ترین کل صندوق‌ها که ممکن است ساختاری
+    همیشه ارزان باشد و فیلتر میانگین را رد کند و جلوی مقصد درست را بگیرد.
 
-    سوئیچ فقط وقتی سیگنال می‌شود که هر دو شرط برقرار باشد:
-      ۱) افزایش طلای واقعی (پس از کارمزد) از SWITCH_MIN_REAL_GAIN بیشتر باشد.
-      ۲) فیلتر بازگشت-به-میانگین (mean-reversion gate): صندوق فعلی نسبت به
-         میانگین حباب ماهانه‌ی خودش گران‌تر باشد، و صندوق مقصد نسبت به
-         میانگین حباب ماهانه‌ی خودش ارزان‌تر باشد. این تضمین می‌کند مقایسه
-         فقط بین صندوق‌هایی انجام شود که هرکدام نسبت به رفتار عادی خودشان
-         «غیرعادی» هستند — نه صرفاً یکی که همیشه ساختاری حباب کمتری دارد.
-      اگر avg_monthly_bubble برای هرکدام از دو صندوق موجود نباشد (NaN)،
-      به‌صورت محافظه‌کارانه سیگنال صادر نمی‌شود.
-
-    state-based (مثل حباب/پول حقیقی) — فقط موقع تغییر وضعیت (صندوق
-    پیشنهادی جدید یا رفع سیگنال) پیام می‌رود.
+    ضد اسپم (state-based + هیسترزیس):
+      - پیام فقط موقع تغییر وضعیت می‌رود (سیگنال جدید یا رفع سیگنال).
+      - سیگنال فعال تا وقتی شروط شل‌شده‌ی خروج (slack=SWITCH_HYSTERESIS) برقرارند پاک
+        نمی‌شود، تا نوسان دور مرز ۱٪ پیام تکراری نسازد.
+      - اگه سیگنال فعاله و مقصد دیگری بهتر شد، فقط وقتی پیام جدید می‌رود که سودش
+        حداقل SWITCH_REALERT_MIN_IMPROVEMENT از مقصد فعال بیشتر باشد.
     """
-    status_changed = False
     status_key = f"{commodity}_switch_signal"
     current_symbol = CURRENT_HOLDING.get(commodity)
 
     if not current_symbol:
         logger.debug(f"[{commodity}] CURRENT_HOLDING تنظیم نشده — چک سوئیچ رد شد")
-        return status_changed
+        return False
 
     if df_funds is None or df_funds.empty or current_symbol not in df_funds.index:
         logger.debug(f"[{commodity}] صندوق فعلی '{current_symbol}' در Fund_df پیدا نشد")
-        return status_changed
+        return False
 
     current_bubble = df_funds.loc[current_symbol, "nominal_bubble"]
     current_avg_bubble = df_funds.loc[current_symbol, "avg_monthly_bubble"]
     if pd.isna(current_bubble):
         logger.debug(f"[{commodity}] nominal_bubble برای '{current_symbol}' نامعتبر است")
-        return status_changed
+        return False
 
     # Fund_df از قبل بر اساس value نزولی مرتب است
-    candidates = df_funds.head(SWITCH_TOP_N)
-    if current_symbol not in candidates.index:
-        candidates = pd.concat([candidates, df_funds.loc[[current_symbol]]])
+    top = df_funds.head(SWITCH_TOP_N)
+    top = top[~top.index.duplicated(keep="first")]
+    dests = top.drop(index=current_symbol, errors="ignore").dropna(subset=["nominal_bubble"])
 
-    candidates = candidates[~candidates.index.duplicated(keep="first")]
-    candidates = candidates.dropna(subset=["nominal_bubble"])
-    if candidates.empty:
-        return status_changed
-
-    best_symbol = candidates["nominal_bubble"].idxmin()
-    best_bubble = candidates.loc[best_symbol, "nominal_bubble"]
-    best_avg_bubble = candidates.loc[best_symbol, "avg_monthly_bubble"]
-    best_price = candidates.loc[best_symbol, "close_price"]
-
-    # نسبت طلای واقعی بعد از سوئیچ به قبلش (دقیق، نه تقریب خطی):
-    # gold_ratio = (1-fee_sell)(1-fee_buy) × (1+bubble_from/100)/(1+bubble_to/100)
-    gold_gain_percent = (
-        (1 - SWITCH_FEE_SELL) * (1 - SWITCH_FEE_BUY)
-        * (1 + current_bubble / 100) / (1 + best_bubble / 100)
-        - 1
-    ) * 100
-
-    gain_ok = gold_gain_percent > SWITCH_MIN_REAL_GAIN * 100
-
-    # فیلتر بازگشت-به-میانگین — نیازمند داده‌ی معتبر avg_monthly_bubble برای هر دو
-    if pd.isna(current_avg_bubble) or pd.isna(best_avg_bubble):
-        reversion_ok = False
-        logger.debug(
-            f"[{commodity}] avg_monthly_bubble ناقص برای '{current_symbol}' یا "
-            f"'{best_symbol}' — فیلتر بازگشت‌به‌میانگین رد شد (محافظه‌کارانه)"
+    qualified = [
+        sym for sym, row in dests.iterrows()
+        if _switch_conditions_met(
+            current_bubble, current_avg_bubble,
+            row["nominal_bubble"], row["avg_monthly_bubble"],
         )
-    else:
-        reversion_ok = (current_bubble > current_avg_bubble) and (best_bubble < best_avg_bubble)
+    ]
+    best_symbol = dests.loc[qualified, "nominal_bubble"].idxmin() if qualified else None
 
-    if best_symbol != current_symbol and gain_ok and reversion_ok:
-        if status[status_key] != best_symbol:
-            send_switch_alert(
-                bot_token, chat_id, current_symbol, current_bubble,
-                best_symbol, best_bubble, best_price, gold_gain_percent, tz, now, label,
+    active = status.get(status_key, "normal")
+    active_ok = False
+    active_gain = None
+    if active != "normal" and active in dests.index:
+        row = dests.loc[active]
+        active_ok = _switch_conditions_met(
+            current_bubble, current_avg_bubble,
+            row["nominal_bubble"], row["avg_monthly_bubble"],
+            slack=SWITCH_HYSTERESIS,
+        )
+        active_gain = _switch_gain_percent(current_bubble, row["nominal_bubble"])
+
+    new_state = "normal"
+    if best_symbol is not None:
+        best_gain = _switch_gain_percent(current_bubble, dests.loc[best_symbol, "nominal_bubble"])
+        keep_active = (
+            active_ok
+            and active != best_symbol
+            and best_gain - active_gain < SWITCH_REALERT_MIN_IMPROVEMENT
+        )
+        new_state = active if keep_active else best_symbol
+    elif active_ok:
+        new_state = active
+
+    if new_state == active:
+        if new_state == "normal":
+            logger.debug(
+                f"[{commodity}] سوئیچ: فعلی {current_symbol} حباب {current_bubble:+.2f}% "
+                f"(میانگین {current_avg_bubble:+.2f}%) — مقصد واجد شرایط پیدا نشد"
             )
-            status[status_key] = best_symbol
-            status_changed = True
-            logger.info(
-                f"🔄 [{commodity}] سیگنال سوئیچ: {current_symbol} → {best_symbol} "
-                f"| افزایش طلای واقعی: {gold_gain_percent:+.2f}% "
-                f"| فعلی: حباب {current_bubble:+.2f}% (میانگین {current_avg_bubble:+.2f}%) "
-                f"| مقصد: حباب {best_bubble:+.2f}% (میانگین {best_avg_bubble:+.2f}%)"
-            )
-    else:
-        if status[status_key] != "normal":
-            status[status_key] = "normal"
-            status_changed = True
+        return False
 
-    return status_changed
+    status[status_key] = new_state
+    if new_state != "normal":
+        row = dests.loc[new_state]
+        gain = _switch_gain_percent(current_bubble, row["nominal_bubble"])
+        send_switch_alert(
+            bot_token, chat_id, current_symbol, current_bubble, current_avg_bubble,
+            new_state, row["nominal_bubble"], row["avg_monthly_bubble"],
+            row["close_price"], gain, tz, now, label,
+        )
+        logger.info(
+            f"🔄 [{commodity}] سیگنال سوئیچ: {current_symbol} → {new_state} "
+            f"| افزایش طلای واقعی: {gain:+.2f}% "
+            f"| فعلی: حباب {current_bubble:+.2f}% (میانگین {current_avg_bubble:+.2f}%) "
+            f"| مقصد: حباب {row['nominal_bubble']:+.2f}% (میانگین {row['avg_monthly_bubble']:+.2f}%)"
+        )
+    return True
 
 
-def send_switch_alert(bot_token, chat_id, from_symbol, from_bubble,
-                       to_symbol, to_bubble, to_price, gold_gain_percent, tz, now, label):
+def send_switch_alert(bot_token, chat_id, from_symbol, from_bubble, from_avg_bubble,
+                       to_symbol, to_bubble, to_avg_bubble, to_price,
+                       gold_gain_percent, tz, now, label):
     """ارسال هشدار سیگنال سوئیچ بین دو صندوق هم‌کالا"""
     main_text = f"""
 🔄 سیگنال سوئیچ صندوق {label}
 
-📤 از: {from_symbol} (حباب {from_bubble:+.2f}%)
-📥 به: {to_symbol} (حباب {to_bubble:+.2f}%)
+📤 از: {from_symbol} (حباب {from_bubble:+.2f}% | میانگین ماهانه {from_avg_bubble:+.2f}%)
+📥 به: {to_symbol} (حباب {to_bubble:+.2f}% | میانگین ماهانه {to_avg_bubble:+.2f}%)
 💰 قیمت ورودی {to_symbol}: {to_price:,.0f} ریال
 🪙 افزایش طلای واقعی (پس از کارمزد): {gold_gain_percent:+.2f}%
 """.strip()
@@ -1560,7 +1893,8 @@ def send_switch_alert(bot_token, chat_id, from_symbol, from_bubble,
 # ════════════════════════════════════════════════════════════════
 
 
-def send_price_alert(bot_token, chat_id, asset_name, price, change_5min, unit="تومان", is_ounce=False):
+def send_price_alert(bot_token, chat_id, asset_name, price, change_5min, unit="تومان", is_ounce=False,
+                     change_vs_yesterday=None):
     """ارسال هشدار نوسان قیمتی"""
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
@@ -1569,6 +1903,8 @@ def send_price_alert(bot_token, chat_id, asset_name, price, change_5min, unit="�
     price_formatted = f"${price:,.2f}" if is_ounce else f"{int(round(price)):,} {unit}"
 
     main_text = f"🚨 هشدار نوسان {asset_name}\n\n💰 قیمت: {price_formatted}\n📊 تغییر نسبت به 1 دقیقه پیش: {change_text}"
+    if change_vs_yesterday is not None and pd.notna(change_vs_yesterday):
+        main_text += f"\n📅 تغییر نسبت به دیروز: {change_vs_yesterday:+.2f}%"
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
@@ -1590,7 +1926,7 @@ def send_alert_ekhtelaf_fast(bot_token, chat_id, prev_val, curr_val, diff, label
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
-def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id):
+def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id, extra_lines=None):
     """ارسال هشدار عبور از آستانه قیمتی"""
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
@@ -1628,6 +1964,8 @@ def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id):
 📈 قیمت به {direction} {threshold_formatted} رسید.
 💰 قیمت فعلی: {price_formatted} {unit}
 """.strip()
+    if extra_lines:
+        main_text += f"\n{extra_lines}"
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
