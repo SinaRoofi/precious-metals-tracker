@@ -1,7 +1,6 @@
 # weekly_report_main.py
 
 import logging
-import os
 import sys
 from datetime import datetime
 
@@ -9,7 +8,6 @@ import jdatetime
 import pytz
 
 from config import LOG_FILE, LOG_FORMAT, LOG_LEVEL, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TIMEZONE
-from utils.holidays import is_iranian_holiday
 from utils.telegram_sender import send_weekly_report
 
 
@@ -38,15 +36,15 @@ COMMODITIES = ["gold", "silver"]
 def main():
     tehran_tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tehran_tz)
-    force_run = os.getenv("FORCE_RUN", "false").lower() == "true"
 
     logger.info("=" * 60)
     logger.info("📅 شروع اجرای گزارش هفتگی")
     logger.info("=" * 60)
 
-    if is_iranian_holiday(now) and not force_run:
-        logger.info(f"🏖️ امروز ({now.strftime('%Y-%m-%d')}) تعطیل است — گزارش هفتگی ارسال نمی‌شود")
-        return
+    # عمداً چک تعطیلی نداریم: گزارش هفتگی خلاصه‌ی داده‌های ثبت‌شده‌ی هفته‌ست، نه یک اجرای
+    # بازار. اگه پنج‌شنبه تعطیل رسمی باشه هم باید گزارش (با داده‌ی شنبه تا چهارشنبه) بیاد.
+    # اگه هفته اصلاً داده نداشته باشه (مثلاً تعطیلات نوروز)، send_weekly_report خودش لغو می‌کنه.
+    logger.info(f"📆 تاریخ اجرا: {now.strftime('%Y-%m-%d')}")
 
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.error("❌ TELEGRAM_BOT_TOKEN یا TELEGRAM_CHAT_ID در Secrets تنظیم نشده!")
