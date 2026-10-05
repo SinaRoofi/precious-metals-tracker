@@ -2,16 +2,12 @@ name: Weekly Market Report
 
 on:
   workflow_dispatch:
-    inputs:
-      force_run:
-        description: "اجرا حتی اگه امروز تعطیل تشخیص داده بشه (فقط برای تست)"
-        type: boolean
-        default: false
   schedule:
-    # هر چهارشنبه، ساعت 19:00 به وقت تهران (UTC+3:30 — ایران DST نداره)
+    # هر پنج‌شنبه، ساعت 19:00 به وقت تهران (UTC+3:30 — ایران DST نداره)
+    # (بازار پنج‌شنبه تا 15:00 بازه، پس گزارش بعد از بسته‌شدن بازار و با داده‌ی کامل هفته ارسال می‌شه)
     # این cron بومیِ خودِ GitHub Actions است؛ به هیچ trigger بیرونی
     # (Cloudflare Worker یا هر چیز دیگری) وابسته نیست — خودش اجرا و ارسال می‌شود.
-    - cron: "30 15 * * 3"
+    - cron: "30 15 * * 4"
 
 concurrency:
   group: weekly-report
@@ -45,7 +41,6 @@ jobs:
 
       - name: Run Weekly Report
         env:
-          FORCE_RUN: ${{ inputs.force_run }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SHEETS_SERVICE_ACCOUNT: ${{ secrets.SHEETS_SERVICE_ACCOUNT }}
