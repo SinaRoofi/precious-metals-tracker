@@ -46,7 +46,7 @@ from config import (
     CURRENT_HOLDING,
     SWITCH_FEE_BUY,
     SWITCH_FEE_SELL,
-    SWITCH_SAFETY_MARGIN,
+    SWITCH_MIN_REAL_GAIN,
     SWITCH_TOP_N,
 )
 from utils.sheets_storage import read_from_sheets
@@ -1452,7 +1452,7 @@ def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity,
     صندوق فعلی خودش جزو top-N نباشد، جداگانه به مجموعه‌ی مقایسه اضافه می‌شود.
 
     سوئیچ فقط وقتی سیگنال می‌شود که هر دو شرط برقرار باشد:
-      ۱) افزایش طلای واقعی (پس از کارمزد) از SWITCH_SAFETY_MARGIN بیشتر باشد.
+      ۱) افزایش طلای واقعی (پس از کارمزد) از SWITCH_MIN_REAL_GAIN بیشتر باشد.
       ۲) فیلتر بازگشت-به-میانگین (mean-reversion gate): صندوق فعلی نسبت به
          میانگین حباب ماهانه‌ی خودش گران‌تر باشد، و صندوق مقصد نسبت به
          میانگین حباب ماهانه‌ی خودش ارزان‌تر باشد. این تضمین می‌کند مقایسه
@@ -1505,7 +1505,7 @@ def check_switch_alert(bot_token, chat_id, df_funds, status, tz, now, commodity,
         - 1
     ) * 100
 
-    gain_ok = gold_gain_percent > SWITCH_SAFETY_MARGIN * 100
+    gain_ok = gold_gain_percent > SWITCH_MIN_REAL_GAIN * 100
 
     # فیلتر بازگشت-به-میانگین — نیازمند داده‌ی معتبر avg_monthly_bubble برای هر دو
     if pd.isna(current_avg_bubble) or pd.isna(best_avg_bubble):
