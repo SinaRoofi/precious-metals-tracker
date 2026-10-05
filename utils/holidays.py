@@ -37,7 +37,7 @@ IRANIAN_HOLIDAYS = {
     1406: IRANIAN_HOLIDAYS_1406,
 }
 
-WEEKEND_WEEKDAY = {3, 4}  # 3=پنج‌شنبه, 4=جمعه
+WEEKEND_WEEKDAY = {4}  # 4=جمعه (پنج‌شنبه از ۱۴۰۵ بازار باز داره، ساعت ۱۲ تا ۱۵ — پنجره‌ی ساعتی تو Cloudflare Worker اعمال می‌شه)
 
 
 def _check_hardcoded_fallback(jalali_year, date_tuple):
