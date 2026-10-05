@@ -35,8 +35,8 @@ COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_SHAMS_BOURSE_LABEL = {"gold": "شمش طلای بورسی", "silver": "شمش نقره بورسی"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
-# datetime.date.weekday(): شنبه=5, یکشنبه=6, دوشنبه=0, سه‌شنبه=1, چهارشنبه=2
-PERSIAN_WEEKDAY_NAME = {5: "شنبه", 6: "یک‌شنبه", 0: "دوشنبه", 1: "سه‌شنبه", 2: "چهارشنبه"}
+# datetime.date.weekday(): شنبه=5, یکشنبه=6, دوشنبه=0, سه‌شنبه=1, چهارشنبه=2, پنج‌شنبه=3
+PERSIAN_WEEKDAY_NAME = {5: "شنبه", 6: "یک‌شنبه", 0: "دوشنبه", 1: "سه‌شنبه", 2: "چهارشنبه", 3: "پنج‌شنبه"}
 
 # ─── ایندکس ردیف‌های subplot (به‌جای عدد ثابت، برای خوانایی و جلوگیری از خطا هنگام تغییر ترتیب) ───
 ROW_RETURNS = 1
@@ -107,7 +107,7 @@ def _resolve_label_overlap(values, y_min, y_max, row_height_px=280, min_gap_px=4
 
 
 def _current_trading_week_range(now=None):
-    """بازه‌ی شنبه تا امروز (حداکثر چهارشنبه) هفته‌ی جاری را برمی‌گرداند."""
+    """بازه‌ی شنبه تا امروز (حداکثر پنج‌شنبه) هفته‌ی جاری را برمی‌گرداند."""
     tz = pytz.timezone(TIMEZONE)
     today = (now or datetime.now(tz)).date()
     days_since_saturday = (today.weekday() - 5) % 7
