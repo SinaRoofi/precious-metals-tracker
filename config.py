@@ -6,8 +6,8 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 264_000
-DOLLAR_LOW = 263_000
+DOLLAR_HIGH = 267_000
+DOLLAR_LOW = 266_000
 # --- طلا ---
 SHAMS_HIGH = 35_500_000
 SHAMS_LOW = 34_500_000
@@ -67,9 +67,9 @@ TRADE_VALUE_SHARP_CHANGE_RATIO = 0.15
 TRADE_VALUE_AVG_CROSS_BAND = 0.01
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4400
-DEFAULT_DOLLAR_PRICE = 230_000
-DEFAULT_SILVER_PRICE = 66
+DEFAULT_GOLD_PRICE = 4200
+DEFAULT_DOLLAR_PRICE = 270_000
+DEFAULT_SILVER_PRICE = 61
 
 # 🫧 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
