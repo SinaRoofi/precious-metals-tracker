@@ -116,8 +116,10 @@ def create_market_charts(commodity):
         df_history['date'] = df_history['timestamp'].dt.date
         daily_history = df_history.sort_values('timestamp').groupby('date', as_index=False).last()
 
-        daily_fund_bubble = daily_history['fund_weighted_bubble_percent']
-        daily_shams_bubble = daily_history['shams_bubble_percent']
+        # dropna: روزهای بدون معامله‌ی صندوق‌ها (مثلاً پنج‌شنبه، ستون‌های صندوق خالی) تو پنجره‌ی
+        # ۲۰ روزه شمرده نمی‌شن تا «۲۰ روز» واقعاً ۲۰ روز معاملاتیِ دارای داده بمونه.
+        daily_fund_bubble = daily_history['fund_weighted_bubble_percent'].dropna()
+        daily_shams_bubble = daily_history['shams_bubble_percent'].dropna()
 
         fund_bubble_monthly_avg = (
             daily_fund_bubble.tail(MONTHLY_MA_DAYS).mean()
@@ -142,8 +144,8 @@ def create_market_charts(commodity):
         # میانگین ماهانه‌ی سرانه‌ی خرید/فروش حقیقی — همون daily_history بالا
         # (آخرین ردیف هر روز)، هم‌رنگ با alerts.py که دقیقاً همین محاسبه رو
         # برای فیلتر/هشدار سرانه استفاده می‌کنه.
-        daily_kharid = daily_history['sarane_kharid_weighted']
-        daily_forosh = daily_history['sarane_forosh_weighted']
+        daily_kharid = daily_history['sarane_kharid_weighted'].dropna()
+        daily_forosh = daily_history['sarane_forosh_weighted'].dropna()
 
         kharid_monthly_avg = (
             daily_kharid.tail(MONTHLY_MA_DAYS).mean()
