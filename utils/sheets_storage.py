@@ -163,6 +163,14 @@ def save_to_sheets(commodity, row_dict):
             logger.warning(f"⚠️ [{commodity}] داده شمش مال امروز نیست (تاریخ: {shams_date})")
             shams_change = 0.0
 
+        # ستون‌های صندوق می‌تونن None باشن (روزی که صندوق‌ها معامله ندارن، مثلاً پنج‌شنبه):
+        # خونه‌ی خالی نوشته می‌شه تا تو میانگین‌ها/گزارش‌ها NaN بشه و نه صفر یا مقدار کهنه.
+        def _r(key, default=0):
+            v = row_dict.get(key, default)
+            if v is None or (isinstance(v, float) and v != v):
+                return ''
+            return round(v, 2)
+
         new_row = [
             timestamp,
             round(row_dict['global_price'], 2),
@@ -170,15 +178,15 @@ def save_to_sheets(commodity, row_dict):
             int(row_dict['shams_price']),
             round(row_dict['dollar_change'], 2),
             round(shams_change, 2),
-            round(row_dict['fund_change_weighted'], 2),
-            round(row_dict.get('fund_final_price_avg', 0), 2),
-            round(row_dict['fund_bubble_weighted'], 2),
-            round(row_dict['sarane_kharid_w'], 2),
-            round(row_dict['sarane_forosh_w'], 2),
-            round(row_dict['ekhtelaf_sarane_w'], 2),
-            round(row_dict.get('pol_hagigi', 0), 2),
+            _r('fund_change_weighted'),
+            _r('fund_final_price_avg'),
+            _r('fund_bubble_weighted'),
+            _r('sarane_kharid_w'),
+            _r('sarane_forosh_w'),
+            _r('ekhtelaf_sarane_w'),
+            _r('pol_hagigi'),
             round(row_dict.get('shams_bubble', 0), 2),
-            round(row_dict.get('trade_value', 0), 2),
+            _r('trade_value'),
             round(row_dict.get('global_change', 0), 2),
         ]
 
