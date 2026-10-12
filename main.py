@@ -22,7 +22,7 @@ from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dolla
 from utils.salaf import fetch_salaf_lines  # عسکه — بعد از ۱۸ آذر ۱۴۰۵ حذف شه
 from utils.data_processor import process_market_data
 from utils.telegram_sender import send_to_telegram
-from utils.holidays import is_iranian_holiday
+from utils.holidays import is_iranian_holiday, is_funds_trading_day
 from utils.sheets_storage import save_to_sheets, read_from_sheets
 from utils.alerts import check_and_send_alerts
 
@@ -179,15 +179,24 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
     dfp = processed["dfp"]
     logger.info(f"✅ [{commodity}] پردازش کامل شد - {len(Fund_df)} صندوق")
 
-    total_value = Fund_df["value"].sum()  # ارزش معاملات واقعی (برای ذخیره‌سازی) — می‌تواند صفر باشد
-    weighting_denominator = total_value or 1  # فقط برای جلوگیری از تقسیم بر صفر در میانگین‌های وزنی
-    fund_change_weighted = (Fund_df["close_price_change_percent"] * Fund_df["value"]).sum() / weighting_denominator
-    fund_bubble_weighted = (Fund_df["nominal_bubble"] * Fund_df["value"]).sum() / weighting_denominator
-    fund_final_price_avg = Fund_df["final_price_change"].mean()
-    sarane_kharid_w = (Fund_df["sarane_kharid"] * Fund_df["value"]).sum() / weighting_denominator
-    sarane_forosh_w = (Fund_df["sarane_forosh"] * Fund_df["value"]).sum() / weighting_denominator
-    ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
-    pol_hagigi_weighted = Fund_df["pol_hagigi"].sum()
+    # روزی که صندوق‌ها معامله ندارن (مثلاً پنج‌شنبه: فقط شمش)، داده‌ی صندوق‌ها کهنه یا صفره.
+    # تنظیمش تو config.py (FUNDS_TRADING_WEEKDAYS): اگه صندوق‌ها اون روز هم باز شدن، فقط اونجا عوض کن.
+    funds_open = is_funds_trading_day(datetime.now(pytz.timezone(TIMEZONE)))
+
+    if funds_open:
+        total_value = Fund_df["value"].sum()  # ارزش معاملات واقعی (برای ذخیره‌سازی) — می‌تواند صفر باشد
+        weighting_denominator = total_value or 1  # فقط برای جلوگیری از تقسیم بر صفر در میانگین‌های وزنی
+        fund_change_weighted = (Fund_df["close_price_change_percent"] * Fund_df["value"]).sum() / weighting_denominator
+        fund_bubble_weighted = (Fund_df["nominal_bubble"] * Fund_df["value"]).sum() / weighting_denominator
+        fund_final_price_avg = Fund_df["final_price_change"].mean()
+        sarane_kharid_w = (Fund_df["sarane_kharid"] * Fund_df["value"]).sum() / weighting_denominator
+        sarane_forosh_w = (Fund_df["sarane_forosh"] * Fund_df["value"]).sum() / weighting_denominator
+        ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
+        pol_hagigi_weighted = Fund_df["pol_hagigi"].sum()
+    else:
+        logger.info(f"📅 [{commodity}] امروز بازار صندوق‌ها بسته‌ست (فقط شمش) — ستون‌های صندوق خالی ذخیره می‌شن")
+        total_value = fund_change_weighted = fund_bubble_weighted = fund_final_price_avg = None
+        sarane_kharid_w = sarane_forosh_w = ekhtelaf_sarane_w = pol_hagigi_weighted = None
 
     dollar_change = ((last_trade - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
     global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
@@ -202,8 +211,9 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         logger.warning(f"⚠️ [{commodity}] دارایی شمش ('{bullion_key}') در dfp پیدا نشد")
 
     logger.info(f"📈 [{commodity}] دلار: {dollar_change:+.2f}% | انس: {global_change:+.2f}% | شمش: {shams_change:+.2f}%")
-    logger.info(f"📈 [{commodity}] صندوق‌ها (وزنی): {fund_change_weighted:+.2f}% | حباب: {fund_bubble_weighted:+.2f}%")
-    logger.info(f"💸 [{commodity}] پول حقیقی: {pol_hagigi_weighted:+.2f} م.ت")
+    if funds_open:
+        logger.info(f"📈 [{commodity}] صندوق‌ها (وزنی): {fund_change_weighted:+.2f}% | حباب: {fund_bubble_weighted:+.2f}%")
+        logger.info(f"💸 [{commodity}] پول حقیقی: {pol_hagigi_weighted:+.2f} م.ت")
 
     logger.info(f"💾 [{commodity}] ذخیره در Google Sheets...")
     save_to_sheets(commodity, {
@@ -218,30 +228,33 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "fund_final_price_avg": fund_final_price_avg,
         "fund_bubble_weighted": fund_bubble_weighted,
         "sarane_kharid_w": sarane_kharid_w,
-        "sarane_forosh_w": -sarane_forosh_w,
+        "sarane_forosh_w": None if sarane_forosh_w is None else -sarane_forosh_w,
         "ekhtelaf_sarane_w": ekhtelaf_sarane_w,
         "pol_hagigi": pol_hagigi_weighted,
         "shams_bubble": shams_bubble,
         "trade_value": total_value,
     })
 
-    logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام...")
-    success = send_to_telegram(
-        commodity=commodity,
-        bot_token=TELEGRAM_BOT_TOKEN,
-        chat_id=TELEGRAM_CHAT_ID,
-        data=processed,
-        dollar_prices=dollar_prices,
-        global_price=global_price,
-        global_yesterday=global_yesterday,
-        global_time=light_chart.get("time") if light_chart else None,
-        yesterday_close=yesterday_close,
-        dirham_price=dirham_price,
-        tether_price=tether_price,
-        tether_change_percent=tether_change_percent,
-        salaf_lines=salaf_lines,
-    )
-    logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
+    if funds_open:
+        logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام...")
+        success = send_to_telegram(
+            commodity=commodity,
+            bot_token=TELEGRAM_BOT_TOKEN,
+            chat_id=TELEGRAM_CHAT_ID,
+            data=processed,
+            dollar_prices=dollar_prices,
+            global_price=global_price,
+            global_yesterday=global_yesterday,
+            global_time=light_chart.get("time") if light_chart else None,
+            yesterday_close=yesterday_close,
+            dirham_price=dirham_price,
+            tether_price=tether_price,
+            tether_change_percent=tether_change_percent,
+            salaf_lines=salaf_lines,
+        )
+        logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
+    else:
+        logger.info(f"⏭️ [{commodity}] گزارش (چارت/کپشن صندوق‌ها) امروز ارسال نمی‌شه — بازار صندوق‌ها بسته‌ست")
 
     logger.info(f"🚨 [{commodity}] بررسی هشدارها...")
     try:
@@ -255,6 +268,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
             yesterday_close=yesterday_close,
             global_price_yesterday=global_yesterday,
             check_dollar=check_dollar,
+            funds_open=funds_open,
         )
         logger.info(f"✅ [{commodity}] بررسی هشدارها کامل شد")
     except Exception as e:
