@@ -8,6 +8,8 @@ import datetime as _dt
 from functools import lru_cache
 import jdatetime
 
+from config import FUNDS_TRADING_WEEKDAYS, BULLION_TRADING_WEEKDAYS
+
 logger = logging.getLogger(__name__)
 
 MANUAL_EMERGENCY_HOLIDAYS = {
@@ -21,7 +23,7 @@ IRANIAN_HOLIDAYS_1405 = {
     (1405, 3, 6), (1405, 3, 14), (1405, 3, 15),
     (1405, 4, 3), (1405, 4, 4),
     (1405, 5, 13), (1405, 5, 21), (1405, 5, 22), (1405, 5, 30),
-    (1405, 7, 16),
+    (1405, 6, 8),
     (1405, 8, 22),
     (1405, 10, 2), (1405, 10, 16),
     (1405, 11, 4), (1405, 11, 22),
@@ -37,7 +39,9 @@ IRANIAN_HOLIDAYS = {
     1406: IRANIAN_HOLIDAYS_1406,
 }
 
-WEEKEND_WEEKDAY = {4}  # 4=جمعه (پنج‌شنبه از ۱۴۰۵ بازار باز داره، ساعت ۱۲ تا ۱۵ — پنجره‌ی ساعتی تو Cloudflare Worker اعمال می‌شه)
+# آخر هفته = روزی که نه صندوق‌ها معامله دارن و نه شمش (الان فقط جمعه). از config مشتق می‌شه.
+# پنجره‌ی ساعتی پنج‌شنبه (۱۲ تا ۱۵) تو Cloudflare Worker اعمال می‌شه.
+WEEKEND_WEEKDAY = set(range(7)) - set(FUNDS_TRADING_WEEKDAYS) - set(BULLION_TRADING_WEEKDAYS)
 
 
 def _check_hardcoded_fallback(jalali_year, date_tuple):
@@ -90,6 +94,14 @@ def is_iranian_holiday(date_obj):
     بررسی تعطیل بودن روز
     """
     return _is_holiday_cached(date_obj.year, date_obj.month, date_obj.day)
+
+
+def is_funds_trading_day(date_obj):
+    """
+    آیا امروز بازار صندوق‌ها معامله داره؟ (False تو روزهایی مثل پنج‌شنبه که فقط شمش باز
+    هست؛ تعطیلی رسمی/اضطراری هم False). روز غیرتعطیلِ بدون معامله‌ی صندوق = «حالت فقط‌شمش».
+    """
+    return date_obj.weekday() in FUNDS_TRADING_WEEKDAYS and not is_iranian_holiday(date_obj)
 
 
 def is_working_day(date_obj):
