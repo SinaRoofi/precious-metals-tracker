@@ -176,8 +176,11 @@ def _load_daily_history(commodity):
     # میانگین متحرک روی کمترین تعداد روز موجود هم محاسبه می‌شود (min_periods=1)؛
     # یعنی در ابتدای تاریخچه (کمتر از ۵ یا ۲۲ روز داده) میانگین روی همان چند روز موجود است،
     # نه NaN — تا خط نمودار از همون ابتدای ماه رسم بشه.
-    daily["trade_value_ma5"] = daily["trade_value"].rolling(window=MA_SHORT_WINDOW, min_periods=1).mean()
-    daily["trade_value_ma22"] = daily["trade_value"].rolling(window=MA_LONG_WINDOW, min_periods=1).mean()
+    # روزهای بدون معامله‌ی صندوق‌ها (مثلاً پنج‌شنبه) trade_value خالی دارن: میانگین فقط روی روزهای
+    # دارای داده حساب می‌شه و تو اون روزها مقدار قبلی ادامه پیدا می‌کنه (خط نمودار نمی‌شکنه).
+    valid_tv = daily["trade_value"].dropna()
+    daily["trade_value_ma5"] = valid_tv.rolling(window=MA_SHORT_WINDOW, min_periods=1).mean().reindex(daily.index).ffill()
+    daily["trade_value_ma22"] = valid_tv.rolling(window=MA_LONG_WINDOW, min_periods=1).mean().reindex(daily.index).ffill()
 
     return daily
 
@@ -234,6 +237,13 @@ def _render_monthly_chart(commodity, daily):
     """ساخت نمودار ماهانه (6 subplot) از یک DataFrame روزانه‌ی از‌پیش‌بارگذاری‌شده؛ خروجی PNG bytes یا None."""
     label = COMMODITY_LABEL[commodity]
     accent_color = COMMODITY_COLOR[commodity]
+
+    # روزهای فقط‌شمش (مثلاً پنج‌شنبه) ستون‌های صندوق خالی دارن: پنل‌های صندوق فقط روی روزهای دارای داده
+    # (fd) رسم می‌شن و پنل‌های بازده/حباب شمش روی همه‌ی روزها (daily).
+    fd = daily.dropna(subset=["fund_weighted_bubble_percent"]).reset_index(drop=True)
+    if fd.empty:
+        logger.warning(f"⚠️ [{commodity}] هیچ روزی با داده‌ی صندوق‌ها تو بازه نیست — گزارش ساخته نشد")
+        return None
 
     try:
         tehran_tz = pytz.timezone(TIMEZONE)
@@ -304,33 +314,33 @@ def _render_monthly_chart(commodity, daily):
 
         # ─── ردیف ۲: ارزش معاملات + میانگین ۵ و ۲۲ روزه ───
         fig.add_trace(dict(
-            type="bar", x=daily["day_label"], y=daily["trade_value"],
+            type="bar", x=fd["day_label"], y=fd["trade_value"],
             name="ارزش معاملات", marker=dict(color="rgba(33,150,243,0.55)"),
             hovertemplate="ارزش معاملات: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["day_label"], y=daily["trade_value_ma5"],
+            type="scatter", x=fd["day_label"], y=fd["trade_value_ma5"],
             name=f"میانگین {MA_SHORT_WINDOW} روزه", mode="lines",
             line=dict(color=COLOR_POSITIVE, width=4, dash="dot", shape="spline"),
             hovertemplate="MA5: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["day_label"], y=daily["trade_value_ma22"],
+            type="scatter", x=fd["day_label"], y=fd["trade_value_ma22"],
             name=f"میانگین {MA_LONG_WINDOW} روزه", mode="lines",
             line=dict(color="#FFA726", width=4, dash="dash", shape="spline"),
             hovertemplate="MA22: <b>%{y:,.0f}</b><extra></extra>",
         ), row=ROW_TRADE_VALUE, col=1)
 
         trade_value_series = pd.concat([
-            daily["trade_value"], daily["trade_value_ma5"], daily["trade_value_ma22"],
+            fd["trade_value"], fd["trade_value_ma5"], fd["trade_value_ma22"],
         ])
         set_y_range_for_series(fig, trade_value_series, ROW_TRADE_VALUE)
 
         # ─── ردیف ۳: حباب شمش + میانگینش ───
         shams_avg = daily["shams_bubble_percent"].mean()
-        fund_avg = daily["fund_weighted_bubble_percent"].mean()
+        fund_avg = fd["fund_weighted_bubble_percent"].mean()
         x_range = [daily["day_label"].iloc[0], daily["day_label"].iloc[-1]]
 
         fig.add_trace(dict(
@@ -355,7 +365,7 @@ def _render_monthly_chart(commodity, daily):
 
         # ─── ردیف ۴: حباب صندوق‌ها + میانگینش ───
         fig.add_trace(dict(
-            type="scatter", x=daily["day_label"], y=daily["fund_weighted_bubble_percent"],
+            type="scatter", x=fd["day_label"], y=fd["fund_weighted_bubble_percent"],
             name="حباب صندوق‌ها", mode="lines+markers",
             line=dict(color="#2196F3", width=5, shape="spline"),
             marker=dict(size=10),
@@ -369,7 +379,7 @@ def _render_monthly_chart(commodity, daily):
             hovertemplate=f"میانگین صندوق‌ها: <b>{fund_avg:+.2f}%</b><extra></extra>",
         ), row=ROW_FUND_BUBBLE, col=1)
 
-        fund_min, fund_max = daily["fund_weighted_bubble_percent"].min(), daily["fund_weighted_bubble_percent"].max()
+        fund_min, fund_max = fd["fund_weighted_bubble_percent"].min(), fd["fund_weighted_bubble_percent"].max()
         fund_min, fund_max = min(fund_min, fund_avg), max(fund_max, fund_avg)
         fund_padding = 0.5 if fund_min == fund_max else (fund_max - fund_min) * 0.3
         fig.update_yaxes(range=[fund_min - fund_padding, fund_max + fund_padding], row=ROW_FUND_BUBBLE, col=1)
@@ -378,11 +388,11 @@ def _render_monthly_chart(commodity, daily):
 
         # ─── ردیف ۵: پول حقیقی تجمعی ───
         _add_conditional_line_categorical(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
-        set_y_range(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
+        set_y_range(fig, fd, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
 
         # ─── ردیف ۶: سرانه خرید/فروش + اختلاف ───
         fig.add_trace(dict(
-            type="scatter", x=daily["day_label"], y=daily["sarane_kharid_weighted"],
+            type="scatter", x=fd["day_label"], y=fd["sarane_kharid_weighted"],
             name="خرید حقیقی", mode="lines+markers",
             line=dict(color=COLOR_POSITIVE, width=5, shape="spline"),
             marker=dict(size=10),
@@ -391,7 +401,7 @@ def _render_monthly_chart(commodity, daily):
         ), row=ROW_SARANE, col=1)
 
         fig.add_trace(dict(
-            type="scatter", x=daily["day_label"], y=daily["sarane_forosh_weighted"],
+            type="scatter", x=fd["day_label"], y=fd["sarane_forosh_weighted"],
             name="فروش حقیقی", mode="lines+markers",
             line=dict(color=COLOR_NEGATIVE, width=5, shape="spline"),
             marker=dict(size=10),
@@ -401,25 +411,25 @@ def _render_monthly_chart(commodity, daily):
 
         colors_fill = [
             "rgba(0,230,118,0.75)" if x > 0 else "rgba(255,23,68,0.75)" if x < 0 else "rgba(72,79,88,0.75)"
-            for x in daily["ekhtelaf_sarane_weighted"]
+            for x in fd["ekhtelaf_sarane_weighted"]
         ]
         ekhtelaf_axis = "y" + str(ROW_SARANE + 10)
         fig.add_trace(dict(
-            type="bar", x=daily["day_label"], y=daily["ekhtelaf_sarane_weighted"],
+            type="bar", x=fd["day_label"], y=fd["ekhtelaf_sarane_weighted"],
             name="اختلاف سرانه", width=0.6,  # روی محور category عدد نسبی (کسری از عرض دسته)، نه میلی‌ثانیه
             marker=dict(color=colors_fill, line=dict(color=colors_fill, width=4)),
             hovertemplate="اختلاف: <b>%{y:.2f}</b><extra></extra>",
             yaxis=ekhtelaf_axis,
         ), row=ROW_SARANE, col=1)
 
-        kharid_min, kharid_max = daily["sarane_kharid_weighted"].min(), daily["sarane_kharid_weighted"].max()
-        forosh_min, forosh_max = daily["sarane_forosh_weighted"].min(), daily["sarane_forosh_weighted"].max()
+        kharid_min, kharid_max = fd["sarane_kharid_weighted"].min(), fd["sarane_kharid_weighted"].max()
+        forosh_min, forosh_max = fd["sarane_forosh_weighted"].min(), fd["sarane_forosh_weighted"].max()
         lines_min, lines_max = min(kharid_min, forosh_min), max(kharid_max, forosh_max)
         lines_padding = max(10, (lines_max - lines_min) * 0.2)
         fig.update_yaxes(range=[lines_min - lines_padding, lines_max + lines_padding], row=ROW_SARANE, col=1)
 
-        ekhtelaf_min = daily["ekhtelaf_sarane_weighted"].min()
-        ekhtelaf_max = daily["ekhtelaf_sarane_weighted"].max()
+        ekhtelaf_min = fd["ekhtelaf_sarane_weighted"].min()
+        ekhtelaf_max = fd["ekhtelaf_sarane_weighted"].max()
         ekhtelaf_padding = max(10, (ekhtelaf_max - ekhtelaf_min) * 0.2)
         fig.update_layout(**{
             ekhtelaf_axis.replace("y", "yaxis"): dict(
@@ -459,14 +469,14 @@ def _render_monthly_chart(commodity, daily):
         # برچسب‌های آخرین مقدار در انتهای هر نمودار (مشابه گزارش روزانه)
         # ═══════════════════════════════════════════════════════
         last_shams = daily["shams_bubble_percent"].iloc[-1]
-        last_fund = daily["fund_weighted_bubble_percent"].iloc[-1]
-        last_pol_cum = daily["pol_hagigi_cumulative"].iloc[-1]
-        last_kharid = daily["sarane_kharid_weighted"].iloc[-1]
-        last_forosh = daily["sarane_forosh_weighted"].iloc[-1]
-        last_ekhtelaf = daily["ekhtelaf_sarane_weighted"].iloc[-1]
-        last_trade_value = daily["trade_value"].iloc[-1]
-        last_ma5 = daily["trade_value_ma5"].iloc[-1]
-        last_ma22 = daily["trade_value_ma22"].iloc[-1]
+        last_fund = fd["fund_weighted_bubble_percent"].iloc[-1]
+        last_pol_cum = fd["pol_hagigi_cumulative"].iloc[-1]
+        last_kharid = fd["sarane_kharid_weighted"].iloc[-1]
+        last_forosh = fd["sarane_forosh_weighted"].iloc[-1]
+        last_ekhtelaf = fd["ekhtelaf_sarane_weighted"].iloc[-1]
+        last_trade_value = fd["trade_value"].iloc[-1]
+        last_ma5 = fd["trade_value_ma5"].iloc[-1]
+        last_ma22 = fd["trade_value_ma22"].iloc[-1]
         last_dollar_return = daily["dollar_return_cum"].iloc[-1]
         last_ounce_return = daily["ounce_return_cum"].iloc[-1]
         last_shams_return = daily["shams_return_cum"].iloc[-1]
