@@ -202,6 +202,9 @@ def process_funds_data(data, commodity):
 
             # ورود پول تجمعی ماهانه (۲۰ روز معاملاتی)
             "cumulative_money_flow_20": _dig(row, "static", "marketHistory", "cumulativeMoneyFlow", "20"),
+
+            # میانگین روزانه‌ی پول حقیقی ۵ روز اخیر (علامت‌دار؛ = جمع ۵ روزه ÷ ۵)
+            "avg_money_flow_5": _dig(row, "static", "marketHistory", "averageMoneyFlow", "5"),
         }
         extracted_data.append(extracted_row)
 
@@ -225,6 +228,10 @@ def process_funds_data(data, commodity):
 
     Fund_df["cumulative_money_flow_20"] = (
         pd.to_numeric(Fund_df["cumulative_money_flow_20"], errors="coerce") / 10_000_000_000
+    )
+
+    Fund_df["avg_money_flow_5"] = (
+        pd.to_numeric(Fund_df["avg_money_flow_5"], errors="coerce") / 10_000_000_000
     )
 
     Fund_df["NAV_change_percent"] = pd.to_numeric(
@@ -264,7 +271,7 @@ def process_funds_data(data, commodity):
         "NAV_change_percent", "close_price_change_percent", "final_price_change",
         "weekly_return", "monthly_return", "nav_monthly_return", "3_month_return",
         "net_asset", "sarane_kharid", "sarane_forosh", "ekhtelaf_sarane",
-        "pol_hagigi", "cumulative_money_flow_20", "pol_to_value_ratio",
+        "pol_hagigi", "avg_money_flow_5", "cumulative_money_flow_20", "pol_to_value_ratio",
         "value", "avg_weekly_value", "avg_monthly_value", "value_to_avg_ratio",
     ]
     existing_columns = [col for col in final_columns if col in Fund_df.columns]
