@@ -24,7 +24,7 @@ SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 51_500, "low": 51_000},
+    "'گنج": {"high": 223_000, "low": 222_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
