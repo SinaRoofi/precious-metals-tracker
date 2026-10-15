@@ -6,11 +6,11 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 264_000
-DOLLAR_LOW = 263_000
+DOLLAR_HIGH = 267_000
+DOLLAR_LOW = 266_000
 # --- طلا ---
-SHAMS_HIGH = 35_000_000
-SHAMS_LOW = 34_000_000
+SHAMS_HIGH = 35_500_000
+SHAMS_LOW = 34_500_000
 
 GOLD_HIGH = 4200
 GOLD_LOW = 4100
@@ -19,8 +19,8 @@ GOLD_LOW = 4100
 SILVER_SHAMS_HIGH = 550_000
 SILVER_SHAMS_LOW = 450_000
 
-SILVER_HIGH = 70
-SILVER_LOW = 60
+SILVER_HIGH = 60
+SILVER_LOW = 50
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
@@ -86,9 +86,9 @@ FUNDS_TRADING_WEEKDAYS = {5, 6, 0, 1, 2}        # صندوق‌ها: شنبه ت
 BULLION_TRADING_WEEKDAYS = {5, 6, 0, 1, 2, 3}   # شمش: شنبه تا پنج‌شنبه
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4200
-DEFAULT_DOLLAR_PRICE = 260_000
-DEFAULT_SILVER_PRICE = 60
+DEFAULT_GOLD_PRICE = 4150
+DEFAULT_DOLLAR_PRICE = 266_000
+DEFAULT_SILVER_PRICE = 56
 
 # 🫧 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
