@@ -179,7 +179,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
     dfp = processed["dfp"]
     logger.info(f"✅ [{commodity}] پردازش کامل شد - {len(Fund_df)} صندوق")
 
-    # روزی که صندوق‌ها معامله ندارن (مثلاً پنج‌شنبه: فقط شمش)، داده‌ی صندوق‌ها کهنه یا صفره.
+    # روزی که صندوق‌ها معامله ندارن (مثلاً پنج‌شنبه)، داده‌ی صندوق‌ها همون آخرین روز معاملاتیه (کهنه).
     # تنظیمش تو config.py (FUNDS_TRADING_WEEKDAYS): اگه صندوق‌ها اون روز هم باز شدن، فقط اونجا عوض کن.
     funds_open = is_funds_trading_day(datetime.now(pytz.timezone(TIMEZONE)))
 
@@ -194,7 +194,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
         pol_hagigi_weighted = Fund_df["pol_hagigi"].sum()
     else:
-        logger.info(f"📅 [{commodity}] امروز بازار صندوق‌ها بسته‌ست (فقط شمش) — ستون‌های صندوق خالی ذخیره می‌شن")
+        logger.info(f"📅 [{commodity}] امروز بازار صندوق‌ها بسته‌ست — ستون‌های صندوق خالی ذخیره می‌شن")
         total_value = fund_change_weighted = fund_bubble_weighted = fund_final_price_avg = None
         sarane_kharid_w = sarane_forosh_w = ekhtelaf_sarane_w = pol_hagigi_weighted = None
 
@@ -235,26 +235,24 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "trade_value": total_value,
     })
 
-    if funds_open:
-        logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام...")
-        success = send_to_telegram(
-            commodity=commodity,
-            bot_token=TELEGRAM_BOT_TOKEN,
-            chat_id=TELEGRAM_CHAT_ID,
-            data=processed,
-            dollar_prices=dollar_prices,
-            global_price=global_price,
-            global_yesterday=global_yesterday,
-            global_time=light_chart.get("time") if light_chart else None,
-            yesterday_close=yesterday_close,
-            dirham_price=dirham_price,
-            tether_price=tether_price,
-            tether_change_percent=tether_change_percent,
-            salaf_lines=salaf_lines,
-        )
-        logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
-    else:
-        logger.info(f"⏭️ [{commodity}] گزارش (چارت/کپشن صندوق‌ها) امروز ارسال نمی‌شه — بازار صندوق‌ها بسته‌ست")
+    logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام{'' if funds_open else ' (نسخه‌ی بدون صندوق‌ها)'}...")
+    success = send_to_telegram(
+        commodity=commodity,
+        bot_token=TELEGRAM_BOT_TOKEN,
+        chat_id=TELEGRAM_CHAT_ID,
+        data=processed,
+        dollar_prices=dollar_prices,
+        global_price=global_price,
+        global_yesterday=global_yesterday,
+        global_time=light_chart.get("time") if light_chart else None,
+        yesterday_close=yesterday_close,
+        dirham_price=dirham_price,
+        tether_price=tether_price,
+        tether_change_percent=tether_change_percent,
+        salaf_lines=salaf_lines,
+        funds_open=funds_open,
+    )
+    logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
 
     logger.info(f"🚨 [{commodity}] بررسی هشدارها...")
     try:
