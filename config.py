@@ -6,11 +6,11 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 263_000
-DOLLAR_LOW = 262_000
+DOLLAR_HIGH = 270_000
+DOLLAR_LOW = 269_000
 # --- طلا ---
-SHAMS_HIGH = 35_000_000
-SHAMS_LOW = 34_000_000
+SHAMS_HIGH = 36_000_000
+SHAMS_LOW = 35_000_000
 
 GOLD_HIGH = 4200
 GOLD_LOW = 4100
@@ -19,12 +19,12 @@ GOLD_LOW = 4100
 SILVER_SHAMS_HIGH = 550_000
 SILVER_SHAMS_LOW = 450_000
 
-SILVER_HIGH = 60
-SILVER_LOW = 50
+SILVER_HIGH = 70
+SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "گنج" : {"high": 222_000, "low": 221_000},
+    "زروان": {"high": 53_500, "low": 52_000},
 }
 
 ALERT_THRESHOLD_PERCENT = {
@@ -32,7 +32,7 @@ ALERT_THRESHOLD_PERCENT = {
     "gold": 0.5,
     "silver": 1.0,
 }
-EKHTELAF_THRESHOLD = 10
+EKHTELAF_THRESHOLD = 20
 
 # 🌅 هشدار حرکت نسبت به قیمت اول روز (دلار، شمش، صندوق خودت = CURRENT_HOLDING)
 # قیمت اول روز = اولین قیمت معتبری که ربات اون روز می‌بینه (تو Gist ذخیره می‌شه).
@@ -77,13 +77,19 @@ MONEY_POWER_MIN_VALUE_RATIO = 0.30
 # هیسترزیس: سیگنال فعال تا وقتی قدرت پول زیر K×(1−این) نیاد پاک نمی‌شه (بدون این، پیام‌ها ≈ ۲ برابر می‌شن)
 MONEY_POWER_HYSTERESIS = 0.5
 
-FUNDS_TRADING_WEEKDAYS = {5, 6, 0, 1, 2}        # صندوق‌ها: شنبه تا چهارشنبه
-BULLION_TRADING_WEEKDAYS = {5, 6, 0, 1, 2, 3}   # شمش: شنبه تا پنج‌شنبه
+# 📅 روزهای معامله (weekday پایتون: دوشنبه=0 … پنج‌شنبه=3، جمعه=4، شنبه=5، یکشنبه=6)
+# تنها نقطه‌ی تنظیم: اگه صندوق‌ها پنج‌شنبه هم باز شدن، فقط 3 رو به FUNDS_TRADING_WEEKDAYS اضافه کن.
+# روز عادی = هر دو بازار باز. روزی که فقط بازار صندوق‌ها بسته باشه (الان پنج‌شنبه؛ شمش، سکه، طلای
+# ۲۴/۱۸، نقره و دلار باز هستن): ربات اجرا می‌شه، ولی هشدارهای مبتنی بر صندوق رد می‌شن، ستون‌های
+# صندوق تو شیت خالی می‌مونن و گزارش تلگرام (دو تصویر + کپشن) بدون صندوق‌ها می‌ره.
+# روزی که تو هیچ‌کدوم نباشه (الان جمعه) = آخر هفته، ربات اصلاً اجرا نمی‌شه.
+FUNDS_TRADING_WEEKDAYS = {5, 6, 0, 1, 2}           # بازار صندوق‌ها: شنبه تا چهارشنبه
+NON_FUND_TRADING_WEEKDAYS = {5, 6, 0, 1, 2, 3}     # شمش، سکه، طلا، نقره، دلار: شنبه تا پنج‌شنبه
 
 # 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4150
-DEFAULT_DOLLAR_PRICE = 266_000
-DEFAULT_SILVER_PRICE = 56
+DEFAULT_GOLD_PRICE = 4400
+DEFAULT_DOLLAR_PRICE = 230_000
+DEFAULT_SILVER_PRICE = 66
 
 # 🫧 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
