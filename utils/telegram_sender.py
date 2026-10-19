@@ -28,6 +28,7 @@ from config import (
 )
 from utils.chart_creator import create_market_charts
 from utils.alerts import get_sarane_kharid_baseline, get_sarane_forosh_baseline
+from utils.sheets_storage import read_from_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -406,8 +407,13 @@ def get_today_date():
 
 def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_price,
                       global_yesterday, global_time, yesterday_close, dirham_price=None,
-                      tether_price=None, tether_change_percent=None, salaf_lines=None):
-    """ارسال گزارش یک کالا (gold یا silver) به کانال تلگرام مشترک، به‌صورت پیام مستقل"""
+                      tether_price=None, tether_change_percent=None, salaf_lines=None,
+                      funds_open=True):
+    """ارسال گزارش یک کالا (gold یا silver) به کانال تلگرام مشترک، به‌صورت پیام مستقل.
+
+    funds_open=False (روزی که بازار صندوق‌ها بسته‌ست، مثل پنج‌شنبه): همون دو تصویر + کپشن می‌ره (بدون سلف)،
+    ولی بدون صندوق‌ها: تصویر اول جدول قیمت/R-R/بازده بازار غیرصندوقیه به‌جای نقشه‌ی صندوق‌ها، تصویر دوم
+    نمودارهای ۴ پنل اول، و کپشن بدون بلاک صندوق‌ها."""
     if commodity not in CAPTION_ASSETS:
         raise ValueError(f"کالای نامعتبر: {commodity}")
 
@@ -418,12 +424,20 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
     try:
         logger.info(f"🎨 [{commodity}] در حال ساخت هم‌زمان Treemap و نمودارها...")
         with ThreadPoolExecutor(max_workers=2) as executor:
-            future_treemap = executor.submit(
-                create_combined_image,
-                commodity, data["Fund_df"], dollar_prices["last_trade"],
-                global_price, global_yesterday, data["dfp"], yesterday_close,
-            )
-            future_chart = executor.submit(create_market_charts, commodity)
+            if funds_open:
+                future_treemap = executor.submit(
+                    create_combined_image,
+                    commodity, data["Fund_df"], dollar_prices["last_trade"],
+                    global_price, global_yesterday, data["dfp"], yesterday_close,
+                )
+                future_chart = executor.submit(create_market_charts, commodity)
+            else:
+                future_treemap = executor.submit(
+                    create_nonfund_image,
+                    commodity, data["dfp"], dollar_prices["last_trade"],
+                    global_price, global_yesterday, yesterday_close,
+                )
+                future_chart = executor.submit(create_market_charts, commodity, False)
 
             img1_bytes = future_treemap.result()
             img2_bytes = future_chart.result()
@@ -432,7 +446,7 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
         caption = create_simple_caption(
             commodity, data, dollar_prices, global_price,
             global_yesterday, yesterday_close, global_time, dirham_price,
-            tether_price, tether_change_percent, salaf_lines,
+            tether_price, tether_change_percent, salaf_lines, funds_open=funds_open,
         )
 
         gist_data, gist_status = get_gist_data(commodity)
@@ -1009,11 +1023,210 @@ def create_combined_image(commodity, Fund_df, last_trade, global_price, global_y
 
 # ────────────────── کپشن ──────────────────
 
+def _bullion_returns(commodity, dollar_now, ounce_now, shams_now):
+    """
+    بازده ۵ و ۲۰ روز معاملاتی دلار / اونس / شمش از تاریخچه‌ی شیت: قیمت فعلی نسبت به آخرین قیمتِ
+    روز N‌ام قبل (فقط روزهای قبل از امروز). خروجی: {"دلار": (r5, r20), "اونس": ..., "شمش": ...}
+    با None برای بازه‌ی بدون داده‌ی کافی؛ None اگه شیت خونده نشد.
+    """
+    import pandas as pd
+    from config import STANDARD_HEADER
+    try:
+        rows = read_from_sheets(commodity, limit=3000)
+        if not rows:
+            return None
+        df = pd.DataFrame(rows, columns=STANDARD_HEADER)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"])
+        today = datetime.now(pytz.timezone(TIMEZONE)).date()
+        df = df[df["timestamp"].dt.date < today]
+        cols = {"دلار": ("dollar_price", dollar_now), "اونس": ("global_price_usd", ounce_now), "شمش": ("shams_price", shams_now)}
+        out = {}
+        for name, (col, now_val) in cols.items():
+            series = pd.to_numeric(df[col], errors="coerce")
+            series = series.where(series > 0)
+            daily = series.groupby(df["timestamp"].dt.date).last().dropna()
+            res = []
+            for n in (5, 20):
+                if now_val and now_val > 0 and len(daily) >= n:
+                    res.append((now_val / daily.iloc[-n] - 1) * 100)
+                else:
+                    res.append(None)
+            out[name] = tuple(res)
+        return out
+    except Exception as e:
+        logger.warning(f"⚠️ [{commodity}] خواندن بازده از شیت ناموفق: {e}")
+        return None
+
+
+def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yesterday, yesterday_close):
+    """
+    تصویر اول گزارش تو روزی که بازار صندوق‌ها بسته‌ست (جایگزین نقشه‌ی صندوق‌ها، مثلاً پنج‌شنبه):
+    جدول قیمت‌ها (دلار، اونس و همه‌ی دارایی‌های غیرصندوقی: شمش، طلا/نقره‌ی گرمی، سکه + حباب و
+    دلار/اونس ضمنی)، جدول R/R شمش، جدول بازده ۵ و ۲۰ روزه (دلار، اونس، شمش).
+    """
+    label = COMMODITY_LABEL[commodity]
+    accent_color = COMMODITY_COLOR[commodity]
+    tehran_tz = pytz.timezone(TIMEZONE)
+    date_time_str = JalaliDateTime.now(tehran_tz).strftime("%Y/%m/%d - %H:%M")
+
+    try:
+        ImageFont.truetype(FONT_MEDIUM_PATH, 40)
+        font_family = "Vazirmatn-Medium, sans-serif"
+    except Exception:
+        font_family = "sans-serif"
+
+    bullion_key = BULLION_KEY[commodity]
+    asset_cfg = next(a for a in CAPTION_ASSETS[commodity] if a["key"] == bullion_key)
+    divisor, unit = asset_cfg["divisor"], asset_cfg["unit"]
+    has_bullion = bullion_key in dfp.index
+    row = dfp.loc[bullion_key] if has_bullion else None
+
+    def _z(x, nd):
+        """صفر منفی بعد از گرد کردن (مثلاً −0.04 با یک رقم اعشار) به صفر معمولی تبدیل می‌شه"""
+        try:
+            return 0.0 if x is not None and round(float(x), nd) == 0 else x
+        except (TypeError, ValueError):
+            return x
+
+    def pct_change(now_val, ref):
+        return _z((now_val - ref) / ref * 100, 2) if ref else None
+
+    shams_price = row["close_price"] / divisor if has_bullion else None
+    ounce_fmt = ",.2f" if commodity == "silver" else ",.0f"
+    tables = []   # (عنوان, header, ستون‌ها, رنگ‌ها)
+
+    # ───── جدول ۱: قیمت‌ها (دلار، اونس و همه‌ی دارایی‌های غیرصندوقی این کالا) ─────
+    def short_title(t):
+        """عنوان دارایی بدون ایموجی ابتدای اون (ایموجی تو جدول plotly درست رندر نمی‌شه)"""
+        parts = t.split(" ", 1)
+        return parts[1] if len(parts) == 2 else t
+
+    names = ["دلار آزاد", f"اونس {label}"]
+    prices = [f"{last_trade:,.0f} تومان", f"{global_price:{ounce_fmt}} دلار"]
+    changes = [fmt_num(pct_change(last_trade, yesterday_close), "+.2f", "%"),
+               fmt_num(pct_change(global_price, global_yesterday), "+.2f", "%")]
+    bubbles, implied_dollar, implied_ounce = [NO_DATA_TEXT] * 2, [NO_DATA_TEXT] * 2, [NO_DATA_TEXT] * 2
+    for a in CAPTION_ASSETS[commodity]:
+        if a["key"] not in dfp.index:
+            continue
+        r_ = dfp.loc[a["key"]]
+        names.append(short_title(a["title"]))
+        prices.append(f"{r_['close_price'] / a['divisor']:,.0f} {a['unit']}")
+        changes.append(fmt_num(_z(r_.get("close_price_change_percent"), 2), "+.2f", "%"))
+        bubbles.append(fmt_num(_z(r_.get("Bubble"), 2), "+.2f", "%"))
+        implied_dollar.append(fmt_num(r_.get("pricing_dollar"), ",.0f"))
+        implied_ounce.append(fmt_num(r_.get(f"pricing_{commodity}"), ounce_fmt) if a.get("show_ounce_calc") else NO_DATA_TEXT)
+    n1 = len(names)
+    t1_cells = [names, prices, changes, bubbles, implied_dollar, implied_ounce, names]
+    t1_header = ["دارایی", "قیمت", "تغییر امروز", "حباب", "دلار ضمنی", "اونس ضمنی", "دارایی"]
+    vmin_c, vmax_c = get_symmetric_vrange(changes)
+    vmin_b, vmax_b = get_symmetric_vrange(bubbles)
+    plain = ["#1C2733"] * n1
+    t1_colors = [plain, plain,
+                 apply_gradient_colors(changes, vmin=vmin_c, vmax=vmax_c),
+                 apply_gradient_colors(bubbles, vmin=vmin_b, vmax=vmax_b),
+                 plain, plain, plain]
+    tables.append(("قیمت‌ها", t1_header, t1_cells, t1_colors))
+
+    # ───── جدول ۲: R/R شمش ─────
+    rr = calculate_bullion_rr(commodity, dfp) if has_bullion else None
+    if rr is not None:
+        def target(v):
+            return fmt_num(v / divisor, ",.0f", f" {unit}")
+        scen = ["تا سقف", "تا ارزش"]
+        t2_cells = [scen, [target(rr["value_high"]), target(rr["value_value"])],
+                    [fmt_num(_z(rr["reward_high"], 2), "+.2f", "%"), fmt_num(_z(rr["reward_value"], 2), "+.2f", "%")],
+                    [fmt_num(_z(-rr["risk"], 2), "+.2f", "%")] * 2,
+                    [fmt_num(rr["rr_high"], ".2f"), fmt_num(rr["rr_value"], ".2f")], scen]
+        t2_header = ["سناریو", "هدف", "ریوارد", "ریسک تا کف", "R/R", "سناریو"]
+
+        def rr_color(v):
+            if v is None:
+                return NEUTRAL_CELL_COLOR
+            return "#1B7F3B" if v >= 2 else ("#4C9A5F" if v >= 1.5 else "#8B1A1A")
+        t2_colors = [["#1C2733"] * 2, ["#1C2733"] * 2,
+                     apply_gradient_colors(t2_cells[2], vmin=-5, vmax=5),
+                     ["#5A1F1F"] * 2, [rr_color(rr["rr_high"]), rr_color(rr["rr_value"])], ["#1C2733"] * 2]
+        tables.append(("ریوارد به ریسک شمش", t2_header, t2_cells, t2_colors))
+
+    # ───── جدول ۳: بازده ۵ و ۲۰ روزه ─────
+    rets = _bullion_returns(commodity, last_trade, global_price, row["close_price"] if has_bullion else None)
+    if rets:
+        order = ["دلار", "اونس", "شمش"]
+        r5 = [fmt_num(_z(rets[n][0], 1), "+.1f", "%") for n in order]
+        r20 = [fmt_num(_z(rets[n][1], 1), "+.1f", "%") for n in order]
+        if any(v != NO_DATA_TEXT for v in r5 + r20):
+            t3_names = ["دلار آزاد", f"اونس {label}", f"شمش {label}"]
+            v5 = get_symmetric_vrange(r5); v20 = get_symmetric_vrange(r20)
+            tables.append(("بازده", ["دارایی", "بازده ۵ روزه", "بازده ۲۰ روزه", "دارایی"],
+                           [t3_names, r5, r20, t3_names],
+                           [["#1C2733"] * 3, apply_gradient_colors(r5, vmin=v5[0], vmax=v5[1]),
+                            apply_gradient_colors(r20, vmin=v20[0], vmax=v20[1]), ["#1C2733"] * 3]))
+
+    # ───── چیدمان: ارتفاع هر پنل متناسب با تعداد ردیف‌هاش ─────
+    title_gap, header_h, row_h = 80, 72, 46
+    heights = [header_h + len(t[2][0]) * row_h + title_gap for t in tables]
+    top_margin, bottom_margin = 170, 40
+    total_height = top_margin + bottom_margin + sum(heights)
+    fig = make_subplots(
+        rows=len(tables), cols=1,
+        row_heights=[h / sum(heights) for h in heights],
+        vertical_spacing=0.0,
+        specs=[[{"type": "table"}] for _ in tables],
+        subplot_titles=[t[0] for t in tables],
+    )
+    for i, (title, header, cells, colors) in enumerate(tables, start=1):
+        fig.add_trace(
+            go.Table(
+                # جدول قیمت‌ها: ستون‌های اسم دارایی پهن‌ترن تا «شمش طلا بورس کالا» دو خطی نشه
+                columnwidth=[1.8, 1.5, 1, 1, 1, 1, 1.8] if i == 1 else None,
+                header=dict(values=[f"<b>{h}</b>" for h in header], fill_color="#242F3D", align="center",
+                            font=dict(color="white", size=22, family=font_family), height=header_h),
+                cells=dict(values=cells, fill_color=colors, align="center",
+                           font=dict(color="white", size=24, family=font_family), height=row_h),
+            ),
+            row=i, col=1,
+        )
+    fig.update_layout(
+        paper_bgcolor="#000000", plot_bgcolor="#000000", height=total_height, width=TREEMAP_WIDTH,
+        margin=dict(t=top_margin, l=20, r=20, b=bottom_margin),
+        title=dict(text=f"<b>بازار {label}</b>", font=dict(size=35, color=accent_color),
+                   x=0.5, y=1 - 30 / total_height, xanchor="center", yanchor="top"),
+        showlegend=False,
+    )
+    fig.update_annotations(font=dict(size=26, color="#DDDDDD", family=font_family))
+
+    img_bytes = fig.to_image(format="png", width=TREEMAP_WIDTH, height=total_height, scale=TREEMAP_SCALE)
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+    try:
+        font_date = ImageFont.truetype(FONT_BOLD_PATH, 64)
+        font_desc = ImageFont.truetype(FONT_MEDIUM_PATH, 50)
+        wfont = ImageFont.truetype(FONT_REGULAR_PATH, 50)
+    except Exception:
+        font_date = font_desc = wfont = ImageFont.load_default()
+    draw.text((60, 35), date_time_str, font=font_date, fill="#FFFFFF")
+    wtext = CHANNEL_HANDLE.replace("@", "")
+    bbox = draw.textbbox((0, 0), wtext, font=wfont)
+    draw.text((30, img.height - (bbox[3] - bbox[1]) - 70), wtext, font=wfont, fill=(255, 255, 255, 120))
+
+    output = io.BytesIO()
+    img.convert("RGB").save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
                            yesterday_close, global_time, dirham_price=None,
-                           tether_price=None, tether_change_percent=None, salaf_lines=None):
+                           tether_price=None, tether_change_percent=None, salaf_lines=None,
+                           funds_open=True):
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
+    # funds_open=False (مثلاً پنج‌شنبه): بازار صندوق‌ها بسته‌ست و داده‌ی صندوق‌ها همون چهارشنبه‌ست؛ بلاک
+    # صندوق‌ها از کپشن حذف می‌شه. دلار، اونس، شمش، سکه و طلا/نقره‌ی گرمی مثل روز عادی می‌مونن.
+    # سلف (عسکه) پنج‌شنبه معامله نمی‌شه، پس خطوطش هم نمیاد.
+    if not funds_open:
+        salaf_lines = None
 
     def days_passed_this_year():
         tehran_tz = pytz.timezone("Asia/Tehran")
@@ -1036,7 +1249,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     now = JalaliDateTime.now(tehran_tz)
     current_time = now.strftime("%Y/%m/%d - %H:%M")
 
-    df_funds = data["Fund_df"]
+    df_funds = data["Fund_df"] if funds_open else data["Fund_df"].iloc[0:0]
     total_value = df_funds["value"].sum() if not df_funds.empty else 0
     total_pol = df_funds["pol_hagigi"].sum() if not df_funds.empty else 0
     total_avg_monthly = df_funds["avg_monthly_value"].sum() if not df_funds.empty else 0
@@ -1068,8 +1281,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             return "—"
         return f"{(current / baseline * 100):.0f}%"
 
-    sarane_kharid_baseline = get_sarane_kharid_baseline(commodity)
-    sarane_forosh_baseline = get_sarane_forosh_baseline(commodity)
+    # روز بدون صندوق: بلاک صندوق‌ها تو کپشن نیست، پس baseline سرانه (خوندن شیت) لازم نیست
+    sarane_kharid_baseline = get_sarane_kharid_baseline(commodity) if funds_open else None
+    sarane_forosh_baseline = get_sarane_forosh_baseline(commodity) if funds_open else None
     sarane_kharid_ratio_str = ratio_to_baseline_str(sarane_kharid_w, sarane_kharid_baseline)
     sarane_forosh_ratio_str = ratio_to_baseline_str(sarane_forosh_w, sarane_forosh_baseline)
 
@@ -1146,7 +1360,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>{ounce_time_str}
 \u200F📊 {global_price:,.0f} \u2066(%{fmt_pct(abs(global_change), 2, sign=False)}{ounce_sign})\u2069
-
+"""
+    if funds_open:
+        caption += f"""
 <b>{fund_emoji} صندوق‌های {label}</b>
 💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
 💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
