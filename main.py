@@ -15,7 +15,6 @@ from config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ALERT_CHAT_ID,
     TELETHON_API_ID, TELETHON_API_HASH, TELEGRAM_SESSION,
     TIMEZONE, LOG_FORMAT, LOG_FILE, LOG_LEVEL,
-    DEFAULT_GOLD_PRICE, DEFAULT_SILVER_PRICE, DEFAULT_DOLLAR_PRICE,
     BULLION_ASSET,
 )
 from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dollar_prices, fetch_dirham_price
@@ -48,7 +47,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_GLOBAL_PRICE = {"gold": DEFAULT_GOLD_PRICE, "silver": DEFAULT_SILVER_PRICE}
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 
 
@@ -140,12 +138,12 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
                           salaf_lines=None):
     bullion_key = BULLION_ASSET[commodity]
 
-    if not light_chart or light_chart.get("price", 0) <= 0:
-        global_price = DEFAULT_GLOBAL_PRICE[commodity]
-        logger.warning(f"⚠️ [{commodity}] قیمت جهانی گرفته نشد → پیش‌فرض {global_price}")
-    else:
-        global_price = light_chart["price"]
-        logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
+    # بدون فالبک: قیمت جهانی نیومد → این کالا کامل رد می‌شه (چیزی تو شیت/تلگرام نمی‌ره)
+    if not light_chart or not light_chart.get("price") or light_chart["price"] <= 0:
+        logger.error(f"❌ [{commodity}] قیمت جهانی گرفته نشد — این کالا رد می‌شود (بدون ذخیره/ارسال)")
+        return
+    global_price = light_chart["price"]
+    logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
 
     tether_price = light_chart.get("tether_price") if light_chart else None
     tether_change_percent = light_chart.get("tether_change_percent") if light_chart else None
@@ -201,14 +199,14 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
     dollar_change = ((last_trade - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
     global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
 
-    if bullion_key in dfp.index:
-        shams_change = dfp.loc[bullion_key, "close_price_change_percent"]
-        shams_price = dfp.loc[bullion_key, "close_price"]
-        shams_date = dfp.loc[bullion_key, "trade_date"]
-        shams_bubble = dfp.loc[bullion_key, "Bubble"]
-    else:
-        shams_change, shams_price, shams_date, shams_bubble = 0, 0, None, 0
-        logger.warning(f"⚠️ [{commodity}] دارایی شمش ('{bullion_key}') در dfp پیدا نشد")
+    # بدون فالبک: شمش پیدا نشد → صفر ساختگی تو شیت نمی‌نویسیم، این کالا رد می‌شه
+    if bullion_key not in dfp.index:
+        logger.error(f"❌ [{commodity}] دارایی شمش ('{bullion_key}') در dfp پیدا نشد — این کالا رد می‌شود (بدون ذخیره/ارسال)")
+        return
+    shams_change = dfp.loc[bullion_key, "close_price_change_percent"]
+    shams_price = dfp.loc[bullion_key, "close_price"]
+    shams_date = dfp.loc[bullion_key, "trade_date"]
+    shams_bubble = dfp.loc[bullion_key, "Bubble"]
 
     logger.info(f"📈 [{commodity}] دلار: {dollar_change:+.2f}% | انس: {global_change:+.2f}% | شمش: {shams_change:+.2f}%")
     if funds_open:
@@ -316,17 +314,12 @@ async def main():
             logger.info("💵 دریافت قیمت‌های دلار...")
             dollar_prices = await fetch_dollar_prices(client)
 
+            # بدون فالبک: دلار مشترک بین طلا و نقره‌ست؛ نیومد → کل این اجرا رد می‌شه (هیچی تو شیت نمی‌نویسیم)
             if not dollar_prices or not dollar_prices.get("last_trade"):
-                last_trade = DEFAULT_DOLLAR_PRICE
-                dollar_prices = {
-                    "last_trade": DEFAULT_DOLLAR_PRICE,
-                    "bid": dollar_prices.get("bid", 0) if dollar_prices else 0,
-                    "ask": dollar_prices.get("ask", 0) if dollar_prices else 0,
-                }
-                logger.warning(f"⚠️ قیمت معامله دلار گرفته نشد → پیش‌فرض {DEFAULT_DOLLAR_PRICE:,}")
-            else:
-                last_trade = dollar_prices["last_trade"]
-                logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
+                logger.error("❌ قیمت معامله دلار گرفته نشد — کل این اجرا رد می‌شود (بدون ذخیره/ارسال)")
+                return
+            last_trade = dollar_prices["last_trade"]
+            logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
 
             logger.info("🇦🇪 دریافت قیمت درهم امارات + خواندن تب gold برای قیمت دیروز (موازی)...")
             dirham_price, gold_yesterday_rows, salaf_lines = await asyncio.gather(
