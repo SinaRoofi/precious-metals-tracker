@@ -86,11 +86,6 @@ MONEY_POWER_HYSTERESIS = 0.5
 FUNDS_TRADING_WEEKDAYS = {5, 6, 0, 1, 2}           # بازار صندوق‌ها: شنبه تا چهارشنبه
 NON_FUND_TRADING_WEEKDAYS = {5, 6, 0, 1, 2, 3}     # شمش، سکه، طلا، نقره، دلار: شنبه تا پنج‌شنبه
 
-# 🎯 مقادیر پیش‌فرض (Fallback)
-DEFAULT_GOLD_PRICE = 4400
-DEFAULT_DOLLAR_PRICE = 230_000
-DEFAULT_SILVER_PRICE = 66
-
 # 🫧 آستانه‌های هشدار حباب
 BUBBLE_SHARP_CHANGE_THRESHOLD = 1
 # dead-band کراس صفر حباب (واحد: درصد حباب): «حباب مثبت شد» فقط وقتی حباب از +band بالاتر بره و
