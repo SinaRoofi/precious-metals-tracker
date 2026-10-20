@@ -51,7 +51,6 @@ from config import (
     DAY_MOVE_ALERT_PERCENT,
     DAY_MOVE_REPEAT_EVERY_STEP,
     DAY_MOVE_HYSTERESIS_PERCENT,
-    DEFAULT_DOLLAR_PRICE,
     MONEY_POWER_STRONG_PCT,
     MONEY_POWER_MIN_VALUE_RATIO,
     MONEY_POWER_HYSTERESIS,
@@ -1371,8 +1370,7 @@ def check_and_send_alerts(
 
     # 🌅 حرکت نسبت به قیمت اول روز: دلار، شمش، و صندوق خودت (CURRENT_HOLDING)
     day_assets = []
-    if (check_dollar and current_dollar and pd.notna(current_dollar)
-            and current_dollar != DEFAULT_DOLLAR_PRICE):  # قیمت پیش‌فرضِ fallback ساختگیه
+    if check_dollar and current_dollar and pd.notna(current_dollar):
         day_assets.append({
             "key": "dollar", "name": "دلار", "price": current_dollar,
             "unit": "تومان", "percent_key": "dollar",
