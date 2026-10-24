@@ -5,7 +5,7 @@ import logging
 import time
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import jdatetime
 from config import (
@@ -190,36 +190,45 @@ def _default_alert_status():
 
 
 def get_alert_status():
-    """دریافت وضعیت هشدارها از Gist با fallback به کش محلی"""
+    """دریافت وضعیت هشدارها از Gist.
+
+    خروجی None یعنی «نتونستیم وضعیت واقعی رو بخونیم» (کد غیر ۲۰۰/خطای شبکه، بدون کش):
+    caller باید هشدارها رو این ران رد کنه. برگردوندن وضعیتِ پیش‌فرض (همه normal) در این حالت
+    باعث ارسال دوباره‌ی همه‌ی هشدارهای فعال و بازنویسی Gist با وضعیت ریست‌شده می‌شد.
+    """
     global ALERT_STATUS_CACHE
 
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
-            return ALERT_STATUS_CACHE or _default_alert_status()
+    if not GIST_ID or not GIST_TOKEN:
+        logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
+        return ALERT_STATUS_CACHE or _default_alert_status()
 
+    try:
         url = f"https://api.github.com/gists/{GIST_ID}"
         headers = {"Authorization": f"token {GIST_TOKEN}"}
         r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
-        if r.status_code == 200 and ALERT_STATUS_FILE in r.json()["files"]:
-            status = json.loads(r.json()["files"][ALERT_STATUS_FILE]["content"])
+        if r.status_code == 200:
+            files = r.json()["files"]
+            if ALERT_STATUS_FILE in files:
+                status = json.loads(files[ALERT_STATUS_FILE]["content"])
+                for key in _default_alert_status():
+                    status.setdefault(key, "normal")
+                ALERT_STATUS_CACHE = status
+                return status
+            # گیست هست ولی فایل وضعیت هنوز ساخته نشده (اولین استفاده) → وضعیت پیش‌فرض واقعیه
+            default = _default_alert_status()
+            ALERT_STATUS_CACHE = default
+            return default
 
-            for key in _default_alert_status():
-                status.setdefault(key, "normal")
-
-            ALERT_STATUS_CACHE = status
-            return status
+        logger.error(f"خواندن alert_status ناموفق بود (HTTP {r.status_code})")
 
     except Exception as e:
         logger.error(f"خطا در خواندن alert_status: {e}")
-        if ALERT_STATUS_CACHE:
-            logger.info("استفاده از کش محلی")
-            return ALERT_STATUS_CACHE
 
-    default = _default_alert_status()
-    ALERT_STATUS_CACHE = default
-    return default
+    if ALERT_STATUS_CACHE:
+        logger.info("استفاده از کش محلی")
+        return ALERT_STATUS_CACHE
+    return None
 
 
 def save_alert_status(status):
@@ -248,6 +257,8 @@ def save_alert_status(status):
 
         if response.status_code == 200:
             ALERT_STATUS_CACHE = status
+        else:
+            logger.error(f"ذخیره alert_status ناموفق بود (HTTP {response.status_code}) — هشدارهای تکراری محتمله")
 
     except Exception as e:
         logger.error(f"خطا در ذخیره alert_status: {e}")
@@ -1286,6 +1297,9 @@ def check_and_send_alerts(
 
     prev = get_previous_state_from_sheet(commodity)
     status = get_alert_status()
+    if status is None:
+        logger.error(f"❌ [{commodity}] وضعیت هشدارها از Gist خونده نشد — هشدارهای این ران رد شد (جلوگیری از هشدار تکراری)")
+        return
 
     # ران‌های اول روز: داده‌ی صندوق‌ها ناقصه و مقایسه‌ی بعدی هم با همون داده‌ست (SESSION_WARMUP_RUNS)
     warmup = (prev.get("run_index") or 99) <= SESSION_WARMUP_RUNS
