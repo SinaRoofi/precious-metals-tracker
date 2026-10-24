@@ -49,6 +49,22 @@ def _locked(fn):
     return wrapper
 
 
+# کش خواندنِ شیت (فقط داخل همین پروسه/ران): هر ران قبلاً ۸-۱۰ بار کل تب رو از Google دانلود می‌کرد
+# (قیمت دیروز، state قبلی، ارزش معاملات دیروز، بازده شمش، چارت...). حالا یک‌بار می‌خونیم و تا
+# قبل از نوشتن (save/clear) از حافظه جواب می‌دیم. بعد از هر نوشتن، کش اون کالا باطل می‌شه.
+_VALUES_CACHE = {}
+
+
+def _invalidates_cache(fn):
+    @functools.wraps(fn)
+    def wrapper(commodity, *args, **kwargs):
+        try:
+            return fn(commodity, *args, **kwargs)
+        finally:
+            _VALUES_CACHE.pop(commodity, None)
+    return wrapper
+
+
 _service = None  # کش سراسری در سطح پروسه — یک‌بار در هر اجرای main.py ساخته می‌شه
 _headers_ensured = set()  # {commodity} — برای جلوگیری از چک تکراری هدر/تب در هر خوندن/نوشتن
 
@@ -202,6 +218,7 @@ def _build_row(row_dict, timestamp):
 
 
 @_locked
+@_invalidates_cache
 def save_to_sheets(commodity, row_dict):
     """
     ذخیره یک ردیف جدید در تب مربوط به یک کالا (Gold یا Silver).
@@ -254,17 +271,20 @@ def read_from_sheets(commodity, limit=1000, raise_on_error=False):
     """
     sheet_name = _sheet_name(commodity)
     try:
-        ensure_header(commodity)
-        service = get_sheets_service()
-        result = service.spreadsheets().values().get(
-            spreadsheetId=SHEET_ID,
-            range=f"{sheet_name}!A:{LAST_COL_LETTER}"
-        ).execute(num_retries=3)
+        values = _VALUES_CACHE.get(commodity)
+        if values is None:
+            ensure_header(commodity)
+            service = get_sheets_service()
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SHEET_ID,
+                range=f"{sheet_name}!A:{LAST_COL_LETTER}"
+            ).execute(num_retries=3)
 
-        values = result.get('values', [])
-        if not values:
-            logger.warning(f"⚠️ [{commodity}] Sheet خالی است")
-            return []
+            values = result.get('values', [])
+            if not values:
+                logger.warning(f"⚠️ [{commodity}] Sheet خالی است")
+                return []
+            _VALUES_CACHE[commodity] = values
 
         data_rows = values[1:]
         valid_rows = []
@@ -272,16 +292,16 @@ def read_from_sheets(commodity, limit=1000, raise_on_error=False):
 
         for row in data_rows:
             if len(row) == NUM_COLS:
-                valid_rows.append(row)
+                valid_rows.append(list(row))  # کپی: caller نباید کش رو دست‌کاری کنه
             elif len(row) == LEGACY_NUM_COLS:
                 # ردیف قدیمی (قبل از اضافه‌شدن global_change_percent) — پد با مقدار خنثی
-                valid_rows.append(row + [""])
+                valid_rows.append(list(row) + [""])
             elif len(row) == LEGACY_NUM_COLS_V0:
                 # ردیف قدیمی‌تر (قبل از اضافه‌شدن trade_value)
-                valid_rows.append(row + ["", ""])
+                valid_rows.append(list(row) + ["", ""])
             elif len(row) == LEGACY_NUM_COLS_V00:
                 # ردیف خیلی قدیمی (قبل از shams_bubble_percent و trade_value)
-                valid_rows.append(row + ["", "", ""])
+                valid_rows.append(list(row) + ["", "", ""])
             else:
                 invalid_count += 1
 
@@ -302,6 +322,7 @@ def read_from_sheets(commodity, limit=1000, raise_on_error=False):
 
 
 @_locked
+@_invalidates_cache
 def clear_old_data(commodity, keep_days=None):
     """پاک کردن داده‌های قدیمی‌تر از X روز در تب یک کالا"""
     if keep_days is None:
