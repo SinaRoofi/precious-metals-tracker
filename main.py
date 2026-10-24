@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 import pytz
 import jdatetime
+import pandas as pd
 import asyncio
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -22,7 +23,8 @@ from utils.salaf import fetch_salaf_lines  # عسکه — بعد از ۱۸ آذ�
 from utils.data_processor import process_market_data
 from utils.telegram_sender import send_to_telegram
 from utils.holidays import is_iranian_holiday, is_funds_trading_day
-from utils.sheets_storage import save_to_sheets, read_from_sheets
+from utils.sheets_storage import save_to_sheets, read_from_sheets, SheetsReadError
+from utils.log_safety import redact
 from utils.alerts import check_and_send_alerts
 
 class JalaliFormatter(logging.Formatter):
@@ -33,6 +35,10 @@ class JalaliFormatter(logging.Formatter):
         dt = datetime.fromtimestamp(record.created, tz=tehran_tz)
         jalali = jdatetime.datetime.fromgregorian(datetime=dt)
         return jalali.strftime("%Y-%m-%d %H:%M:%S")
+
+    def format(self, record):
+        # توکن‌ها (مثلاً داخل URL تو متن خطای requests) هیچ‌وقت وارد فایل/خروجی لاگ نشن
+        return redact(super().format(record))
 
 
 _formatter = JalaliFormatter(LOG_FORMAT)
@@ -136,12 +142,13 @@ async def fetch_commodity_inputs(commodity):
 def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
                           yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None,
                           salaf_lines=None):
+    """پردازش→ذخیره→ارسال→هشدار یک کالا. True = کامل انجام شد؛ False = رد شد (بدون نوشتن داده‌ی ناقص)."""
     bullion_key = BULLION_ASSET[commodity]
 
     # بدون فالبک: قیمت جهانی نیومد → این کالا کامل رد می‌شه (چیزی تو شیت/تلگرام نمی‌ره)
     if not light_chart or not light_chart.get("price") or light_chart["price"] <= 0:
         logger.error(f"❌ [{commodity}] قیمت جهانی گرفته نشد — این کالا رد می‌شود (بدون ذخیره/ارسال)")
-        return
+        return False
     global_price = light_chart["price"]
     logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
 
@@ -150,7 +157,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
 
     if not market_data:
         logger.error(f"❌ [{commodity}] داده‌های بازار گرفته نشد — این کالا رد می‌شود")
-        return
+        return False
 
     today_str = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
     global_yesterday, _, found = get_global_price_yesterday_from_sheet(
@@ -171,7 +178,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
 
     if not processed:
         logger.error(f"❌ [{commodity}] پردازش داده ناموفق — این کالا رد می‌شود")
-        return
+        return False
 
     Fund_df = processed["Fund_df"]
     dfp = processed["dfp"]
@@ -180,6 +187,11 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
     # روزی که صندوق‌ها معامله ندارن (مثلاً پنج‌شنبه)، داده‌ی صندوق‌ها همون آخرین روز معاملاتیه (کهنه).
     # تنظیمش تو config.py (FUNDS_TRADING_WEEKDAYS): اگه صندوق‌ها اون روز هم باز شدن، فقط اونجا عوض کن.
     funds_open = is_funds_trading_day(datetime.now(pytz.timezone(TIMEZONE)))
+
+    if funds_open and (Fund_df is None or Fund_df.empty or "value" not in Fund_df.columns):
+        # API صندوق‌ها ردیفی نداد (روز معاملاتی): داده‌ی ساختگی/صفر نمی‌نویسیم، این کالا رد می‌شه
+        logger.error(f"❌ [{commodity}] داده‌ی صندوق‌ها خالی است (روز معاملاتی) — این کالا رد می‌شود (بدون ذخیره/ارسال)")
+        return False
 
     if funds_open:
         total_value = Fund_df["value"].sum()  # ارزش معاملات واقعی (برای ذخیره‌سازی) — می‌تواند صفر باشد
@@ -199,14 +211,21 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
     dollar_change = ((last_trade - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
     global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
 
-    # بدون فالبک: شمش پیدا نشد → صفر ساختگی تو شیت نمی‌نویسیم، این کالا رد می‌شه
-    if bullion_key not in dfp.index:
-        logger.error(f"❌ [{commodity}] دارایی شمش ('{bullion_key}') در dfp پیدا نشد — این کالا رد می‌شود (بدون ذخیره/ارسال)")
-        return
+    # بدون فالبک: داده‌ی شمش نیومد → این کالا رد می‌شه (نه صفر ساختگی تو شیت، نه NaN).
+    # نکته: dfp در data_processor با reindex(ASSET_ORDER) ساخته می‌شه، پس کلید شمش همیشه
+    # تو ایندکسه؛ «نبودن» شمش یعنی close_price=0 (fillna(0)) و Bubble/تغییر = NaN.
     shams_change = dfp.loc[bullion_key, "close_price_change_percent"]
     shams_price = dfp.loc[bullion_key, "close_price"]
     shams_date = dfp.loc[bullion_key, "trade_date"]
     shams_bubble = dfp.loc[bullion_key, "Bubble"]
+    if (pd.isna(shams_price) or shams_price <= 0
+            or pd.isna(shams_bubble) or pd.isna(shams_change)):
+        logger.error(
+            f"❌ [{commodity}] داده‌ی شمش ('{bullion_key}') ناقص/نامعتبر است "
+            f"(قیمت={shams_price}, حباب={shams_bubble}, تغییر={shams_change}) — "
+            f"این کالا رد می‌شود (بدون ذخیره/ارسال)"
+        )
+        return False
 
     logger.info(f"📈 [{commodity}] دلار: {dollar_change:+.2f}% | انس: {global_change:+.2f}% | شمش: {shams_change:+.2f}%")
     if funds_open:
@@ -214,7 +233,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         logger.info(f"💸 [{commodity}] پول حقیقی: {pol_hagigi_weighted:+.2f} م.ت")
 
     logger.info(f"💾 [{commodity}] ذخیره در Google Sheets...")
-    save_to_sheets(commodity, {
+    saved = save_to_sheets(commodity, {
         "global_price": global_price,
         "dollar_price": last_trade,
         "shams_price": shams_price,
@@ -232,6 +251,11 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "shams_bubble": shams_bubble,
         "trade_value": total_value,
     })
+    if not saved:
+        # ردیف تو شیت نیست: ارسال/هشدار رد می‌شن، چون هشدارها «ردیف قبلی» رو از شیت می‌خونن
+        # و بدون ردیف جدید، مقایسه‌ها با ردیف اشتباه انجام می‌شد
+        logger.error(f"❌ [{commodity}] ذخیره در شیت ناموفق — ارسال گزارش و هشدارها این ران رد شد")
+        return False
 
     logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام{'' if funds_open else ' (نسخه‌ی بدون صندوق‌ها)'}...")
     success = send_to_telegram(
@@ -269,6 +293,8 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         logger.info(f"✅ [{commodity}] بررسی هشدارها کامل شد")
     except Exception as e:
         logger.error(f"⚠️ [{commodity}] خطا در سیستم هشدارها (ادامه می‌دهیم): {e}")
+        return False
+    return True
 
 
 # ════════════════════════════════════════════════════════════════
@@ -276,6 +302,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
 # ════════════════════════════════════════════════════════════════
 
 async def main():
+    """True = اجرا سالم (یا تعطیلی عادی)؛ False = چیزی رد شد/شکست خورد → exit code ناصفر تا GitHub قرمز شه."""
     try:
         logger.info("=" * 60)
         logger.info("🚀 شروع اجرای Gold & Silver Market Tracker")
@@ -294,7 +321,7 @@ async def main():
                 )
             else:
                 logger.info(f"🏖️ امروز {now.strftime('%Y-%m-%d')} تعطیل است.")
-                return
+                return True
 
         logger.info(f"🕐 زمان تهران: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -303,7 +330,7 @@ async def main():
             logger.error("❌ یکی از متغیرهای محیطی تلگرام پیدا نشد!")
             logger.error("لازم: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_ALERT_CHAT_ID, "
                           "TELETHON_API_ID, TELETHON_API_HASH, TELEGRAM_SESSION")
-            return
+            return False
 
         today_str = now.strftime("%Y-%m-%d")
 
@@ -317,16 +344,22 @@ async def main():
             # بدون فالبک: دلار مشترک بین طلا و نقره‌ست؛ نیومد → کل این اجرا رد می‌شه (هیچی تو شیت نمی‌نویسیم)
             if not dollar_prices or not dollar_prices.get("last_trade"):
                 logger.error("❌ قیمت معامله دلار گرفته نشد — کل این اجرا رد می‌شود (بدون ذخیره/ارسال)")
-                return
+                return False
             last_trade = dollar_prices["last_trade"]
             logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
 
-            logger.info("🇦🇪 دریافت قیمت درهم امارات + خواندن تب gold برای قیمت دیروز (موازی)...")
-            dirham_price, gold_yesterday_rows, salaf_lines = await asyncio.gather(
-                asyncio.to_thread(fetch_dirham_price),
-                asyncio.to_thread(read_from_sheets, "gold", 800),
-                asyncio.to_thread(fetch_salaf_lines),  # عسکه
-            )
+            logger.info("🇦🇪 دریافت قیمت درهم امارات + خواندن تب‌های gold/silver برای قیمت دیروز (موازی)...")
+            try:
+                dirham_price, gold_yesterday_rows, silver_yesterday_rows, salaf_lines = await asyncio.gather(
+                    asyncio.to_thread(fetch_dirham_price),
+                    asyncio.to_thread(read_from_sheets, "gold", 800, True),
+                    asyncio.to_thread(read_from_sheets, "silver", 800, True),
+                    asyncio.to_thread(fetch_salaf_lines),  # عسکه
+                )
+            except SheetsReadError as e:
+                # خطای خواندن شیت ≠ شیت خالی: اگه ادامه بدیم «دیروز پیدا نشد» حساب می‌شه و تغییرِ صفرِ ساختگی ذخیره می‌شه
+                logger.error(f"❌ خواندن شیت ناموفق ({e}) — کل این اجرا رد می‌شود (بدون ذخیره/ارسال)")
+                return False
 
             dollar_yesterday, _, dollar_found = get_dollar_yesterday_from_sheet(
                 "gold", today_str, rows=gold_yesterday_rows
@@ -342,29 +375,43 @@ async def main():
                 fetch_commodity_inputs("silver"),
             )
 
-            # ─── process→save→send→alert — sequential ───
+            # ─── process→save→send→alert — sequential؛ خطای یک کالا کالای بعدی رو خراب نمی‌کنه ───
+            yesterday_rows = {"gold": gold_yesterday_rows, "silver": silver_yesterday_rows}
+            failed = []
             for i, (commodity, light_chart, market_data) in enumerate(results):
                 logger.info("-" * 60)
                 logger.info(f"▶️ شروع پردازش {COMMODITY_LABEL[commodity]} ({commodity})")
-                process_and_dispatch(
-                    commodity=commodity,
-                    light_chart=light_chart,
-                    market_data=market_data,
-                    last_trade=last_trade,
-                    dollar_prices=dollar_prices,
-                    yesterday_close=yesterday_close,
-                    dirham_price=dirham_price,
-                    check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
-                    preloaded_yesterday_rows=(gold_yesterday_rows if commodity == "gold" else None),
-                    salaf_lines=(salaf_lines if commodity == "gold" else None),
-                )
+                try:
+                    ok = process_and_dispatch(
+                        commodity=commodity,
+                        light_chart=light_chart,
+                        market_data=market_data,
+                        last_trade=last_trade,
+                        dollar_prices=dollar_prices,
+                        yesterday_close=yesterday_close,
+                        dirham_price=dirham_price,
+                        check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
+                        preloaded_yesterday_rows=yesterday_rows[commodity],
+                        salaf_lines=(salaf_lines if commodity == "gold" else None),
+                    )
+                except Exception as e:
+                    logger.error(f"❌ [{commodity}] خطای پیش‌بینی‌نشده — این کالا رد شد: {e}", exc_info=True)
+                    ok = False
+                if not ok:
+                    failed.append(commodity)
+
+        if failed:
+            logger.error(f"❌ اجرا با شکست/رد شدن این کالاها تمام شد: {', '.join(failed)}")
+            return False
 
         logger.info("=" * 60)
         logger.info("✅ اجرای کامل به پایان رسید")
         logger.info("=" * 60)
+        return True
 
     except KeyboardInterrupt:
         logger.info("\n⚠️ برنامه توسط کاربر متوقف شد")
+        return False
 
     except Exception as e:
         logger.error("=" * 60)
@@ -375,7 +422,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        sys.exit(0 if asyncio.run(main()) else 1)
     except KeyboardInterrupt:
         print("\n👋 خداحافظ!")
     except Exception as e:
