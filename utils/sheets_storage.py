@@ -1,9 +1,11 @@
 # utils/sheets_storage.py
 """ماژول مدیریت ذخیره‌سازی داده‌ها در Google Sheets - دو تب (Gold/Silver)"""
 
+import functools
 import json
 import logging
 import math
+import threading
 from datetime import datetime, timedelta
 import pytz
 from google.oauth2 import service_account
@@ -31,6 +33,20 @@ def _sheet_name(commodity):
     if commodity not in SHEET_NAMES:
         raise ValueError(f"کالای نامعتبر: {commodity}")
     return SHEET_NAMES[commodity]
+
+
+# سرویس googleapiclient روی httplib2 سوار است که thread-safe نیست؛ دو تماس هم‌زمان از دو thread
+# روی همین سرویس مشترک (کش‌شده) می‌تونه کل پروسه رو با Segmentation fault بکشه.
+# پس همه‌ی عملیات شیت پشت یک قفل سراسری سریال می‌شن (RLock چون ensure_header از داخل read/save صدا زده می‌شه).
+_API_LOCK = threading.RLock()
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _API_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
 
 
 _service = None  # کش سراسری در سطح پروسه — یک‌بار در هر اجرای main.py ساخته می‌شه
@@ -74,6 +90,7 @@ def _ensure_sheet_tab(service, sheet_name):
     return new_sheet_id
 
 
+@_locked
 def ensure_header(commodity):
     """بررسی و ایجاد/آپدیت خودکار هدر برای تب یک کالا — فقط بار اول در هر پروسه واقعاً چک می‌کنه"""
     if commodity in _headers_ensured:
@@ -184,6 +201,7 @@ def _build_row(row_dict, timestamp):
     ]
 
 
+@_locked
 def save_to_sheets(commodity, row_dict):
     """
     ذخیره یک ردیف جدید در تب مربوط به یک کالا (Gold یا Silver).
@@ -221,6 +239,7 @@ def save_to_sheets(commodity, row_dict):
         return False
 
 
+@_locked
 def read_from_sheets(commodity, limit=1000, raise_on_error=False):
     """
     خواندن داده‌ها از تب مربوط به یک کالا
@@ -282,6 +301,7 @@ def read_from_sheets(commodity, limit=1000, raise_on_error=False):
         return []
 
 
+@_locked
 def clear_old_data(commodity, keep_days=None):
     """پاک کردن داده‌های قدیمی‌تر از X روز در تب یک کالا"""
     if keep_days is None:
