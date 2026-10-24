@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 from datetime import datetime
+import time
 import pytz
 import jdatetime
 import pandas as pd
@@ -139,6 +140,10 @@ async def fetch_commodity_inputs(commodity):
 # مرحله‌ی process→save→send→alert — عمداً sequential (Gist مشترک)
 # ════════════════════════════════════════════════════════════════
 
+def _log_t(commodity, label, t0):
+    logger.info(f"⏱️ [{commodity}] {label}: {time.perf_counter() - t0:.1f}s")
+
+
 def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
                           yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None,
                           salaf_lines=None):
@@ -233,6 +238,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         logger.info(f"💸 [{commodity}] پول حقیقی: {pol_hagigi_weighted:+.2f} م.ت")
 
     logger.info(f"💾 [{commodity}] ذخیره در Google Sheets...")
+    _t = time.perf_counter()
     saved = save_to_sheets(commodity, {
         "global_price": global_price,
         "dollar_price": last_trade,
@@ -251,6 +257,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         "shams_bubble": shams_bubble,
         "trade_value": total_value,
     })
+    _log_t(commodity, "ذخیره در شیت", _t)
     if not saved:
         # ردیف تو شیت نیست: ارسال/هشدار رد می‌شن، چون هشدارها «ردیف قبلی» رو از شیت می‌خونن
         # و بدون ردیف جدید، مقایسه‌ها با ردیف اشتباه انجام می‌شد
@@ -258,6 +265,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         return False
 
     logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام{'' if funds_open else ' (نسخه‌ی بدون صندوق‌ها)'}...")
+    _t = time.perf_counter()
     success = send_to_telegram(
         commodity=commodity,
         bot_token=TELEGRAM_BOT_TOKEN,
@@ -275,8 +283,10 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         funds_open=funds_open,
     )
     logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
+    _log_t(commodity, "ساخت تصاویر + ارسال تلگرام", _t)
 
     logger.info(f"🚨 [{commodity}] بررسی هشدارها...")
+    _t = time.perf_counter()
     try:
         check_and_send_alerts(
             commodity=commodity,
@@ -291,6 +301,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
             funds_open=funds_open,
         )
         logger.info(f"✅ [{commodity}] بررسی هشدارها کامل شد")
+        _log_t(commodity, "بررسی هشدارها", _t)
     except Exception as e:
         logger.error(f"⚠️ [{commodity}] خطا در سیستم هشدارها (ادامه می‌دهیم): {e}")
         return False
@@ -306,6 +317,7 @@ async def main():
     try:
         logger.info("=" * 60)
         logger.info("🚀 شروع اجرای Gold & Silver Market Tracker")
+        t_run = time.perf_counter()
         logger.info("=" * 60)
 
         tehran_tz = pytz.timezone(TIMEZONE)
@@ -337,9 +349,33 @@ async def main():
         async with TelegramClient(StringSession(TELEGRAM_SESSION), TELETHON_API_ID, TELETHON_API_HASH) as client:
             logger.info("✅ اتصال به Telethon برقرار شد")
 
-            # ─── دلار — یک‌بار، مشترک بین طلا و نقره ───
-            logger.info("💵 دریافت قیمت‌های دلار...")
-            dollar_prices = await fetch_dollar_prices(client)
+            # ─── همه‌ی کارهای شبکه‌ایِ مستقل هم‌زمان (قبلاً سه مرحله‌ی پشت‌سرهم بود) ───
+            # دلار (مشترک بین طلا و نقره)، درهم، عسکه، خواندن تب‌های gold/silver برای قیمت دیروز،
+            # و داده‌ی بازار هر دو کالا. هیچ‌کدوم به نتیجه‌ی بقیه وابسته نیست؛ فقط «پردازش» به همه‌شون نیاز داره.
+            logger.info("📡 دریافت هم‌زمان: دلار، درهم، عسکه، شیت (gold/silver) و داده‌ی بازار طلا/نقره...")
+            t_fetch = time.perf_counter()
+            fetched = await asyncio.gather(
+                fetch_dollar_prices(client),
+                asyncio.to_thread(fetch_dirham_price),
+                asyncio.to_thread(read_from_sheets, "gold", 800, True),
+                asyncio.to_thread(read_from_sheets, "silver", 800, True),
+                asyncio.to_thread(fetch_salaf_lines),  # عسکه
+                fetch_commodity_inputs("gold"),
+                fetch_commodity_inputs("silver"),
+                return_exceptions=True,
+            )
+            logger.info(f"⏱️ دریافت هم‌زمان داده‌ها: {time.perf_counter() - t_fetch:.1f}s")
+
+            if any(isinstance(r, SheetsReadError) for r in fetched):
+                # خطای خواندن شیت ≠ شیت خالی: اگه ادامه بدیم «دیروز پیدا نشد» حساب می‌شه و تغییرِ صفرِ ساختگی ذخیره می‌شه
+                logger.error("❌ خواندن شیت ناموفق — کل این اجرا رد می‌شود (بدون ذخیره/ارسال)")
+                return False
+            for r in fetched:
+                if isinstance(r, BaseException):
+                    raise r  # خطای پیش‌بینی‌نشده: مثل قبل به catch بیرونی می‌ره
+            (dollar_prices, dirham_price, gold_yesterday_rows, silver_yesterday_rows,
+             salaf_lines, gold_inputs, silver_inputs) = fetched
+            results = [gold_inputs, silver_inputs]
 
             # بدون فالبک: دلار مشترک بین طلا و نقره‌ست؛ نیومد → کل این اجرا رد می‌شه (هیچی تو شیت نمی‌نویسیم)
             if not dollar_prices or not dollar_prices.get("last_trade"):
@@ -348,19 +384,6 @@ async def main():
             last_trade = dollar_prices["last_trade"]
             logger.info(f"✅ آخرین معامله دلار: {last_trade:,} تومان")
 
-            logger.info("🇦🇪 دریافت قیمت درهم امارات + خواندن تب‌های gold/silver برای قیمت دیروز (موازی)...")
-            try:
-                dirham_price, gold_yesterday_rows, silver_yesterday_rows, salaf_lines = await asyncio.gather(
-                    asyncio.to_thread(fetch_dirham_price),
-                    asyncio.to_thread(read_from_sheets, "gold", 800, True),
-                    asyncio.to_thread(read_from_sheets, "silver", 800, True),
-                    asyncio.to_thread(fetch_salaf_lines),  # عسکه
-                )
-            except SheetsReadError as e:
-                # خطای خواندن شیت ≠ شیت خالی: اگه ادامه بدیم «دیروز پیدا نشد» حساب می‌شه و تغییرِ صفرِ ساختگی ذخیره می‌شه
-                logger.error(f"❌ خواندن شیت ناموفق ({e}) — کل این اجرا رد می‌شود (بدون ذخیره/ارسال)")
-                return False
-
             dollar_yesterday, _, dollar_found = get_dollar_yesterday_from_sheet(
                 "gold", today_str, rows=gold_yesterday_rows
             )
@@ -368,19 +391,13 @@ async def main():
             if not dollar_found:
                 logger.warning(f"⚠️ قیمت دلار دیروز پیدا نشد → استفاده از قیمت فعلی ({last_trade:,})")
 
-            # ─── fetch موازی طلا+نقره (فقط شبکه) ───
-            logger.info("📡 دریافت داده‌های بازار طلا و نقره (موازی)...")
-            results = await asyncio.gather(
-                fetch_commodity_inputs("gold"),
-                fetch_commodity_inputs("silver"),
-            )
-
             # ─── process→save→send→alert — sequential؛ خطای یک کالا کالای بعدی رو خراب نمی‌کنه ───
             yesterday_rows = {"gold": gold_yesterday_rows, "silver": silver_yesterday_rows}
             failed = []
             for i, (commodity, light_chart, market_data) in enumerate(results):
                 logger.info("-" * 60)
                 logger.info(f"▶️ شروع پردازش {COMMODITY_LABEL[commodity]} ({commodity})")
+                t_c = time.perf_counter()
                 try:
                     ok = process_and_dispatch(
                         commodity=commodity,
@@ -397,6 +414,7 @@ async def main():
                 except Exception as e:
                     logger.error(f"❌ [{commodity}] خطای پیش‌بینی‌نشده — این کالا رد شد: {e}", exc_info=True)
                     ok = False
+                _log_t(commodity, "کل پردازش", t_c)
                 if not ok:
                     failed.append(commodity)
 
@@ -405,7 +423,7 @@ async def main():
             return False
 
         logger.info("=" * 60)
-        logger.info("✅ اجرای کامل به پایان رسید")
+        logger.info(f"✅ اجرای کامل به پایان رسید (⏱️ مجموع: {time.perf_counter() - t_run:.1f}s)")
         logger.info("=" * 60)
         return True
 
