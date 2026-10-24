@@ -9,6 +9,7 @@ import time
 import logging
 import pytz
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from telethon import TelegramClient
 from bs4 import BeautifulSoup
 
@@ -164,6 +165,15 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
 # دارایی‌های داخلی (رهاورد intrinsic-values) و صندوق‌ها (تریدرآرنا)
 # ==============================================================================
 
+def _fetch_json(url, params=None):
+    """یک GET با session مخصوص خودش (Session بین threadها مشترک نمی‌شه)."""
+    session = requests.Session()
+    session.headers.update(HTTP_HEADERS)
+    resp = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
                        retry_delay: int = RETRY_DELAY):
     """
@@ -175,34 +185,26 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
     if commodity not in API_URLS:
         raise ValueError(f"کالای نامعتبر: {commodity}")
 
-    session = requests.Session()
-    session.headers.update(HTTP_HEADERS)
-
     url_intrinsic = API_URLS[commodity]['intrinsic']
     url_funds = API_URLS[commodity]['funds']
 
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info(f"📡 [{commodity}] تلاش {attempt}/{max_retries} - درخواست intrinsic-values...")
-            resp1 = session.get(url_intrinsic, timeout=REQUEST_TIMEOUT)
-            resp1.raise_for_status()
-            intrinsic_data = resp1.json()
-            logger.info(f"✅ [{commodity}] intrinsic-values دریافت شد")
-
-            time.sleep(1)
-
-            logger.info(f"📡 [{commodity}] تلاش {attempt}/{max_retries} - درخواست funds...")
-            # اندپوینت جدید snapshot تریدرآرنا: نیازمند timeframe و یک کوئری‌پارام
-            # کش‌بریک (همان‌طور که خود سایت هم می‌فرستد؛ سرور بدونش هم معمولاً جواب می‌ده
-            # ولی برای هماهنگی با رفتار سایت نگه داشته شده).
+            # intrinsic روی rahavard365 و funds روی tradersarena.ir است (دو سرور جدا)؛
+            # پس نه sleep(1) بینشون لازمه و نه ترتیب — هم‌زمان می‌گیریم.
+            logger.info(f"📡 [{commodity}] تلاش {attempt}/{max_retries} - درخواست intrinsic-values و funds (هم‌زمان)...")
+            # اندپوینت snapshot تریدرآرنا: نیازمند timeframe و یک کوئری‌پارام کش‌بریک
+            # (همان‌طور که خود سایت هم می‌فرستد).
             funds_params = {
                 "timeframe": FUNDS_SNAPSHOT_TIMEFRAME,
                 "_": int(time.time() * 1000),
             }
-            resp2 = session.get(url_funds, params=funds_params, timeout=REQUEST_TIMEOUT)
-            resp2.raise_for_status()
-            funds_data = resp2.json()
-            logger.info(f"✅ [{commodity}] funds دریافت شد")
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_intrinsic = pool.submit(_fetch_json, url_intrinsic)
+                f_funds = pool.submit(_fetch_json, url_funds, funds_params)
+                intrinsic_data = f_intrinsic.result()
+                funds_data = f_funds.result()
+            logger.info(f"✅ [{commodity}] intrinsic-values و funds دریافت شد")
 
             return {"intrinsic_data": intrinsic_data, "funds_data": funds_data}
 
