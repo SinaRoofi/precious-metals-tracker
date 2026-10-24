@@ -78,9 +78,11 @@ async def fetch_dollar_prices(client: TelegramClient):
                     break
 
         if final_prices["last_trade"]:
+            def _fmt(v):
+                return f"{v:,}" if v else "—"   # bid/ask ممکنه None باشه؛ نباید کل دریافت دلار رو خراب کنه
             logger.info(
-                f"✅ قیمت‌های دلار: معامله={final_prices['last_trade']:,}, "
-                f"خرید={final_prices['bid']:,}, فروش={final_prices['ask']:,}"
+                f"✅ قیمت‌های دلار: معامله={_fmt(final_prices['last_trade'])}, "
+                f"خرید={_fmt(final_prices['bid'])}, فروش={_fmt(final_prices['ask'])}"
             )
         else:
             logger.warning("❌ قیمت معامله دلار پیدا نشد")
@@ -126,8 +128,13 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
             global_change_percent = round(data[0]["close_price_change_percent"] * 100, 2)
             global_time = data[0].get("last_date_time", "")[11:16] or None
 
-            tether_price = data[3]["close_price"] / 10
-            tether_change_percent = round(data[3]["close_price_change_percent"] * 100, 2)
+            # تتر فقط نمایشیه؛ تغییر ساختار اون ردیف نباید قیمت جهانیِ سالم رو دور بریزه
+            tether_price = tether_change_percent = None
+            try:
+                tether_price = data[3]["close_price"] / 10
+                tether_change_percent = round(data[3]["close_price_change_percent"] * 100, 2)
+            except (KeyError, IndexError, TypeError, ValueError) as te:
+                logger.warning(f"⚠️ [{commodity}] داده‌ی تتر نامعتبر (نادیده گرفته شد): {te}")
 
             logger.info(f"✅ [{commodity}] قیمت جهانی: {global_price}")
             return {
@@ -140,7 +147,7 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
 
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ [{commodity}] تلاش {attempt}: خطای درخواست light-charts - {e}")
-        except (KeyError, IndexError, ValueError) as e:
+        except (KeyError, IndexError, TypeError, ValueError) as e:
             logger.error(f"❌ [{commodity}] تلاش {attempt}: پاسخ light-charts نامعتبر - {e}")
 
         if attempt < max_retries:
