@@ -3,6 +3,7 @@
 
 import json
 import logging
+import math
 from datetime import datetime, timedelta
 import pytz
 from google.oauth2 import service_account
@@ -20,6 +21,10 @@ LAST_COL_LETTER = "P"  # ستون شانزدهم — اگه STANDARD_HEADER عو
 LEGACY_NUM_COLS = NUM_COLS - 1       # 15 — قبل از اضافه‌شدن global_change_percent
 LEGACY_NUM_COLS_V0 = NUM_COLS - 2    # 14 — قبل از اضافه‌شدن trade_value
 LEGACY_NUM_COLS_V00 = NUM_COLS - 3   # 13 — طرح اولیه، قبل از اضافه‌شدن shams_bubble_percent
+
+
+class SheetsReadError(Exception):
+    """خواندن از شیت شکست خورد (≠ شیت خالی). برای جلوگیری از نوشتن «تغییرِ صفرِ ساختگی»."""
 
 
 def _sheet_name(commodity):
@@ -52,7 +57,7 @@ def get_sheets_service():
 
 def _ensure_sheet_tab(service, sheet_name):
     """مطمئن می‌شه تب sheet_name وجود داره؛ اگه نبود می‌سازدش. sheetId عددی رو برمی‌گردونه."""
-    meta = service.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+    meta = service.spreadsheets().get(spreadsheetId=SHEET_ID).execute(num_retries=3)
 
     for sheet in meta.get("sheets", []):
         props = sheet["properties"]
@@ -63,7 +68,7 @@ def _ensure_sheet_tab(service, sheet_name):
     response = service.spreadsheets().batchUpdate(
         spreadsheetId=SHEET_ID,
         body={"requests": [{"addSheet": {"properties": {"title": sheet_name}}}]},
-    ).execute()
+    ).execute(num_retries=3)
     new_sheet_id = response["replies"][0]["addSheet"]["properties"]["sheetId"]
     logger.info(f"✅ تب '{sheet_name}' ساخته شد")
     return new_sheet_id
@@ -82,7 +87,7 @@ def ensure_header(commodity):
         rng = f"{sheet_name}!A1:{LAST_COL_LETTER}1"
         result = service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID, range=rng
-        ).execute()
+        ).execute(num_retries=3)
 
         existing_values = result.get('values', [])
         existing_header = existing_values[0] if existing_values else []
@@ -92,7 +97,7 @@ def ensure_header(commodity):
             service.spreadsheets().values().update(
                 spreadsheetId=SHEET_ID, range=rng,
                 valueInputOption='RAW', body={'values': [STANDARD_HEADER]}
-            ).execute()
+            ).execute(num_retries=3)
             logger.info(f"✅ [{commodity}] هدر جدید ساخته شد ({NUM_COLS} ستون)")
             _headers_ensured.add(commodity)
             return True
@@ -106,7 +111,7 @@ def ensure_header(commodity):
         service.spreadsheets().values().update(
             spreadsheetId=SHEET_ID, range=rng,
             valueInputOption='RAW', body={'values': [STANDARD_HEADER]}
-        ).execute()
+        ).execute(num_retries=3)
         logger.info(f"✅ [{commodity}] هدر آپدیت شد")
         _headers_ensured.add(commodity)
         return True
@@ -126,28 +131,70 @@ def is_today(date_str):
         return False
 
 
+def _clean_number(v, nd=2):
+    """None/NaN/inf/غیرعددی → '' (خونه‌ی خالی)؛ وگرنه float خالصِ گردشده (numpy → float برای JSON).
+    NaN توی بدنه‌ی JSON توکن غیراستانداردِ NaN تولید می‌کنه و ردیف رو خراب می‌کنه."""
+    if v is None:
+        return ''
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ''
+    if not math.isfinite(f):
+        return ''
+    return round(f, nd)
+
+
+def _required_number(row_dict, key):
+    """فیلد الزامی: باید عددِ متناهی و > 0 باشه، وگرنه ValueError (بدون نوشتن ردیف)."""
+    v = _clean_number(row_dict.get(key), 6)
+    if v == '' or v <= 0:
+        raise ValueError(f"مقدار الزامی '{key}' نامعتبر است: {row_dict.get(key)!r}")
+    return v
+
+
+def _build_row(row_dict, timestamp):
+    """ساخت ردیف شیت (۱۶ ستون) بدون هیچ جایگزینِ ساختگی؛ مقدار نامعتبرِ اختیاری → خونه‌ی خالی."""
+    shams_change = row_dict.get('shams_change')
+    shams_date = row_dict.get('shams_date', None)
+
+    if shams_date and not is_today(shams_date):
+        logger.warning(f"⚠️ داده شمش مال امروز نیست (تاریخ: {shams_date})")
+        shams_change = 0.0
+
+    # ستون‌های صندوق می‌تونن None باشن (روزی که صندوق‌ها معامله ندارن، مثلاً پنج‌شنبه):
+    # خونه‌ی خالی نوشته می‌شه تا تو میانگین‌ها/گزارش‌ها NaN بشه و نه صفر یا مقدار کهنه.
+    return [
+        timestamp,
+        round(_required_number(row_dict, 'global_price'), 2),
+        int(_required_number(row_dict, 'dollar_price')),
+        int(_required_number(row_dict, 'shams_price')),
+        _clean_number(row_dict.get('dollar_change')),
+        _clean_number(shams_change),
+        _clean_number(row_dict.get('fund_change_weighted')),
+        _clean_number(row_dict.get('fund_final_price_avg')),
+        _clean_number(row_dict.get('fund_bubble_weighted')),
+        _clean_number(row_dict.get('sarane_kharid_w')),
+        _clean_number(row_dict.get('sarane_forosh_w')),
+        _clean_number(row_dict.get('ekhtelaf_sarane_w')),
+        _clean_number(row_dict.get('pol_hagigi')),
+        _clean_number(row_dict.get('shams_bubble')),
+        _clean_number(row_dict.get('trade_value')),
+        _clean_number(row_dict.get('global_change')),
+    ]
+
+
 def save_to_sheets(commodity, row_dict):
     """
-    ذخیره یک ردیف جدید در تب مربوط به یک کالا (Gold یا Silver)
+    ذخیره یک ردیف جدید در تب مربوط به یک کالا (Gold یا Silver).
 
-    Args:
-        commodity: 'gold' یا 'silver'
-        row_dict: دیکشنری حاوی داده‌های یک ردیف:
-            - global_price: قیمت جهانی انس (دلار)
-            - dollar_price: قیمت دلار (تومان)
-            - shams_price: قیمت شمش (ریال)
-            - dollar_change: درصد تغییر دلار
-            - shams_change: درصد تغییر شمش
-            - shams_date: تاریخ معاملات شمش (اختیاری)
-            - fund_change_weighted: میانگین وزنی تغییر صندوق‌ها
-            - fund_final_price_avg: میانگین ساده قیمت پایانی (اختیاری، پیش‌فرض 0)
-            - fund_bubble_weighted: میانگین وزنی حباب
-            - sarane_kharid_w: سرانه خرید
-            - sarane_forosh_w: سرانه فروش
-            - ekhtelaf_sarane_w: اختلاف سرانه
-            - pol_hagigi: پول حقیقی (میلیارد تومان، اختیاری، پیش‌فرض 0)
-            - shams_bubble: درصد حباب شمش (dfp.loc[bullion_key, "Bubble"]، اختیاری، پیش‌فرض 0)
-            - trade_value: ارزش معاملات (Fund_df["value"].sum()، اختیاری، پیش‌فرض 0)
+    ورودی (row_dict): global_price, dollar_price, shams_price (الزامی، > 0)؛ بقیه اختیاری
+    (None/NaN → خونه‌ی خالی): dollar_change, shams_change, shams_date, fund_change_weighted,
+    fund_final_price_avg, fund_bubble_weighted, sarane_kharid_w, sarane_forosh_w,
+    ekhtelaf_sarane_w, pol_hagigi, shams_bubble, trade_value, global_change.
+
+    Returns:
+        True اگه ردیف واقعاً نوشته شد؛ False در هر شکستی (تا caller بتونه ارسال/هشدار رو رد کنه).
     """
     sheet_name = _sheet_name(commodity)
     try:
@@ -156,39 +203,7 @@ def save_to_sheets(commodity, row_dict):
         tz = pytz.timezone(TIMEZONE)
         timestamp = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
 
-        shams_change = row_dict['shams_change']
-        shams_date = row_dict.get('shams_date', None)
-
-        if shams_date and not is_today(shams_date):
-            logger.warning(f"⚠️ [{commodity}] داده شمش مال امروز نیست (تاریخ: {shams_date})")
-            shams_change = 0.0
-
-        # ستون‌های صندوق می‌تونن None باشن (روزی که صندوق‌ها معامله ندارن، مثلاً پنج‌شنبه):
-        # خونه‌ی خالی نوشته می‌شه تا تو میانگین‌ها/گزارش‌ها NaN بشه و نه صفر یا مقدار کهنه.
-        def _r(key, default=0):
-            v = row_dict.get(key, default)
-            if v is None or (isinstance(v, float) and v != v):
-                return ''
-            return round(v, 2)
-
-        new_row = [
-            timestamp,
-            round(row_dict['global_price'], 2),
-            int(row_dict['dollar_price']),
-            int(row_dict['shams_price']),
-            round(row_dict['dollar_change'], 2),
-            round(shams_change, 2),
-            _r('fund_change_weighted'),
-            _r('fund_final_price_avg'),
-            _r('fund_bubble_weighted'),
-            _r('sarane_kharid_w'),
-            _r('sarane_forosh_w'),
-            _r('ekhtelaf_sarane_w'),
-            _r('pol_hagigi'),
-            round(row_dict.get('shams_bubble', 0), 2),
-            _r('trade_value'),
-            round(row_dict.get('global_change', 0), 2),
-        ]
+        new_row = _build_row(row_dict, timestamp)
 
         service.spreadsheets().values().append(
             spreadsheetId=SHEET_ID,
@@ -196,21 +211,24 @@ def save_to_sheets(commodity, row_dict):
             valueInputOption='RAW',
             insertDataOption='INSERT_ROWS',
             body={'values': [new_row]}
-        ).execute()
+        ).execute(num_retries=2)  # append غیرایدمپوتنته؛ تعداد retry عمداً کمتره
 
         logger.info(f"✅ [{commodity}] داده در Sheet ذخیره شد: {timestamp}")
+        return True
 
     except Exception as e:
         logger.error(f"❌ [{commodity}] خطا در ذخیره‌سازی در Google Sheet: {e}", exc_info=True)
+        return False
 
 
-def read_from_sheets(commodity, limit=1000):
+def read_from_sheets(commodity, limit=1000, raise_on_error=False):
     """
     خواندن داده‌ها از تب مربوط به یک کالا
 
     Args:
         commodity: 'gold' یا 'silver'
         limit: حداکثر تعداد ردیف‌های برگشتی (پیش‌فرض 1000)
+        raise_on_error: اگه True، خطای خواندن به‌جای [] به‌صورت SheetsReadError بالا میاد
 
     Returns:
         list: لیستی از ردیف‌ها (هر ردیف یک لیست 13 عنصری)
@@ -222,7 +240,7 @@ def read_from_sheets(commodity, limit=1000):
         result = service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID,
             range=f"{sheet_name}!A:{LAST_COL_LETTER}"
-        ).execute()
+        ).execute(num_retries=3)
 
         values = result.get('values', [])
         if not values:
@@ -259,6 +277,8 @@ def read_from_sheets(commodity, limit=1000):
 
     except Exception as e:
         logger.error(f"❌ [{commodity}] خطا در خواندن از Google Sheet: {e}", exc_info=True)
+        if raise_on_error:
+            raise SheetsReadError(str(e)) from e
         return []
 
 
@@ -277,7 +297,7 @@ def clear_old_data(commodity, keep_days=None):
         result = service.spreadsheets().values().get(
             spreadsheetId=SHEET_ID,
             range=f"{sheet_name}!A:{LAST_COL_LETTER}"
-        ).execute()
+        ).execute(num_retries=3)
 
         values = result.get('values', [])
         if len(values) <= 1:
@@ -313,73 +333,10 @@ def clear_old_data(commodity, keep_days=None):
                         }
                     }]
                 }
-            ).execute()
+            ).execute(num_retries=3)
             logger.info(f"🗑️ [{commodity}] {rows_to_delete} ردیف قدیمی پاک شد")
         else:
             logger.info(f"✅ [{commodity}] داده قدیمی برای پاک کردن پیدا نشد")
 
     except Exception as e:
         logger.error(f"❌ [{commodity}] خطا در پاک‌سازی: {e}", exc_info=True)
-
-
-def clear_invalid_rows(commodity):
-    """پاک کردن ردیف‌هایی که تعداد ستون درستی ندارن، در تب یک کالا"""
-    sheet_name = _sheet_name(commodity)
-    try:
-        service = get_sheets_service()
-        result = service.spreadsheets().values().get(
-            spreadsheetId=SHEET_ID,
-            range=f"{sheet_name}!A:{LAST_COL_LETTER}"
-        ).execute()
-
-        values = result.get('values', [])
-        if len(values) <= 1:
-            logger.info(f"ℹ️ [{commodity}] فقط هدر وجود دارد")
-            return
-
-        header = values[0]
-        valid_rows = [header]
-        invalid_count = 0
-
-        for row in values[1:]:
-            if len(row) == NUM_COLS:
-                valid_rows.append(row)
-            else:
-                invalid_count += 1
-
-        if invalid_count == 0:
-            logger.info(f"✅ [{commodity}] همه ردیف‌ها معتبرند")
-            return
-
-        logger.info(f"🧹 [{commodity}] در حال پاکسازی {invalid_count} ردیف نامعتبر...")
-
-        rng = f"{sheet_name}!A:{LAST_COL_LETTER}"
-        service.spreadsheets().values().clear(spreadsheetId=SHEET_ID, range=rng).execute()
-        service.spreadsheets().values().update(
-            spreadsheetId=SHEET_ID, range=rng,
-            valueInputOption='RAW', body={'values': valid_rows}
-        ).execute()
-
-        logger.info(f"✅ [{commodity}] {invalid_count} ردیف نامعتبر پاک شد")
-
-    except Exception as e:
-        logger.error(f"❌ [{commodity}] خطا در پاکسازی: {e}", exc_info=True)
-
-
-def get_sheet_stats(commodity):
-    """دریافت آمار تب یک کالا"""
-    try:
-        rows = read_from_sheets(commodity, limit=10000)
-        if not rows:
-            return {"total_rows": 0, "oldest": None, "newest": None}
-
-        timestamps = [row[0] for row in rows if len(row) > 0]
-
-        return {
-            "total_rows": len(rows),
-            "oldest": timestamps[0] if timestamps else None,
-            "newest": timestamps[-1] if timestamps else None,
-        }
-    except Exception as e:
-        logger.error(f"❌ [{commodity}] خطا در دریافت آمار: {e}")
-        return {"total_rows": 0, "oldest": None, "newest": None}
