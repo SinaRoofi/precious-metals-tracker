@@ -6,6 +6,7 @@ import os
 import logging
 from datetime import datetime
 import time
+import config as _config
 import pytz
 import jdatetime
 import pandas as pd
@@ -354,12 +355,15 @@ async def main():
             # و داده‌ی بازار هر دو کالا. هیچ‌کدوم به نتیجه‌ی بقیه وابسته نیست؛ فقط «پردازش» به همه‌شون نیاز داره.
             logger.info("📡 دریافت هم‌زمان: دلار، درهم، عسکه، شیت (gold/silver) و داده‌ی بازار طلا/نقره...")
             t_fetch = time.perf_counter()
+            # تاگل‌های کپشن (config.py): اگه خاموش باشن، دریافتشون هم رد می‌شه (یک درخواست کمتر)
+            dirham_fetcher = fetch_dirham_price if getattr(_config, "SHOW_DIRHAM_IN_CAPTION", True) else (lambda: None)
+            salaf_fetcher = fetch_salaf_lines if getattr(_config, "SHOW_SALAF_IN_CAPTION", True) else (lambda: None)
             fetched = await asyncio.gather(
                 fetch_dollar_prices(client),
-                asyncio.to_thread(fetch_dirham_price),
+                asyncio.to_thread(dirham_fetcher),
                 asyncio.to_thread(read_from_sheets, "gold", 800, True),
                 asyncio.to_thread(read_from_sheets, "silver", 800, True),
-                asyncio.to_thread(fetch_salaf_lines),  # عسکه
+                asyncio.to_thread(salaf_fetcher),  # عسکه
                 fetch_commodity_inputs("gold"),
                 fetch_commodity_inputs("silver"),
                 return_exceptions=True,
