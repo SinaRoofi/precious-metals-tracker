@@ -7,6 +7,7 @@ import logging
 import math
 import time
 import requests
+import pandas as pd
 import pytz
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -66,6 +67,40 @@ def format_rr_ratio(value):
     else:
         emoji = "🔴"
     return f"{emoji}{value:+.2f}"
+
+
+def _caption_flag(name, default):
+    """تاگل‌های کپشن از config.py، موقع اجرا خونده می‌شن. اگه تاگلی تو config نباشه، پیش‌فرض
+    (= رفتار قبلی) اعمال می‌شه تا نبودنِ یک خط تو config چیزی رو خراب نکنه."""
+    import config
+    return getattr(config, name, default)
+
+
+def _should_show_quarter_coin(funds_open=True):
+    """ربع سکه تو کپشن (فقط طلا) — SHOW_QUARTER_COIN_IN_CAPTION:
+        "auto" (پیش‌فرض): وقتی صندوق‌ها بسته‌ان (پنج‌شنبه: بلاک صندوق‌ها و عسکه کپشن نیست و جا باز
+                         می‌شه)، یا حداقل یکی از تاگل‌های تتر/درهم/عسکه خاموش باشه
+        True: همیشه   |   False: هیچ‌وقت
+    اگه کپشن از حد ۱۰۲۴ تلگرام رد بشه، fallback قدیمی کار می‌کنه: اول «میانه حباب» می‌ره."""
+    mode = _caption_flag("SHOW_QUARTER_COIN_IN_CAPTION", "auto")
+    if mode is True or mode is False:
+        return mode
+    if mode != "auto":
+        logger.warning(f"⚠️ SHOW_QUARTER_COIN_IN_CAPTION={mode!r} نامعتبره (فقط True/False/\"auto\") — auto اعمال شد")
+    if not funds_open:
+        return True
+    return not (
+        _caption_flag("SHOW_TETHER_IN_CAPTION", False)
+        and _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
+        and _caption_flag("SHOW_SALAF_IN_CAPTION", True)
+    )
+
+
+def _tether_caption_line(tether_price, tether_change_percent):
+    """خط تتر کپشن؛ با SHOW_TETHER_IN_CAPTION=False یا نبودنِ قیمت تتر، رشته‌ی خالی."""
+    if not _caption_flag("SHOW_TETHER_IN_CAPTION", False) or tether_price is None:
+        return ""
+    return f"\u200F💲 تتر: {tether_price:,.0f} ({fmt_pct(tether_change_percent, 1)}%)\n"
 
 
 def fmt_pct(value, decimals=2, sign=True):
@@ -216,6 +251,9 @@ CAPTION_ASSETS = {
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلای ۱۸", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "سکه-امامی-طرح-جدید", "title": "🟡 امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
+        # فقط وقتی تاگل‌های کپشن اجازه بدن (SHOW_QUARTER_COIN_IN_CAPTION)؛ کم‌اهمیت‌ترین آیتم، مثل امامی
+        # توسط fallback طول کپشن (حد ۱۰۲۴ تلگرام) اول از همه حذف می‌شه.
+        {"key": "ربع-سکه", "title": "🟠 ربع سکه", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule", "quarter_coin_only": True},
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⬜ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
@@ -1227,6 +1265,11 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     # سلف (عسکه) پنج‌شنبه معامله نمی‌شه، پس خطوطش هم نمیاد.
     if not funds_open:
         salaf_lines = None
+    # تاگل‌ها (config.py): False = خط تو کپشن نمیاد
+    if not _caption_flag("SHOW_SALAF_IN_CAPTION", True):
+        salaf_lines = None
+    show_dirham = _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
+    show_quarter_coin = _should_show_quarter_coin(funds_open) if commodity == "gold" else False
 
     def days_passed_this_year():
         tehran_tz = pytz.timezone("Asia/Tehran")
@@ -1339,10 +1382,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 🧮 ارزش: {value_total:,.0f} ({fmt_pct(value_pct, 1, sign=False)}%)
 🟢 سقف: {high_total:,.0f} ({fmt_pct(high_pct, 1, sign=False)}%)
 """
-        if tether_price is not None:
-            caption += f"\u200F💲 تتر: {tether_price:,.0f} ({fmt_pct(tether_change_percent, 1)}%)\n"
+        caption += _tether_caption_line(tether_price, tether_change_percent)
 
-        if dollar_from_dirham is not None:
+        if show_dirham and dollar_from_dirham is not None:
             caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({fmt_pct(dirham_diff_pct, 1)}%)\n\n"
 
         caption += f"🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}\n"
@@ -1405,7 +1447,17 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 # تا جا برای اونس ضمنی و R/R (که همیشه باید بمونن) باز بشه.
                 continue
 
+            if asset_cfg.get("quarter_coin_only") and not show_quarter_coin:
+                continue
+
             row = dfp.loc[key]
+            if asset_cfg.get("quarter_coin_only") and (
+                pd.isna(row["close_price"]) or row["close_price"] <= 0
+                or pd.isna(row["close_price_change_percent"])
+            ):
+                # بدون فالبک: داده‌ی ربع سکه نیومده → خطش نمیاد (نه «۰ تومان» ساختگی)
+                logger.warning(f"⚠️ [{commodity}] داده‌ی ربع سکه نامعتبر — از کپشن حذف شد")
+                continue
             price = row["close_price"] / asset_cfg["divisor"]
 
             if asset_cfg.get("style") == "capsule":
