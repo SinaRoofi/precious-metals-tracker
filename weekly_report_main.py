@@ -11,6 +11,9 @@ from config import LOG_FILE, LOG_FORMAT, LOG_LEVEL, TELEGRAM_BOT_TOKEN, TELEGRAM
 from utils.telegram_sender import send_weekly_report
 
 
+from utils.log_safety import redact
+
+
 class JalaliFormatter(logging.Formatter):
     """Formatter که %(asctime)s رو با تاریخ و ساعت شمسی (تهران) پر می‌کند — همان منطق main.py"""
 
@@ -19,6 +22,9 @@ class JalaliFormatter(logging.Formatter):
         dt = datetime.fromtimestamp(record.created, tz=tehran_tz)
         jalali = jdatetime.datetime.fromgregorian(datetime=dt)
         return jalali.strftime("%Y-%m-%d %H:%M:%S")
+
+    def format(self, record):
+        return redact(super().format(record))
 
 
 _formatter = JalaliFormatter(LOG_FORMAT)
