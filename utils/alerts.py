@@ -143,11 +143,36 @@ def _nz(x, nd=0):
     return x
 
 
+def _fmt_pol(x, sign=True, short=False):
+    """پول حقیقی (ورودی بر حسب میلیارد تومان) با واحد مناسب: تا ۹۹۹ میلیون تومان به «میلیون»،
+    از ۱ میلیارد به بالا «میلیارد» (قدرمطلق < ۱۰ دو رقم اعشار، وگرنه صحیح). زیر ۱ میلیون: «کمتر از ۱ میلیون»."""
+    m = round(x * 1000)
+    if m == 0:
+        return "کمتر از ۱ میلیون تومان" if not short else "کمتر از ۱ م.ت"
+    s = "+" if sign and x > 0 else ("-" if x < 0 else "")
+    if abs(m) < 1000:
+        num, unit = f"{abs(m):,}", ("م.ت" if short else "میلیون تومان")
+    else:
+        d = 2 if abs(x) < 10 else 0
+        num, unit = f"{abs(x):,.{d}f}", ("ب.ت" if short else "میلیارد تومان")
+    return f"{s}{num} {unit}"
+
+
+def _fmt_mt(x, sign=True, decimals=0):
+    """سرانه/اختلاف سرانه (ورودی بر حسب میلیون تومان — در data_processor با ÷۱۰^۷ از ریال ساخته می‌شه):
+    تا ۹۹۹ میلیون «میلیون تومان» با decimals رقم اعشار، از ۱٬۰۰۰ میلیون به بالا «میلیارد تومان»."""
+    if abs(round(x, decimals)) >= 1000:
+        return _fmt_pol(x / 1000, sign=sign)
+    r = round(x, decimals)
+    s = "+" if sign and r > 0 else ("-" if r < 0 else "")
+    return f"{s}{abs(r):,.{decimals}f} میلیون تومان"
+
+
 def _avg_bubble_line(avg_bubble):
     """خط «میانگین ماهانه حباب» برای ته پیام‌ها؛ رشته‌ی خالی اگه مقدار نامعتبر باشه."""
     if avg_bubble is None or pd.isna(avg_bubble):
         return ""
-    return f"\n📊 میانگین ماهانه حباب صندوق‌ها: {_nz(avg_bubble, 2):+.2f}%"
+    return f"\n📊 میانگین ماهانه حباب: {_nz(avg_bubble, 2):+.2f}%"
 
 
 def _fund_bubble_lines(row):
@@ -715,8 +740,8 @@ def send_sarane_kharid_spike_alert(bot_token, chat_id, current_value, baseline, 
     main_text = f"""
 🚀 هشدار جهش سرانه خرید صندوق‌های {label}
 
-📊 سرانه خرید فعلی: {current_value:,.2f}
-📉 میانگین {SARANE_KHARID_MA_DAYS} روزه: {baseline:,.2f}
+📊 سرانه خرید فعلی: {_fmt_mt(current_value, False, 2)}
+📉 میانگین {SARANE_KHARID_MA_DAYS} روزه: {_fmt_mt(baseline, False, 2)}
 ✖️ نسبت: {ratio:,.2f} برابر
 """.strip()
 
@@ -784,8 +809,8 @@ def send_sarane_forosh_spike_alert(bot_token, chat_id, current_value, baseline, 
     main_text = f"""
 📉 هشدار جهش سرانه فروش صندوق‌های {label}
 
-📊 سرانه فروش فعلی: {current_value:,.2f}
-📈 میانگین {SARANE_KHARID_MA_DAYS} روزه: {baseline:,.2f}
+📊 سرانه فروش فعلی: {_fmt_mt(current_value, False, 2)}
+📈 میانگین {SARANE_KHARID_MA_DAYS} روزه: {_fmt_mt(baseline, False, 2)}
 ✖️ نسبت: {ratio:,.2f} برابر
 """.strip()
 
@@ -1204,16 +1229,16 @@ def send_money_power_alert(bot_token, chat_id, signal, m, shams_bubble, tz, now,
     """ارسال هشدار قدرت پول"""
     if signal == "buy":
         title = f"💪 قدرت پول صندوق‌های {label} — خرید قوی 🟢"
-        desc = f"ورود قوی پول حقیقی به صندوق‌های {label} نسبت به کل معاملات امروز."
+        desc = "ورود قوی پول حقیقی نسبت به کل معاملات امروز."
     else:
         title = f"💪 قدرت پول صندوق‌های {label} — فروش قوی 🔴"
-        desc = f"خروج قوی پول حقیقی از صندوق‌های {label} نسبت به کل معاملات امروز."
+        desc = "خروج قوی پول حقیقی نسبت به کل معاملات امروز."
 
     lines = [
         title, "", desc, "",
         f"💪 قدرت پول: {m['power_today']:+.1f}% (آستانه: ±{MONEY_POWER_STRONG_PCT:.0f}%)",
-        f"💸 پول حقیقی صندوق‌ها امروز: {m['pol_today']:+,.0f} میلیارد تومان",
-        f"💰 ارزش معاملات صندوق‌ها امروز: {m['value_today']:,.0f} میلیارد تومان "
+        f"💸 پول حقیقی امروز: {_fmt_pol(m['pol_today'])}",
+        f"💰 ارزش معاملات امروز: {m['value_today']:,.0f} میلیارد تومان "
         f"({m['value_ratio']:.0%} میانگین ۵ روزه)",
         f"📆 قدرت پول میانگین ۵ روزه: {m['power_5d']:+.1f}%",
     ]
@@ -1589,16 +1614,15 @@ def check_bubble_alerts(bot_token, chat_id, current_bubble, prev_bubble,
 def send_bubble_state_alert(bot_token, chat_id, bubble_value, state, tz, now, label, avg_bubble=None):
     """ارسال هشدار کراس صفر حباب"""
     if state == "positive":
-        dir_emoji, description = "🟢", f"حباب صندوق‌های {label} مثبت شد"
+        dir_emoji, verb = "🟢", "مثبت شد"
     else:
-        dir_emoji, description = "🔴", f"حباب صندوق‌های {label} منفی شد"
+        dir_emoji, verb = "🔴", "منفی شد"
 
     bubble_value = _nz(bubble_value, 2)
     main_text = f"""
-🫧 هشدار حباب صندوق‌های {label} {dir_emoji}
+🫧 حباب صندوق‌های {label} {verb} {dir_emoji}
 
-{description}
-💹 حباب فعلی صندوق‌ها (میانگین وزنی): {bubble_value:+.2f}%{_avg_bubble_line(avg_bubble)}
+💹 حباب فعلی (میانگین وزنی): {bubble_value:+.2f}%{_avg_bubble_line(avg_bubble)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -1673,17 +1697,14 @@ def check_pol_alerts(bot_token, chat_id, current_pol, prev_pol, status, tz, now,
 def send_pol_state_alert(bot_token, chat_id, pol_value, state, tz, now, label):
     """ارسال هشدار کراس صفر ورود پول حقیقی"""
     if state == "positive":
-        direction, dir_emoji, description = "مثبت", "🟢", "ورود پول حقیقی مثبت شد"
+        dir_emoji, verb = "🟢", "مثبت شد"
     else:
-        direction, dir_emoji, description = "منفی", "🔴", "ورود پول حقیقی منفی شد"
+        dir_emoji, verb = "🔴", "منفی شد"
 
-    pol_value = _nz(pol_value, 0)
     main_text = f"""
-💸 هشدار ورود پول حقیقی صندوق‌های {label} {dir_emoji}
+💸 ورود پول حقیقی صندوق‌های {label} {verb} {dir_emoji}
 
-{description}
-💰 ورود پول حقیقی صندوق‌ها: {pol_value:+,.0f} میلیارد تومان
-📊 وضعیت: {direction}
+💰 ورود پول حقیقی: {_fmt_pol(pol_value)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -1694,15 +1715,14 @@ def send_pol_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, chan
     """ارسال هشدار تغییر شدید ورود پول حقیقی"""
     direction = "ورود" if change > 0 else "خروج"
     dir_emoji = "📈" if change > 0 else "📉"
-    prev_value, curr_value = _nz(prev_value, 0), _nz(curr_value, 0)
-    change_text = f"{abs(change):,.0f}"
+    change_text = _fmt_pol(abs(change), sign=False)
 
     main_text = f"""
 🚨 تغییر شدید ورود پول حقیقی صندوق‌های {label} {dir_emoji}
 
-⏱ {direction} در 1 دقیقه: {change_text} میلیارد تومان
-🔴 قبلی: {prev_value:+,.0f} م.ت
-🟢 فعلی: {curr_value:+,.0f} م.ت
+⏱ {direction} در 1 دقیقه: {change_text}
+🔴 قبلی: {_fmt_pol(prev_value)}
+🟢 فعلی: {_fmt_pol(curr_value)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -1826,13 +1846,13 @@ def send_hard_signal_alert(bot_token, chat_id, signal, bubble, pol, ekhtelaf, tz
     else:
         title, dir_emoji = "هشدار سخت فروش", "🔴"
 
-    bubble, pol, ekhtelaf = _nz(bubble, 2), _nz(pol, 0), _nz(ekhtelaf, 0)
+    bubble = _nz(bubble, 2)
     main_text = f"""
 🚨 {title} — صندوق‌های {label} {dir_emoji}
 
-🫧 حباب صندوق‌ها (میانگین وزنی): {bubble:+.2f}%{_avg_bubble_line(avg_bubble)}
-💸 ورود پول حقیقی صندوق‌ها: {pol:+,.0f} میلیارد تومان
-📊 اختلاف سرانه صندوق‌ها: {ekhtelaf:+,.0f}
+🫧 حباب (میانگین وزنی): {bubble:+.2f}%{_avg_bubble_line(avg_bubble)}
+💸 ورود پول حقیقی: {_fmt_pol(pol)}
+📊 اختلاف سرانه: {_fmt_mt(ekhtelaf)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -2174,13 +2194,12 @@ def send_alert_ekhtelaf_fast(bot_token, chat_id, prev_val, curr_val, diff, label
     now = datetime.now(tz)
     direction = "افزایش شدید (مثبت)" if diff > 0 else "کاهش شدید (منفی)"
     dir_emoji = "🟢" if diff > 0 else "🔴"
-    diff, prev_val = _nz(diff, 0), _nz(prev_val, 0)
-    diff_text = f"{diff:+.0f}".replace("+-", "−")
-    prev_text = f"{prev_val:+,.0f}".replace("+-", "−")
+    diff_text = _fmt_mt(diff)
+    prev_text = _fmt_mt(prev_val)
 
     main_text = (
         f"🚨 هشدار اختلاف سرانه صندوق‌های {label}\n\n{dir_emoji} {direction}\n"
-        f"⏱ تغییر: {diff_text} میلیون تومان\n📉 اختلاف سرانه قبلی: {prev_text} میلیون تومان"
+        f"⏱ تغییر: {diff_text}\n📉 اختلاف سرانه قبلی: {prev_text}"
     )
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
