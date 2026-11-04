@@ -143,6 +143,11 @@ def _nz(x, nd=0):
     return x
 
 
+def _sign_dot(x):
+    """🟢 برای مثبت، 🔴 برای منفی، ⚪ برای صفر."""
+    return "🟢" if x > 0 else ("🔴" if x < 0 else "⚪")
+
+
 def _fmt_pol(x, sign=True, short=False):
     """پول حقیقی (ورودی بر حسب میلیارد تومان) با واحد مناسب: تا ۹۹۹ میلیون تومان به «میلیون»،
     از ۱ میلیارد به بالا «میلیارد» (قدرمطلق < ۱۰ دو رقم اعشار، وگرنه صحیح). زیر ۱ میلیون: «کمتر از ۱ میلیون»."""
@@ -175,7 +180,7 @@ def _avg_bubble_line(avg_bubble):
     return f"\n📊 میانگین ماهانه حباب: {_nz(avg_bubble, 2):+.2f}%"
 
 
-def _fund_bubble_lines(row):
+def _fund_bubble_lines(row, title="حباب صندوق"):
     """خطوط حباب و میانگین ماهانه‌ی حباب یک صندوق (برای پیام‌های مربوط به صندوق)."""
     try:
         bubble = pd.to_numeric(row.get("nominal_bubble"), errors="coerce")
@@ -185,8 +190,8 @@ def _fund_bubble_lines(row):
     if pd.isna(bubble):
         return ""
     if pd.isna(avg):
-        return f"🫧 حباب صندوق: {bubble:+.2f}%"
-    return f"🫧 حباب صندوق: {bubble:+.2f}% (میانگین ماهانه {avg:+.2f}%)"
+        return f"🫧 {title}: {bubble:+.2f}%"
+    return f"🫧 {title}: {bubble:+.2f}% (میانگین ماهانه {avg:+.2f}%)"
 
 
 def _default_alert_status():
@@ -1428,7 +1433,8 @@ def check_and_send_alerts(
         day_assets.append({
             "key": f"{commodity}_fund_{holding}", "name": f"صندوق {holding}",
             "price": holding_row["close_price"], "unit": "ریال",
-            "percent_key": commodity, "extra": _fund_bubble_lines(holding_row),
+            "percent_key": commodity, "extra": _fund_bubble_lines(holding_row, title="حباب"),
+            "open_price": holding_row.get("open_price"),  # قیمت باز شدن رسمی صندوق (بدون ذخیره تو Gist)
         })
     if check_day_move_alerts(bot_token, chat_id, day_assets, status, now):
         changed = True
@@ -1712,17 +1718,15 @@ def send_pol_state_alert(bot_token, chat_id, pol_value, state, tz, now, label):
 
 
 def send_pol_sharp_change_alert(bot_token, chat_id, prev_value, curr_value, change, tz, now, label):
-    """ارسال هشدار تغییر شدید ورود پول حقیقی"""
-    direction = "ورود" if change > 0 else "خروج"
-    dir_emoji = "📈" if change > 0 else "📉"
-    change_text = _fmt_pol(abs(change), sign=False)
+    """ارسال هشدار ورود/خروج شدید پول حقیقی (جهت از علامت تغییر ۱ دقیقه‌ای)"""
+    title = "📈 ورود شدید" if change > 0 else "📉 خروج شدید"
 
     main_text = f"""
-🚨 تغییر شدید ورود پول حقیقی صندوق‌های {label} {dir_emoji}
+{title} پول حقیقی صندوق‌های {label}
 
-⏱ {direction} در 1 دقیقه: {change_text}
-🔴 قبلی: {_fmt_pol(prev_value)}
-🟢 فعلی: {_fmt_pol(curr_value)}
+⏱ تغییر ۱ دقیقه‌ای: {_fmt_pol(change)}
+{_sign_dot(prev_value)} قبلی: {_fmt_pol(prev_value)}
+{_sign_dot(curr_value)} فعلی: {_fmt_pol(curr_value)}
 """.strip()
 
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
@@ -1909,18 +1913,22 @@ def check_fund_price_alerts(bot_token, chat_id, df_funds, status):
 
 
 # ════════════════════════════════════════════════════════════════
-# 🌅 حرکت نسبت به قیمت اول روز (دلار، شمش، صندوق خودت)
+# 🌅 حرکت نسبت به قیمت باز شدن (دلار، شمش، صندوق خودت)
 # ════════════════════════════════════════════════════════════════
 
 
 def check_day_move_alerts(bot_token, chat_id, assets, status, now):
     """
-    برای هر دارایی، قیمت فعلی رو با «قیمت اول روز» مقایسه می‌کنه و با هر پله‌ی
+    برای هر دارایی، قیمت فعلی رو با «قیمت باز شدن» مقایسه می‌کنه و با هر پله‌ی
     DAY_MOVE_ALERT_PERCENT (بالا یا پایین) پیام می‌ده.
 
-    assets: لیست دیکشنری با کلیدهای key, name, price, unit, percent_key و اختیاری extra.
-    قیمت اول روز = اولین قیمت معتبری که ربات اون روز می‌بینه؛ تو status["day_open"]
-    (همون Gist وضعیت هشدارها) ذخیره می‌شه و با عوض‌شدن روز خودکار پاک می‌شه.
+    assets: لیست دیکشنری با کلیدهای key, name, price, unit, percent_key و اختیاری extra / open_price.
+    قیمت باز شدن:
+      - صندوق (دارایی با کلید open_price): prices.open رسمی هر ران از دیتا؛ ذخیره نمی‌شه
+        (فقط پله‌ی هشدار تو status["day_open"])؛ بدون open معتبر → هشدار نمی‌ره.
+      - دلار و شمش: اولین قیمت معتبری که ربات اون روز می‌بینه؛ تو status["day_open"]
+        (همون Gist وضعیت هشدارها) ذخیره می‌شه.
+    رکوردهای روزهای قبل با عوض‌شدن روز خودکار پاک می‌شن.
 
     منطق پله (level = int(تغییر٪ / پله)، یعنی بریده به سمت صفر):
       - پیام: وقتی از level=0 خارج بشه، جهتش عوض بشه، یا (اگه DAY_MOVE_REPEAT_EVERY_STEP)
@@ -1950,15 +1958,25 @@ def check_day_move_alerts(bot_token, chat_id, assets, status, now):
                 continue
 
             rec = store.get(asset["key"])
-            if rec is None:
-                store[asset["key"]] = {"date": today, "open": float(price), "level": 0}
-                changed = True
-                logger.info(f"🌅 قیمت اول روز {asset['name']} ثبت شد: {price:,.0f}")
-                continue
-
-            open_price = rec.get("open")
-            if not open_price or open_price <= 0:
-                continue
+            if "open_price" in asset:
+                # صندوق: قیمت باز شدن رسمی هر ران از دیتا خونده می‌شه و تو Gist ذخیره نمی‌شه
+                # (فقط پله‌ی هشدار). بدون open معتبر → هشدار نمی‌ره (fallback نداریم).
+                open_price = pd.to_numeric(asset.get("open_price"), errors="coerce")
+                if pd.isna(open_price) or open_price <= 0:
+                    continue
+                if rec is None:
+                    rec = store[asset["key"]] = {"date": today, "level": 0}
+                    changed = True
+            else:
+                # دلار و شمش: اولین قیمت معتبر ربات تو روز (تو Gist)
+                if rec is None:
+                    store[asset["key"]] = {"date": today, "open": float(price), "level": 0}
+                    changed = True
+                    logger.info(f"🌅 قیمت باز شدن {asset['name']} ثبت شد: {price:,.0f}")
+                    continue
+                open_price = rec.get("open")
+                if not open_price or open_price <= 0:
+                    continue
 
             change = (price - open_price) / open_price * 100
             level_now = int(change / step)
@@ -1985,7 +2003,7 @@ def check_day_move_alerts(bot_token, chat_id, assets, status, now):
                     bot_token, chat_id, asset["name"], price, open_price, change,
                     asset["unit"], now, extra_lines=asset.get("extra"),
                 )
-                logger.info(f"🌅 {asset['name']}: {change:+.2f}% نسبت به قیمت اول روز")
+                logger.info(f"🌅 {asset['name']}: {change:+.2f}% نسبت به قیمت باز شدن")
 
             if new_last != last:
                 rec["level"] = new_last
@@ -1998,16 +2016,16 @@ def check_day_move_alerts(bot_token, chat_id, assets, status, now):
 
 def send_day_move_alert(bot_token, chat_id, name, price, open_price, change, unit, now,
                          extra_lines=None):
-    """ارسال هشدار حرکت نسبت به قیمت اول روز"""
+    """ارسال هشدار حرکت نسبت به قیمت باز شدن (اولین قیمت معتبر ربات تو روز)"""
     up = change > 0
     arrow, dot = ("📈", "🟢") if up else ("📉", "🔴")
     diff = price - open_price
 
     lines = [
-        f"{arrow} هشدار حرکت {name} نسبت به قیمت اول روز {dot}",
+        f"{arrow} {name} {'بالاتر' if up else 'پایین‌تر'} از قیمت باز شدن {dot}",
         "",
         f"💰 قیمت فعلی: {int(round(price)):,} {unit}",
-        f"🌅 قیمت اول روز: {int(round(open_price)):,} {unit}",
+        f"🌅 قیمت باز شدن: {int(round(open_price)):,} {unit}",
         f"📊 تغییر: {change:+.2f}% ({diff:+,.0f} {unit})",
     ]
     if extra_lines:
