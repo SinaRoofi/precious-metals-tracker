@@ -6,21 +6,21 @@ import os
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 270_000
-DOLLAR_LOW = 265_000
+DOLLAR_HIGH = 275_000
+DOLLAR_LOW = 270_000
 # --- طلا ---
-SHAMS_HIGH = 34_500_000
-SHAMS_LOW = 33_500_000
+SHAMS_HIGH = 35_000_000
+SHAMS_LOW = 34_000_000
 
-GOLD_HIGH = 4050
-GOLD_LOW = 4000
+GOLD_HIGH = 4000
+GOLD_LOW = 3900
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 550_000
 SILVER_SHAMS_LOW = 450_000
 
-SILVER_HIGH = 55
-SILVER_LOW = 45
+SILVER_HIGH = 70
+SILVER_LOW = 60
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
@@ -35,7 +35,7 @@ ALERT_THRESHOLD_PERCENT = {
 EKHTELAF_THRESHOLD = 20
 
 # 🌅 هشدار حرکت نسبت به قیمت اول روز (دلار، شمش، صندوق خودت = CURRENT_HOLDING)
-# قیمت اول روز = اولین قیمت معتبری که ربات اون روز می‌بینه (تو Gist ذخیره می‌شه).
+# قیمت باز شدن: دلار و شمش = اولین قیمت معتبر ربات تو روز (تو Gist)؛ صندوق = prices.open رسمی.
 # مقدار = درصد هر «پله»؛ کلید gold برای شمش طلا و صندوق طلای خودت، silver برای
 # شمش نقره و صندوق نقره‌ی خودت. None یعنی غیرفعال.
 DAY_MOVE_ALERT_PERCENT = {"dollar": 0.5, "gold": 0.5, "silver": 1.0}
