@@ -166,6 +166,7 @@ def process_funds_data(data, commodity):
 
             # قیمت‌ها و درصد تغییرات
             "close_price": _dig(row, "live", "market", "prices", "close"),
+            "open_price": _dig(row, "live", "market", "prices", "open"),  # قیمت باز شدن (هشدار حرکت روزانه)
             "close_price_change_percent": _dig(row, "live", "market", "changes", "closePercent"),
             "final_price": _dig(row, "live", "market", "prices", "closing"),
             "final_price_change_percent": _dig(row, "live", "market", "changes", "closingPercent"),
@@ -266,8 +267,10 @@ def process_funds_data(data, commodity):
 
     Fund_df.sort_values(by="value", ascending=False, inplace=True)
 
+    Fund_df["open_price"] = pd.to_numeric(Fund_df["open_price"], errors="coerce")
+
     final_columns = [
-        "close_price", "NAV", "nominal_bubble", "avg_monthly_bubble",
+        "close_price", "open_price", "NAV", "nominal_bubble", "avg_monthly_bubble",
         "NAV_change_percent", "close_price_change_percent", "final_price_change",
         "weekly_return", "monthly_return", "nav_monthly_return", "3_month_return",
         "net_asset", "sarane_kharid", "sarane_forosh", "ekhtelaf_sarane",
