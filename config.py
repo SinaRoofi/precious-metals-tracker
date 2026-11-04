@@ -114,7 +114,7 @@ HARD_SIGNAL_PERSIST_RUNS = 3
 HARD_SIGNAL_COOLDOWN_MIN = 30
 
 # ✅ آستانه‌های هشدار پول حقیقی
-POL_SHARP_CHANGE_THRESHOLD = 100
+POL_SHARP_CHANGE_THRESHOLD = 150
 
 # 📌 هندل کانال تلگرام — مشترک برای طلا و نقره
 CHANNEL_HANDLE = "@PreciousMetals_IR"
