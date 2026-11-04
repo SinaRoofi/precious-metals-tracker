@@ -1231,24 +1231,22 @@ def check_money_power_alert(bot_token, chat_id, df_funds, shams_bubble, status, 
 
 
 def send_money_power_alert(bot_token, chat_id, signal, m, shams_bubble, tz, now, label):
-    """ارسال هشدار قدرت پول"""
-    if signal == "buy":
-        title = f"💪 قدرت پول صندوق‌های {label} — خرید قوی 🟢"
-        desc = "ورود قوی پول حقیقی نسبت به کل معاملات امروز."
-    else:
-        title = f"💪 قدرت پول صندوق‌های {label} — فروش قوی 🔴"
-        desc = "خروج قوی پول حقیقی نسبت به کل معاملات امروز."
+    """ارسال هشدار قدرت پول (مثبت/منفی)"""
+    title = (
+        f"💪 قدرت پول صندوق‌های {label} مثبت 🟢" if signal == "buy"
+        else f"💪 قدرت پول صندوق‌های {label} منفی 🔴"
+    )
 
     lines = [
-        title, "", desc, "",
+        title, "",
         f"💪 قدرت پول: {m['power_today']:+.1f}% (آستانه: ±{MONEY_POWER_STRONG_PCT:.0f}%)",
-        f"💸 پول حقیقی امروز: {_fmt_pol(m['pol_today'])}",
-        f"💰 ارزش معاملات امروز: {m['value_today']:,.0f} میلیارد تومان "
-        f"({m['value_ratio']:.0%} میانگین ۵ روزه)",
-        f"📆 قدرت پول میانگین ۵ روزه: {m['power_5d']:+.1f}%",
+        f"💸 ورود پول حقیقی: {_fmt_pol(m['pol_today'])}",
+        f"💰 ارزش معاملات: {m['value_today']:,.0f} میلیارد تومان "
+        f"({m['value_ratio']:.0%} میانگین هفتگی)",
+        f"📆 میانگین هفتگی قدرت پول: {m['power_5d']:+.1f}%",
     ]
     if shams_bubble is not None and pd.notna(shams_bubble):
-        lines.append(f"🫧 حباب شمش {label} (جدا از صندوق‌ها): {shams_bubble:+.2f}%")
+        lines.append(f"🫧 حباب شمش {label}: {shams_bubble:+.2f}%")
     footer = f"\n🕐 {get_jalali_timestamp(now)}\n🔗 {ALERT_CHANNEL_HANDLE}"
     send_alert_message(bot_token, chat_id, "\n".join(lines) + f"\n{footer}")
 
