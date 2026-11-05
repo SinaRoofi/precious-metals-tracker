@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import math
+import re
 import time
 import requests
 import pandas as pd
@@ -39,6 +40,21 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 # حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
 TELEGRAM_CAPTION_LIMIT = 1024
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def _caption_visible_len(caption_html):
+    """طول کپشن به‌شکلی که تلگرام می‌شمره: «0-1024 characters after entities parsing»
+    (مستندات رسمی Bot API، sendPhoto/InputMediaPhoto) — یعنی تگ‌های HTML (<b>…</b>) حساب نمی‌شن.
+    فرض: کپشن HTML-entity (مثل &lt;) نداره؛ اگه داشت هر کدوم تو تلگرام ۱ کاراکتره ولی اینجا بیشتر شمرده می‌شه
+    (به‌سمت محافظه‌کارانه)."""
+    return len(_HTML_TAG_RE.sub("", caption_html))
+
+
+def _truncate_caption(caption_html, limit):
+    """truncate اضطراری بدون خراب‌کردن تگ‌ها: تگ‌ها حذف می‌شن (کپشن بدون بولد می‌ره) و متن خالص بریده می‌شه."""
+    plain = _HTML_TAG_RE.sub("", caption_html)
+    return plain[: limit - 1] + "…"
 
 
 # محاسبه‌ی R/R شمش طلا همیشه با افق «پایان سال» انجام می‌شه، نه روز جاری —
@@ -1524,31 +1540,31 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     #   ۱) میانه حباب حذف می‌شه (عسکه می‌مونه)
     #   ۲) عسکه حذف می‌شه (میانه حباب برمی‌گرده)
     #   ۳) سکه امامی هم حذف می‌شه (fallback قبلی، پایین‌تر)
-    if len(caption) > TELEGRAM_CAPTION_LIMIT and salaf_lines:
+    if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT and salaf_lines:
         logger.warning(
-            f"⚠️ [{commodity}] کپشن {len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
+            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
             f"خط «میانه حباب» حذف می‌شه تا جا برای عسکه باز شه"
         )
         caption = (header_no_median + build_assets_block(include_capsule_items=True) + footer).strip()
 
-        if len(caption) > TELEGRAM_CAPTION_LIMIT:
+        if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT:
             logger.warning(
-                f"⚠️ [{commodity}] کپشن هنوز {len(caption)} کاراکتره — خط‌های عسکه حذف می‌شن "
+                f"⚠️ [{commodity}] کپشن هنوز {_caption_visible_len(caption)} کاراکتره — خط‌های عسکه حذف می‌شن "
                 f"(میانه حباب برمی‌گرده)"
             )
             caption = (header + build_assets_block(include_capsule_items=True, include_salaf=False) + footer).strip()
 
-    if len(caption) > TELEGRAM_CAPTION_LIMIT:
+    if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.warning(
-            f"⚠️ [{commodity}] کپشن {len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
+            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
             f"بخش سکه امامی از کپشن حذف می‌شه (اونس ضمنی و R/R همیشه نگه داشته می‌شن)"
         )
         caption = (header + build_assets_block(include_capsule_items=False) + footer).strip()
 
-    if len(caption) > TELEGRAM_CAPTION_LIMIT:
+    if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT:
         logger.error(
-            f"❌ [{commodity}] کپشن حتی بعد از حذف سکه امامی هم {len(caption)} کاراکتره — truncate اضطراری"
+            f"❌ [{commodity}] کپشن حتی بعد از حذف سکه امامی هم {_caption_visible_len(caption)} کاراکتره — truncate اضطراری"
         )
-        caption = caption[: TELEGRAM_CAPTION_LIMIT - 1] + "…"
+        caption = _truncate_caption(caption, TELEGRAM_CAPTION_LIMIT)
 
     return caption
