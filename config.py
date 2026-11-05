@@ -7,12 +7,12 @@ import os
 # ════════════════════════════════════════════════════════════════
 
 DOLLAR_HIGH = 270_000
-DOLLAR_LOW = 267_000
+DOLLAR_LOW = 265_000
 # --- طلا ---
 SHAMS_HIGH = 35_000_000
 SHAMS_LOW = 34_000_000
 
-GOLD_HIGH = 4050
+GOLD_HIGH = 4150
 GOLD_LOW = 4000
 
 # --- نقره ---
