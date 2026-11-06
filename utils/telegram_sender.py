@@ -18,7 +18,7 @@ from persiantools.jdatetime import JalaliDateTime
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE,
+    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE, is_force_run,
     FONT_BOLD_PATH, FONT_MEDIUM_PATH, FONT_REGULAR_PATH,
     TREEMAP_WIDTH, TREEMAP_HEIGHT, TREEMAP_SCALE,
     TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
@@ -399,6 +399,11 @@ def save_gist_data(commodity, message_id, message_id2, date):
     نه یک عدد فرض‌شده (مثل message_id+1) — چون این فرض تضمین‌شده نیست و باعث خطای
     'message to edit not found' می‌شه.
     """
+    if is_force_run():
+        # مثل alerts.save_alert_status: اجرای دستی/تست چیزی تو Gist نمی‌نویسه
+        logger.warning(f"🧪 [{commodity}] FORCE_RUN: message_id تو Gist ذخیره نشد")
+        return
+
     if not GIST_ID or not GIST_TOKEN:
         logger.warning(f"⚠️ [{commodity}] GIST_ID یا GIST_TOKEN تنظیم نشده — ذخیره گیست انجام نشد")
         return
