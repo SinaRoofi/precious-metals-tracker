@@ -1,5 +1,6 @@
 # utils/alerts.py
 
+import copy
 import json
 import logging
 import time
@@ -9,6 +10,7 @@ from datetime import datetime
 import pytz
 import jdatetime
 from config import (
+    is_force_run,
     DOLLAR_HIGH,
     DOLLAR_LOW,
     SHAMS_HIGH,
@@ -85,6 +87,10 @@ THRESHOLDS = {
 
 # ✅ کش محلی برای جلوگیری از reset در صورت خطای Gist
 ALERT_STATUS_CACHE = None
+
+# FORCE_RUN: چیزی تو Gist نوشته نمی‌شه، ولی مقدارِ «ذخیره‌شده» تو حافظه می‌مونه و getter ها همون رو
+# برمی‌گردونن تا چک‌های پشت‌سرهمِ همین ران مثل ران عادی (که بین‌شون Gist رو دوباره می‌خونه) رفتار کنن.
+_FORCE_RUN_SAVED = set()
 
 
 # ════════════════════════════════════════════════════════════════
@@ -228,6 +234,9 @@ def get_alert_status():
     """
     global ALERT_STATUS_CACHE
 
+    if is_force_run() and "alert_status" in _FORCE_RUN_SAVED:
+        return copy.deepcopy(ALERT_STATUS_CACHE)
+
     if not GIST_ID or not GIST_TOKEN:
         logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
         return ALERT_STATUS_CACHE or _default_alert_status()
@@ -264,6 +273,12 @@ def get_alert_status():
 def save_alert_status(status):
     """ذخیره وضعیت هشدارها در Gist"""
     global ALERT_STATUS_CACHE
+
+    if is_force_run():
+        ALERT_STATUS_CACHE = copy.deepcopy(status)
+        _FORCE_RUN_SAVED.add("alert_status")
+        logger.warning("🧪 FORCE_RUN: alert_status تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
+        return
 
     try:
         if not GIST_ID or not GIST_TOKEN:
@@ -400,6 +415,9 @@ def get_sarane_kharid_baseline_store():
     """
     global SARANE_KHARID_BASELINE_CACHE
 
+    if is_force_run() and "kharid_baseline" in _FORCE_RUN_SAVED:
+        return copy.deepcopy(SARANE_KHARID_BASELINE_CACHE)
+
     try:
         if not GIST_ID or not GIST_TOKEN:
             logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
@@ -430,6 +448,12 @@ def get_sarane_kharid_baseline_store():
 def save_sarane_kharid_baseline_store(store):
     """ذخیره‌ی store در Gist — فایل جدا از alert_status.json (این فایل هم از قبل باید در همون Gist ساخته شده باشد)."""
     global SARANE_KHARID_BASELINE_CACHE
+
+    if is_force_run():
+        SARANE_KHARID_BASELINE_CACHE = copy.deepcopy(store)
+        _FORCE_RUN_SAVED.add("kharid_baseline")
+        logger.warning("🧪 FORCE_RUN: sarane_kharid_baseline تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
+        return
 
     try:
         if not GIST_ID or not GIST_TOKEN:
@@ -557,6 +581,9 @@ def get_sarane_forosh_baseline_store():
     """مثل get_sarane_kharid_baseline_store، ولی از فایل Gist جدای SARANE_FOROSH_BASELINE_FILE می‌خونه."""
     global SARANE_FOROSH_BASELINE_CACHE
 
+    if is_force_run() and "forosh_baseline" in _FORCE_RUN_SAVED:
+        return copy.deepcopy(SARANE_FOROSH_BASELINE_CACHE)
+
     try:
         if not GIST_ID or not GIST_TOKEN:
             logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
@@ -588,6 +615,12 @@ def save_sarane_forosh_baseline_store(store):
     """ذخیره‌ی store در فایل Gist جدای SARANE_FOROSH_BASELINE_FILE — این فایل با اولین
     PATCH موفق خودکار داخل همون Gist ساخته می‌شه (نیازی به ساخت دستی نیست)."""
     global SARANE_FOROSH_BASELINE_CACHE
+
+    if is_force_run():
+        SARANE_FOROSH_BASELINE_CACHE = copy.deepcopy(store)
+        _FORCE_RUN_SAVED.add("forosh_baseline")
+        logger.warning("🧪 FORCE_RUN: sarane_forosh_baseline تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
+        return
 
     try:
         if not GIST_ID or not GIST_TOKEN:
