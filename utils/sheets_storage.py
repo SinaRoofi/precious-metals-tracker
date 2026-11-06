@@ -11,7 +11,7 @@ import pytz
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from config import SHEET_ID, SERVICE_ACCOUNT_JSON, TIMEZONE, KEEP_DAYS, SHEET_NAMES, STANDARD_HEADER
+from config import SHEET_ID, SERVICE_ACCOUNT_JSON, TIMEZONE, KEEP_DAYS, SHEET_NAMES, STANDARD_HEADER, is_force_run
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,11 @@ def _locked(fn):
 # (قیمت دیروز، state قبلی، ارزش معاملات دیروز، بازده شمش، چارت...). حالا یک‌بار می‌خونیم و تا
 # قبل از نوشتن (save/clear) از حافظه جواب می‌دیم. بعد از هر نوشتن، کش اون کالا باطل می‌شه.
 _VALUES_CACHE = {}
+
+# FORCE_RUN: ردیف‌ها فقط تو حافظه‌ی همین پروسه نگه داشته می‌شن (چیزی تو شیت نوشته نمی‌شه)، ولی
+# read_from_sheets اون‌ها رو آخر ردیف‌های شیت اضافه می‌کنه تا هشدارها/چارت (که فرض می‌کنن ردیف
+# همین ران تو شیته: prev=rows[-2]، last=rows[-1]) دقیقاً مثل ران عادی کار کنن.
+_FORCE_RUN_ROWS = {}
 
 
 def _invalidates_cache(fn):
@@ -233,6 +238,17 @@ def save_to_sheets(commodity, row_dict):
     """
     sheet_name = _sheet_name(commodity)
     try:
+        if is_force_run():
+            # حالت تست: هیچ تماس نوشتنی با Google نمی‌گیریم (حتی ensure_header)؛ ردیف فقط تو حافظه می‌مونه
+            tz = pytz.timezone(TIMEZONE)
+            timestamp = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
+            new_row = _build_row(row_dict, timestamp)
+            _FORCE_RUN_ROWS.setdefault(commodity, []).append(
+                ["" if v is None else str(v) for v in new_row]  # شبیه مقدارهای رشته‌ایِ Sheets
+            )
+            logger.warning(f"🧪 [{commodity}] FORCE_RUN: ردیف تو Sheet ذخیره نشد (فقط تو حافظه‌ی این اجرا): {timestamp}")
+            return True
+
         ensure_header(commodity)
         service = get_sheets_service()
         tz = pytz.timezone(TIMEZONE)
@@ -308,6 +324,9 @@ def read_from_sheets(commodity, limit=1000, raise_on_error=False):
         if invalid_count > 0:
             logger.warning(f"⚠️ [{commodity}] {invalid_count} ردیف نامعتبر نادیده گرفته شد")
 
+        # FORCE_RUN: ردیف‌های حافظه‌ای همین اجرا (ذخیره‌نشده تو شیت) آخر لیست می‌آن
+        valid_rows.extend(list(r) for r in _FORCE_RUN_ROWS.get(commodity, []))
+
         if len(valid_rows) > limit:
             valid_rows = valid_rows[-limit:]
 
@@ -327,6 +346,10 @@ def clear_old_data(commodity, keep_days=None):
     """پاک کردن داده‌های قدیمی‌تر از X روز در تب یک کالا"""
     if keep_days is None:
         keep_days = KEEP_DAYS
+
+    if is_force_run():
+        logger.warning(f"🧪 [{commodity}] FORCE_RUN: پاک‌سازی داده‌های قدیمی انجام نشد")
+        return
 
     sheet_name = _sheet_name(commodity)
     try:
