@@ -1406,9 +1406,10 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         caption += _tether_caption_line(tether_price, tether_change_percent)
 
         if show_dirham and dollar_from_dirham is not None:
-            caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({fmt_pct(dirham_diff_pct, 1)}%)\n\n"
+            caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({fmt_pct(dirham_diff_pct, 1)}%)\n"
 
-        caption += f"🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}\n"
+        # خط خالی بین بلاک کف/ارزش/سقف (+تتر/درهم) و معامله — مستقل از اینکه تتر/درهم باشن یا نه
+        caption += f"\n🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}\n"
     # \u200F لازمه: این خط (بعد از حذف کلمه‌های «خرید»/«فروش») هیچ حرف
     # فارسی نداره، فقط ایموجی+عدد+چارچوب لاتین — تلگرام همچین خطی رو LTR
     # (چپ‌چین) می‌گیره و می‌ره سمت چپ. RLM جهت پاراگراف رو راست‌به‌چپ
