@@ -4,6 +4,7 @@
 
 """
 
+import json
 import re
 import time
 import logging
@@ -227,35 +228,68 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
 # درهم امارات — مستقل از طلا/نقره،
 # ==============================================================================
 
+DIRHAM_URL = "https://alanchand.com/en/currencies-price/aed"
+
+
+def _parse_dirham_toman(html):
+    """استخراج قیمت فروش درهم (تومان) از HTML صفحه‌ی AED آلان‌چند. (مقدار، منبع) یا (None, None).
+
+    ترتیب: ۱) عدد زنده‌ی صفحه <b data-live="c.aed" data-f="s"> (ریال، فروش)
+           ۲) JSON-LD (offers.price، ریال)  ۳) متن meta description «(72,750 Toman)».
+    قیمت‌ها تو سایت ریالن؛ خروجی تومانه (÷۱۰).
+    """
+    def to_int(text):
+        for p_, e_ in zip("۰۱۲۳۴۵۶۷۸۹٬،", "0123456789,,"):
+            text = text.replace(p_, e_)
+        text = text.replace(",", "").strip()
+        return int(float(text)) if text else None
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    tag = soup.select_one('b[data-live="c.aed"][data-f="s"]')
+    if tag:
+        try:
+            rial = to_int(tag.text)
+            if rial and rial > 0:
+                return rial // 10, "data-live"
+        except ValueError:
+            pass
+
+    for sc in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(sc.string or sc.text or "")
+        except ValueError:
+            continue
+        for item in (data if isinstance(data, list) else [data]):
+            offers = item.get("offers") if isinstance(item, dict) else None
+            if isinstance(offers, dict) and offers.get("priceCurrency") == "IRR" and offers.get("price"):
+                try:
+                    rial = to_int(str(offers["price"]))
+                except ValueError:
+                    continue
+                if rial and rial > 0:
+                    return rial // 10, "json-ld"
+
+    meta = soup.find("meta", attrs={"name": "description"})
+    if meta and meta.get("content"):
+        mt = re.search(r"\(([\d,]+)\s*Toman\)", meta["content"])
+        if mt:
+            return to_int(mt.group(1)), "meta"
+
+    return None, None
+
+
 def fetch_dirham_price():
-    """دریافت قیمت فروش درهم امارات از alanchand.com"""
+    """دریافت قیمت فروش درهم امارات (تومان) از صفحه‌ی AED سایت alanchand.com"""
     try:
-        def persian_to_english_number(s):
-            persian_numbers = "۰۱۲۳۴۵۶۷۸۹"
-            english_numbers = "0123456789"
-            for p, e in zip(persian_numbers, english_numbers):
-                s = s.replace(p, e)
-            return s
+        resp = requests.get(DIRHAM_URL, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+        price, source = _parse_dirham_toman(resp.text)
 
-        url = "https://alanchand.com/currencies-price"
-        resp = requests.get(url, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        table = soup.find("table")
+        if price:
+            logger.info(f"✅ قیمت درهم: {price:,} تومان (منبع: {source})")
+            return price
 
-        price_sale_dirham = None
-        for row in table.find_all("tr")[1:]:
-            cols = row.find_all("td")
-            if cols and cols[0].text.strip() == "درهم":
-                price_sale_dirham = cols[2].text.strip()
-                break
-
-        if price_sale_dirham:
-            price_sale_dirham = persian_to_english_number(price_sale_dirham).replace(",", "")
-            price_sale_dirham_int = int(price_sale_dirham)
-            logger.info(f"✅ قیمت درهم: {price_sale_dirham_int:,} تومان")
-            return price_sale_dirham_int
-
-        logger.warning("⚠️ قیمت فروش درهم پیدا نشد")
+        logger.warning(f"⚠️ قیمت فروش درهم پیدا نشد (HTTP {resp.status_code}، طول صفحه {len(resp.text):,}) — ساختار صفحه عوض شده؟")
         return None
 
     except Exception as e:
