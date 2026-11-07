@@ -15,8 +15,8 @@ def is_force_run():
 DOLLAR_HIGH = 270_000
 DOLLAR_LOW = 265_000
 # --- طلا ---
-SHAMS_HIGH = 35_000_000
-SHAMS_LOW = 34_000_000
+SHAMS_HIGH = 34_000_000
+SHAMS_LOW = 33_000_000
 
 GOLD_HIGH = 4150
 GOLD_LOW = 4000
@@ -148,7 +148,7 @@ SHOW_QUARTER_COIN_IN_CAPTION = "auto"
 # 📐 پیش‌بینی ریسک/ریوارد شمش طلا بورس کالا (تا پایان سال)
 # ════════════════════════════════════════════════════════════════
 GOLD_YEAR_END_OUNCE_TARGET = 4500  
-SILVER_YEAR_END_OUNCE_TARGET = 70 
+SILVER_YEAR_END_OUNCE_TARGET = 60
 
 # ════════════════════════════════════════════════════════════════
 # 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌ها)
