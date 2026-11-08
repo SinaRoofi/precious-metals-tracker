@@ -1,0 +1,89 @@
+"""ارسال گزارش به‌صورت Telegram Rich Message (Bot API 10.1+): یک پیام با دو عکس جاسازی‌شده + متن بلند.
+
+مستقل از مسیر آلبوم فعلی: هیچ‌چیز تو Gist/Sheet ذخیره نمی‌کنه، پین نمی‌کنه، و پیام قبلی رو ویرایش نمی‌کنه
+(هر بار یه پیام جدید). فقط وقتی صدا زده می‌شه که FORCE_RUN و RICH_REPORT هر دو true باشن.
+"""
+
+import io
+import json
+import logging
+import re
+import time
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+RICH_MESSAGE_LIMIT = 32768  # کاراکتر، طبق مستندات Bot API
+RICH_TIMEOUT = 90
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def caption_to_rich_html(caption):
+    """تبدیل کپشن HTML فعلی (بلاک‌ها با خط خالی جدا شدن) به HTML Rich: هر بلاک یه <p> با <br/> بین خطوط،
+    و یه جداکننده‌ی واقعی <hr/> قبل از بلاک آخر (هندل کانال)."""
+    blocks = [b for b in re.split(r"\n\s*\n", caption.strip()) if b.strip()]
+    parts = []
+    for i, block in enumerate(blocks):
+        lines = [ln for ln in block.split("\n") if ln.strip()]
+        if i == len(blocks) - 1 and len(blocks) > 1 and len(lines) == 1 and "@" in lines[0]:
+            parts.append("<hr/>")
+        parts.append("<p>" + "<br/>".join(lines) + "</p>")
+    return "\n".join(parts)
+
+
+def build_rich_message(caption):
+    """عکس‌ها بالا (همون ترتیب آلبوم فعلی) و بعدش متن."""
+    html = '<img src="tg://photo?id=img1"/>\n<img src="tg://photo?id=img2"/>\n' + caption_to_rich_html(caption)
+    return {
+        "html": html,
+        "media": [
+            {"id": "img1", "media": {"type": "photo", "media": "attach://photo1"}},
+            {"id": "img2", "media": {"type": "photo", "media": "attach://photo2"}},
+        ],
+        "is_rtl": True,
+    }
+
+
+def send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label=""):
+    """یک پیام Rich جدید می‌فرسته. True/False برمی‌گردونه؛ هیچ fallback و هیچ ذخیره‌ای نداره."""
+    rich = build_rich_message(caption)
+    if len(rich["html"]) > RICH_MESSAGE_LIMIT:
+        logger.error(f"❌ [{label}] متن Rich {len(rich['html'])} کاراکتره (حد {RICH_MESSAGE_LIMIT})")
+        return False
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendRichMessage"
+    data = {"chat_id": chat_id, "rich_message": json.dumps(rich, ensure_ascii=False)}
+
+    for attempt in (1, 2):
+        files = {
+            "photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png"),
+            "photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png"),
+        }
+        t0 = time.time()
+        try:
+            resp = requests.post(url, data=data, files=files, timeout=RICH_TIMEOUT)
+            try:
+                body = resp.json()
+            except ValueError:
+                body = {}
+        except requests.RequestException as e:
+            logger.error(f"❌ [{label}] Rich: خطای شبکه: {e}")
+            return False
+
+        elapsed = time.time() - t0
+        if resp.status_code == 200 and body.get("ok"):
+            mid = (body.get("result") or {}).get("message_id")
+            logger.info(f"✅ [{label}] Rich Message ارسال شد (ID: {mid}, {elapsed:.1f}s, "
+                        f"{(len(img1_bytes) + len(img2_bytes)) / 1e6:.2f}MB)")
+            return True
+
+        retry_after = (body.get("parameters") or {}).get("retry_after")
+        if resp.status_code == 429 and retry_after and attempt == 1:
+            logger.warning(f"⏳ [{label}] Rich: 429 — {retry_after}s صبر و تلاش مجدد")
+            time.sleep(int(retry_after) + 1)
+            continue
+
+        logger.error(f"❌ [{label}] Rich ناموفق: HTTP {resp.status_code} — {str(body.get('description', resp.text))[:300]}")
+        return False
+    return False
