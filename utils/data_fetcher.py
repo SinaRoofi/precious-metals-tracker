@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from telethon import TelegramClient
 from bs4 import BeautifulSoup
 
-from utils.tls_trust import mount_extra_trust, trusted_get
+from utils.tls_trust import trusted_get
 
 from config import (
     TELEGRAM_CHANNELS, API_URLS, HTTP_HEADERS,
@@ -169,11 +169,8 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
 # ==============================================================================
 
 def _fetch_json(url, params=None):
-    """یک GET با session مخصوص خودش (Session بین threadها مشترک نمی‌شه)."""
-    session = requests.Session()
-    mount_extra_trust(session)  # ریشه‌ی ISRG Root YE فقط برای rahavard365.com (utils/tls_trust.py)
-    session.headers.update(HTTP_HEADERS)
-    resp = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    """یک GET مستقل برای هر thread. رهاورد با curl_cffi (utils/tls_trust.py)، بقیه با requests."""
+    resp = trusted_get(url, params=params, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
