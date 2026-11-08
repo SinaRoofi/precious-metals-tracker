@@ -24,6 +24,7 @@ from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dolla
 from utils.salaf import fetch_salaf_lines  # عسکه — بعد از ۱۸ آذر ۱۴۰۵ حذف شه
 from utils.data_processor import process_market_data
 from utils.telegram_sender import send_to_telegram
+from utils.telegram_rich_report import RICH_MERGE, flush_rich_report
 from utils.holidays import is_iranian_holiday, is_funds_trading_day
 from utils.sheets_storage import save_to_sheets, read_from_sheets, SheetsReadError
 from utils.log_safety import redact
@@ -421,6 +422,12 @@ async def main():
                 _log_t(commodity, "کل پردازش", t_c)
                 if not ok:
                     failed.append(commodity)
+
+        # Rich ادغام‌شده (فقط FORCE_RUN + RICH_REPORT): هر دو کالا stage شدن؛ یک پیام برای هر دو
+        if RICH_MERGE and _config.is_force_run() and _config.is_rich_report():
+            logger.info("📤 ارسال پیام Rich ادغام‌شده (طلا + نقره)...")
+            if not flush_rich_report(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID):
+                failed.append("rich_report")
 
         if failed:
             logger.error(f"❌ اجرا با شکست/رد شدن این کالاها تمام شد: {', '.join(failed)}")
