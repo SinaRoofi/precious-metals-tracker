@@ -21,10 +21,8 @@ from config import (
     BULLION_ASSET,
 )
 from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dollar_prices, fetch_dirham_price
-from utils.salaf import fetch_salaf_lines  # عسکه — بعد از ۱۸ آذر ۱۴۰۵ حذف شه
 from utils.data_processor import process_market_data
-from utils.telegram_sender import send_to_telegram
-from utils.telegram_rich_report import RICH_MERGE, flush_rich_report
+from utils.telegram_sender import send_to_telegram, flush_rich_report
 from utils.holidays import is_iranian_holiday, is_funds_trading_day
 from utils.sheets_storage import save_to_sheets, read_from_sheets, SheetsReadError
 from utils.log_safety import redact
@@ -147,8 +145,7 @@ def _log_t(commodity, label, t0):
 
 
 def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
-                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None,
-                          salaf_lines=None):
+                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None):
     """پردازش→ذخیره→ارسال→هشدار یک کالا. True = کامل انجام شد؛ False = رد شد (بدون نوشتن داده‌ی ناقص)."""
     bullion_key = BULLION_ASSET[commodity]
 
@@ -266,7 +263,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         logger.error(f"❌ [{commodity}] ذخیره در شیت ناموفق — ارسال گزارش و هشدارها این ران رد شد")
         return False
 
-    logger.info(f"📤 [{commodity}] ارسال گزارش به تلگرام{'' if funds_open else ' (نسخه‌ی بدون صندوق‌ها)'}...")
+    logger.info(f"📦 [{commodity}] آماده‌سازی بخش گزارش Rich{'' if funds_open else ' (نسخه‌ی بدون صندوق‌ها)'}...")
     _t = time.perf_counter()
     success = send_to_telegram(
         commodity=commodity,
@@ -281,11 +278,10 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         dirham_price=dirham_price,
         tether_price=tether_price,
         tether_change_percent=tether_change_percent,
-        salaf_lines=salaf_lines,
         funds_open=funds_open,
     )
-    logger.info(f"{'✅' if success else '⚠️'} [{commodity}] ارسال گزارش {'موفق' if success else 'ناموفق'}")
-    _log_t(commodity, "ساخت تصاویر + ارسال تلگرام", _t)
+    logger.info(f"{'✅' if success else '⚠️'} [{commodity}] آماده‌سازی گزارش {'موفق' if success else 'ناموفق'}")
+    _log_t(commodity, "ساخت تصاویر + چیدمان Rich", _t)
 
     logger.info(f"🚨 [{commodity}] بررسی هشدارها...")
     _t = time.perf_counter()
@@ -352,19 +348,17 @@ async def main():
             logger.info("✅ اتصال به Telethon برقرار شد")
 
             # ─── همه‌ی کارهای شبکه‌ایِ مستقل هم‌زمان (قبلاً سه مرحله‌ی پشت‌سرهم بود) ───
-            # دلار (مشترک بین طلا و نقره)، درهم، عسکه، خواندن تب‌های gold/silver برای قیمت دیروز،
+            # دلار (مشترک بین طلا و نقره)، درهم، خواندن تب‌های gold/silver برای قیمت دیروز،
             # و داده‌ی بازار هر دو کالا. هیچ‌کدوم به نتیجه‌ی بقیه وابسته نیست؛ فقط «پردازش» به همه‌شون نیاز داره.
-            logger.info("📡 دریافت هم‌زمان: دلار، درهم، عسکه، شیت (gold/silver) و داده‌ی بازار طلا/نقره...")
+            logger.info("📡 دریافت هم‌زمان: دلار، درهم، شیت (gold/silver) و داده‌ی بازار طلا/نقره...")
             t_fetch = time.perf_counter()
             # تاگل‌های کپشن (config.py): اگه خاموش باشن، دریافتشون هم رد می‌شه (یک درخواست کمتر)
             dirham_fetcher = fetch_dirham_price if getattr(_config, "SHOW_DIRHAM_IN_CAPTION", True) else (lambda: None)
-            salaf_fetcher = fetch_salaf_lines if getattr(_config, "SHOW_SALAF_IN_CAPTION", True) else (lambda: None)
             fetched = await asyncio.gather(
                 fetch_dollar_prices(client),
                 asyncio.to_thread(dirham_fetcher),
                 asyncio.to_thread(read_from_sheets, "gold", 800, True),
                 asyncio.to_thread(read_from_sheets, "silver", 800, True),
-                asyncio.to_thread(salaf_fetcher),  # عسکه
                 fetch_commodity_inputs("gold"),
                 fetch_commodity_inputs("silver"),
                 return_exceptions=True,
@@ -379,7 +373,7 @@ async def main():
                 if isinstance(r, BaseException):
                     raise r  # خطای پیش‌بینی‌نشده: مثل قبل به catch بیرونی می‌ره
             (dollar_prices, dirham_price, gold_yesterday_rows, silver_yesterday_rows,
-             salaf_lines, gold_inputs, silver_inputs) = fetched
+             gold_inputs, silver_inputs) = fetched
             results = [gold_inputs, silver_inputs]
 
             # بدون فالبک: دلار مشترک بین طلا و نقره‌ست؛ نیومد → کل این اجرا رد می‌شه (هیچی تو شیت نمی‌نویسیم)
@@ -414,7 +408,6 @@ async def main():
                         dirham_price=dirham_price,
                         check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
                         preloaded_yesterday_rows=yesterday_rows[commodity],
-                        salaf_lines=(salaf_lines if commodity == "gold" else None),
                     )
                 except Exception as e:
                     logger.error(f"❌ [{commodity}] خطای پیش‌بینی‌نشده — این کالا رد شد: {e}", exc_info=True)
@@ -423,11 +416,11 @@ async def main():
                 if not ok:
                     failed.append(commodity)
 
-        # Rich ادغام‌شده (فقط FORCE_RUN + RICH_REPORT): هر دو کالا stage شدن؛ یک پیام برای هر دو
-        if RICH_MERGE and _config.is_force_run() and _config.is_rich_report():
-            logger.info("📤 ارسال پیام Rich ادغام‌شده (طلا + نقره)...")
-            if not flush_rich_report(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID):
-                failed.append("rich_report")
+        # تنها پیام گزارش کانال: یک پیام Rich برای طلا + نقره (هر کالا تو حلقه‌ی بالا stage شده).
+        # آخر حلقه یک‌جا می‌ره: اولین اجرای روز = پیام جدید، اجراهای بعدی = ویرایش همون پیام.
+        logger.info("📤 ارسال پیام Rich ادغام‌شده (طلا + نقره)...")
+        if not flush_rich_report(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID):
+            failed.append("rich_report")
 
         if failed:
             logger.error(f"❌ اجرا با شکست/رد شدن این کالاها تمام شد: {', '.join(failed)}")
