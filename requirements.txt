@@ -11,3 +11,4 @@ numpy==1.26.3
 google-auth==2.27.0
 google-api-python-client==2.116.0
 beautifulsoup4==4.12.3
+curl_cffi>=0.7.4
