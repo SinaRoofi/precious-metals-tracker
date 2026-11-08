@@ -39,7 +39,7 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
 # حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
-from utils.telegram_rich_report import RICH_MESSAGE_LIMIT, send_rich_report
+from utils.telegram_rich_report import RICH_MESSAGE_LIMIT, render_rich_caption, send_rich_report
 
 TELEGRAM_CAPTION_LIMIT = 1024
 _HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
@@ -507,16 +507,23 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
         use_rich = is_force_run() and is_rich_report()
 
         logger.info(f"📝 [{commodity}] در حال ساخت کپشن...")
-        caption = create_simple_caption(
-            commodity, data, dollar_prices, global_price,
-            global_yesterday, yesterday_close, global_time, dirham_price,
-            tether_price, tether_change_percent, salaf_lines, funds_open=funds_open,
-            caption_limit=RICH_MESSAGE_LIMIT if use_rich else TELEGRAM_CAPTION_LIMIT,
-        )
+        caption_args = (commodity, data, dollar_prices, global_price,
+                        global_yesterday, yesterday_close, global_time, dirham_price,
+                        tether_price, tether_change_percent, salaf_lines)
 
         if use_rich:
             logger.warning(f"🧪 [{commodity}] RICH_REPORT: ارسال به‌صورت Rich Message (پیام جدید؛ بدون Gist/Sheet/پین)")
-            return send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label=commodity)
+            try:
+                body = create_simple_caption(*caption_args, funds_open=funds_open, rich_html=True)
+                body_is_html = True
+            except Exception as e:  # چیدمان Rich نباید ارسال رو بخوابونه: برمی‌گردیم به کپشن متنی (بدون حد ۱۰۲۴)
+                logger.error(f"❌ [{commodity}] ساخت چیدمان Rich ناموفق ({e}) — کپشن متنی فرستاده می‌شه", exc_info=True)
+                body = create_simple_caption(*caption_args, funds_open=funds_open, caption_limit=RICH_MESSAGE_LIMIT)
+                body_is_html = False
+            return send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, body,
+                                    label=commodity, body_is_html=body_is_html)
+
+        caption = create_simple_caption(*caption_args, funds_open=funds_open)
 
         gist_data, gist_status = get_gist_data(commodity)
         saved_message_id = gist_data.get("message_id")
@@ -1288,7 +1295,7 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
                            yesterday_close, global_time, dirham_price=None,
                            tether_price=None, tether_change_percent=None, salaf_lines=None,
-                           funds_open=True, caption_limit=TELEGRAM_CAPTION_LIMIT):
+                           funds_open=True, caption_limit=TELEGRAM_CAPTION_LIMIT, rich_html=False):
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
     # funds_open=False (مثلاً پنج‌شنبه): بازار صندوق‌ها بسته‌ست و داده‌ی صندوق‌ها همون چهارشنبه‌ست؛ بلاک
@@ -1454,6 +1461,102 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
     rr = calculate_bullion_rr(commodity, dfp)
+
+    if rich_html:
+        # نسخه‌ی Rich: بدون خلاصه‌نویسی (همه‌ی دارایی‌ها با جزئیات کامل، ربع سکه و امامی هم) و بدون حد ۱۰۲۴.
+        # فقط چیدمان فرق می‌کنه؛ همه‌ی عددها از همین متغیرهای بالا میان (بدون محاسبه‌ی تکراری).
+        def pct(v, d=1, sign=True):
+            return f"{fmt_pct(v, d, sign=sign)}%"
+
+        rows_dollar = []
+        if commodity != "silver":
+            rows_dollar = [
+                ("🟥 کف", f"{low_total:,.0f}", pct(low_pct, 1, False)),
+                ("🧮 ارزش", f"{value_total:,.0f}", pct(value_pct, 1, False)),
+                ("🟢 سقف", f"{high_total:,.0f}", pct(high_pct, 1, False)),
+            ]
+            if tether_price is not None and _caption_flag("SHOW_TETHER_IN_CAPTION", False):
+                rows_dollar.append(("💲 تتر", f"{tether_price:,.0f}", pct(tether_change_percent, 1)))
+            if show_dirham and dollar_from_dirham is not None:
+                rows_dollar.append(("🇦🇪 دلار ضمنی از درهم", f"{dollar_from_dirham:,.0f}", pct(dirham_diff_pct, 1)))
+
+        funds_ctx = None
+        if funds_open:
+            funds_ctx = {
+                "title": f"{fund_emoji} صندوق‌های {label}",
+                "rows": [
+                    ("💰 ارزش معاملات (میلیارد تومان)", f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}% میانگین ماهانه"),
+                    ("💸 ورود پول (میلیارد تومان)", f"{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}% از ارزش معاملات"),
+                    ("📈 آخرین قیمت (میانگین وزنی)", pct(avg_change_percent_weighted, 2), ""),
+                    (f"{sarane_kharid_emoji} سرانه خرید", f"{sarane_kharid_w:,.0f}", f"{sarane_kharid_ratio_str} میانگین ۱۰ روز"),
+                    (f"{sarane_forosh_emoji} سرانه فروش", f"{sarane_forosh_w:,.0f}", f"{sarane_forosh_ratio_str} میانگین ۱۰ روز"),
+                    ("🫧 میانگین حباب", pct(avg_bubble_weighted, 2), ""),
+                    ("🫧 میانه حباب", pct(median_bubble, 2), ""),
+                ],
+            }
+
+        salaf_extra = [ln for ln in (salaf_lines or "").split("\n") if ln.strip()]
+        assets_ctx = []
+        for asset_cfg in assets_config:
+            key = asset_cfg["key"]
+            if key not in dfp.index:
+                logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن Rich حذف شد")
+                continue
+            row = dfp.loc[key]
+            if asset_cfg.get("quarter_coin_only") and (
+                pd.isna(row["close_price"]) or row["close_price"] <= 0 or pd.isna(row["close_price_change_percent"])
+            ):
+                logger.warning(f"⚠️ [{commodity}] داده‌ی ربع سکه نامعتبر — از کپشن Rich حذف شد")
+                continue
+            price = row["close_price"] / asset_cfg["divisor"]
+            d_calc, _diff_d, o_calc, _diff_o = calc_diffs(row)
+            unit = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else " تومان"
+            trade_time = row.get("last_trade_time")
+            rows = [
+                ("📊 قیمت", f"{price:,.0f}{unit}"),
+                ("📈 تغییر روزانه", pct(row["close_price_change_percent"], 1)),
+                ("🫧 حباب", pct(row["Bubble"], 1)),
+                ("💵 دلار ضمنی", f"{d_calc:,.0f}"),
+            ]
+            if asset_cfg["show_ounce_calc"]:
+                rows.append((f"{ounce_emoji} اونس ضمنی", f"{o_calc:,.0f}"))
+            assets_ctx.append({
+                "title": asset_cfg["title"],
+                "time": trade_time[:5] if trade_time else "",
+                "rows": rows,
+                "extra": salaf_extra if key == SALAF_AFTER_ASSET_KEY else [],
+            })
+
+        rr_ctx = None
+        if rr and (rr["rr_high"] is not None or rr["rr_value"] is not None):
+            rr_rows = []
+            if rr["rr_high"] is not None:
+                rr_rows.append((f"{reward_emoji(rr['reward_high'])} سقف", pct(rr["reward_high"], 2), format_rr_ratio(rr["rr_high"])))
+            if rr["rr_value"] is not None:
+                rr_rows.append((f"{reward_emoji(rr['reward_value'])} ارزش", pct(rr["reward_value"], 2), format_rr_ratio(rr["rr_value"])))
+            rr_ctx = {"title": "⚖️ ریوارد به ریسک شمش (تا پایان سال)", "rows": rr_rows}
+
+        return render_rich_caption({
+            "update": current_time,
+            "dollar": {
+                "rows": rows_dollar,
+                "trade": f"{dollar_last:,.0f}",
+                "trade_pct": fmt_pct(dollar_change, 2),
+                "tick": tick,
+                "bid": f"{dollar_prices['bid']:,.0f}",
+                "ask": f"{dollar_prices['ask']:,.0f}",
+            },
+            "ounce": {
+                "title": f"{ounce_emoji} اونس {label}",
+                "time": global_time[:5] if global_time else "",
+                "price": f"{global_price:,.0f}",
+                "pct": f"{fmt_pct(global_change, 2)}%",
+            },
+            "funds": funds_ctx,
+            "assets": assets_ctx,
+            "rr": rr_ctx,
+            "channel": CHANNEL_HANDLE,
+        })
 
     def build_assets_block(include_capsule_items, include_salaf=True):
         """
