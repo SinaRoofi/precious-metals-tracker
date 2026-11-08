@@ -1292,6 +1292,29 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
     return output.getvalue()
 
 
+# اسم کامل دارایی‌ها تو کپشن Rich (کپشن عادی دست نمی‌خوره)
+RICH_ASSET_NAMES = {
+    "طلا-گرم-24-عیار": "طلای ۲۴ عیار",
+    "طلا-گرم-18-عیار": "طلای ۱۸ عیار",
+    "سکه-امامی-طرح-جدید": "سکه امامی",
+}
+
+
+def _parse_salaf_lines(salaf_lines):
+    """خطوط عسکه ("🏦 عسکه: 255,603,000 (-1.2%)" و "🎯 حداقل بازده: -1.6%") → بخش جدولی Rich؛ None اگه نبود."""
+    if not salaf_lines:
+        return None
+    price = re.search(r"عسکه:\s*([\d,]+)\s*\(([^)]*)\)", salaf_lines)
+    yld = re.search(r"حداقل بازده:\s*(\S+)", salaf_lines)
+    if not price:
+        logger.warning("⚠️ خط عسکه قابل پارس نبود — از کپشن Rich حذف شد")
+        return None
+    rows = [["قیمت", price.group(1)], ["تغییر روزانه", price.group(2)]]
+    if yld:
+        rows.append(["حداقل بازده تا سررسید", yld.group(1)])
+    return {"title": "🏦 عسکه", "time": "", "rows": rows, "tables": []}
+
+
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
                            yesterday_close, global_time, dirham_price=None,
                            tether_price=None, tether_change_percent=None, salaf_lines=None,
@@ -1463,39 +1486,76 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     rr = calculate_bullion_rr(commodity, dfp)
 
     if rich_html:
-        # نسخه‌ی Rich: بدون خلاصه‌نویسی (همه‌ی دارایی‌ها با جزئیات کامل، ربع سکه و امامی هم) و بدون حد ۱۰۲۴.
-        # فقط چیدمان فرق می‌کنه؛ همه‌ی عددها از همین متغیرهای بالا میان (بدون محاسبه‌ی تکراری).
+        # نسخه‌ی Rich: بدون خلاصه‌نویسی (همه‌ی دارایی‌ها با جزئیات کامل، اونس ضمنی همه‌جا) و بدون حد ۱۰۲۴.
+        # فقط چیدمان فرق می‌کنه؛ عددها از همین متغیرهای بالا میان (بدون محاسبه‌ی تکراری).
         def pct(v, d=1, sign=True):
             return f"{fmt_pct(v, d, sign=sign)}%"
 
-        rows_dollar = []
+        def rich_title(key, title):
+            if key in RICH_ASSET_NAMES:  # ایموجی عنوان می‌مونه، اسم کامل می‌شه
+                emoji = title.split(" ", 1)[0]
+                return f"{emoji} {RICH_ASSET_NAMES[key]}"
+            return title
+
+        bullion_key = BULLION_KEY.get(commodity)
+        shams_now = dfp.loc[bullion_key, "close_price"] if bullion_key in dfp.index else None
+        rets = _bullion_returns(commodity, dollar_last, global_price, shams_now) or {}
+
+        def weekly(name):
+            r = (rets.get(name) or (None, None))[0]  # r5: ۵ روز معاملاتی = یک هفته‌ی بازار
+            return pct(r, 1) if r is not None else "—"
+
+        dollar_head = ["", "قیمت (تومان)", "تغییر روزانه", "بازده هفتگی"]
+        dollar_rows = [
+            ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", pct(dollar_change, 2), weekly("دلار")],
+            ["قیمت خرید", f"{dollar_prices['bid']:,.0f}", "", ""],
+            ["قیمت فروش", f"{dollar_prices['ask']:,.0f}", "", ""],
+        ]
+        valuation = []
         if commodity != "silver":
-            rows_dollar = [
-                ("🟥 کف", f"{low_total:,.0f}", pct(low_pct, 1, False)),
-                ("🧮 ارزش", f"{value_total:,.0f}", pct(value_pct, 1, False)),
-                ("🟢 سقف", f"{high_total:,.0f}", pct(high_pct, 1, False)),
+            valuation = [
+                ["کف", f"{low_total:,.0f}", pct(low_pct, 1, False)],
+                ["ارزش", f"{value_total:,.0f}", pct(value_pct, 1, False)],
+                ["سقف", f"{high_total:,.0f}", pct(high_pct, 1, False)],
             ]
             if tether_price is not None and _caption_flag("SHOW_TETHER_IN_CAPTION", False):
-                rows_dollar.append(("💲 تتر", f"{tether_price:,.0f}", pct(tether_change_percent, 1)))
+                valuation.append(["تتر", f"{tether_price:,.0f}", pct(tether_change_percent, 1)])
             if show_dirham and dollar_from_dirham is not None:
-                rows_dollar.append(("🇦🇪 دلار ضمنی از درهم", f"{dollar_from_dirham:,.0f}", pct(dirham_diff_pct, 1)))
+                valuation.append(["دلار ضمنی از درهم", f"{dollar_from_dirham:,.0f}", pct(dirham_diff_pct, 1)])
+
+        ounce_ctx = {
+            "title": f"{ounce_emoji} اونس {label}",
+            "time": global_time[:5] if global_time else "",
+            "head": ["", "قیمت (دلار)", "تغییر روزانه", "بازده هفتگی"],
+            "rows": [[f"اونس {label}", f"{global_price:,.0f}", pct(global_change, 2), weekly("اونس")]],
+        }
 
         funds_ctx = None
         if funds_open:
             funds_ctx = {
                 "title": f"{fund_emoji} صندوق‌های {label}",
                 "rows": [
-                    ("💰 ارزش معاملات (میلیارد تومان)", f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}% میانگین ماهانه"),
-                    ("💸 ورود پول (میلیارد تومان)", f"{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}% از ارزش معاملات"),
-                    ("📈 آخرین قیمت (میانگین وزنی)", pct(avg_change_percent_weighted, 2), ""),
-                    (f"{sarane_kharid_emoji} سرانه خرید", f"{sarane_kharid_w:,.0f}", f"{sarane_kharid_ratio_str} میانگین ۱۰ روز"),
-                    (f"{sarane_forosh_emoji} سرانه فروش", f"{sarane_forosh_w:,.0f}", f"{sarane_forosh_ratio_str} میانگین ۱۰ روز"),
-                    ("🫧 میانگین حباب", pct(avg_bubble_weighted, 2), ""),
-                    ("🫧 میانه حباب", pct(median_bubble, 2), ""),
+                    ["ارزش معاملات (میلیارد تومان)", f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}% میانگین ماهانه"],
+                    ["ورود پول (میلیارد تومان)", f"{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}% از ارزش معاملات"],
+                    ["آخرین قیمت (میانگین وزنی)", pct(avg_change_percent_weighted, 2), ""],
+                    ["سرانه خرید", f"{sarane_kharid_w:,.0f}", f"{sarane_kharid_ratio_str} میانگین ۱۰ روز"],
+                    ["سرانه فروش", f"{sarane_forosh_w:,.0f}", f"{sarane_forosh_ratio_str} میانگین ۱۰ روز"],
+                    ["میانگین حباب", pct(avg_bubble_weighted, 2), ""],
+                    ["میانه حباب", pct(median_bubble, 2), ""],
                 ],
             }
 
-        salaf_extra = [ln for ln in (salaf_lines or "").split("\n") if ln.strip()]
+        # ریسک به ریوارد: جدولش زیر خود شمش میاد
+        rr_table = None
+        if rr and (rr["rr_high"] is not None or rr["rr_value"] is not None):
+            rr_rows = []
+            if rr["rr_high"] is not None:
+                rr_rows.append(["سقف دلار", f"{reward_emoji(rr['reward_high'])} {pct(rr['reward_high'], 2)}", format_rr_ratio(rr["rr_high"])])
+            if rr["rr_value"] is not None:
+                rr_rows.append(["ارزش دلار", f"{reward_emoji(rr['reward_value'])} {pct(rr['reward_value'], 2)}", format_rr_ratio(rr["rr_value"])])
+            rr_table = {"title": "⚖️ ریسک به ریوارد شمش (تا پایان سال)",
+                        "headers": ["سناریو", "سود/زیان تا ارزش شمش", "R/R"], "rows": rr_rows}
+
         assets_ctx = []
         for asset_cfg in assets_config:
             key = asset_cfg["key"]
@@ -1513,48 +1573,31 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             unit = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else " تومان"
             trade_time = row.get("last_trade_time")
             rows = [
-                ("📊 قیمت", f"{price:,.0f}{unit}"),
-                ("📈 تغییر روزانه", pct(row["close_price_change_percent"], 1)),
-                ("🫧 حباب", pct(row["Bubble"], 1)),
-                ("💵 دلار ضمنی", f"{d_calc:,.0f}"),
+                ["قیمت", f"{price:,.0f}{unit}"],
+                ["تغییر روزانه", pct(row["close_price_change_percent"], 1)],
+                ["حباب", pct(row["Bubble"], 1)],
+                ["دلار ضمنی", f"{d_calc:,.0f}"],
             ]
-            if asset_cfg["show_ounce_calc"]:
-                rows.append((f"{ounce_emoji} اونس ضمنی", f"{o_calc:,.0f}"))
+            if o_calc is not None and not pd.isna(o_calc):  # اونس ضمنی برای همه‌ی دارایی‌ها (نه فقط بعضی‌ها)
+                rows.append([f"اونس ضمنی", f"{o_calc:,.0f}"])
             assets_ctx.append({
-                "title": asset_cfg["title"],
+                "title": rich_title(key, asset_cfg["title"]),
                 "time": trade_time[:5] if trade_time else "",
                 "rows": rows,
-                "extra": salaf_extra if key == SALAF_AFTER_ASSET_KEY else [],
+                "tables": [rr_table] if (rr_table and key == bullion_key) else [],
             })
 
-        rr_ctx = None
-        if rr and (rr["rr_high"] is not None or rr["rr_value"] is not None):
-            rr_rows = []
-            if rr["rr_high"] is not None:
-                rr_rows.append((f"{reward_emoji(rr['reward_high'])} سقف", pct(rr["reward_high"], 2), format_rr_ratio(rr["rr_high"])))
-            if rr["rr_value"] is not None:
-                rr_rows.append((f"{reward_emoji(rr['reward_value'])} ارزش", pct(rr["reward_value"], 2), format_rr_ratio(rr["rr_value"])))
-            rr_ctx = {"title": "⚖️ ریوارد به ریسک شمش (تا پایان سال)", "rows": rr_rows}
+        # عسکه آخر از همه (بعد از ربع سکه)
+        salaf_ctx = _parse_salaf_lines(salaf_lines)
+        if salaf_ctx:
+            assets_ctx.append(salaf_ctx)
 
         return render_rich_caption({
             "update": current_time,
-            "dollar": {
-                "rows": rows_dollar,
-                "trade": f"{dollar_last:,.0f}",
-                "trade_pct": fmt_pct(dollar_change, 2),
-                "tick": tick,
-                "bid": f"{dollar_prices['bid']:,.0f}",
-                "ask": f"{dollar_prices['ask']:,.0f}",
-            },
-            "ounce": {
-                "title": f"{ounce_emoji} اونس {label}",
-                "time": global_time[:5] if global_time else "",
-                "price": f"{global_price:,.0f}",
-                "pct": f"{fmt_pct(global_change, 2)}%",
-            },
+            "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation},
+            "ounce": ounce_ctx,
             "funds": funds_ctx,
             "assets": assets_ctx,
-            "rr": rr_ctx,
             "channel": CHANNEL_HANDLE,
         })
 
