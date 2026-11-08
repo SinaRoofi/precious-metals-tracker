@@ -4,11 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       force_run:
-        description: "اجرا حتی اگه امروز تعطیل تشخیص داده بشه (فقط برای تست)"
-        type: boolean
-        default: false
-      rich_report:
-        description: "ارسال گزارش به‌صورت Rich Message (فقط وقتی force_run هم روشنه اثر داره؛ پیام جدید تو کانال اصلی)"
+        description: "تست: اجرا حتی تو تعطیلی؛ پیام Rich «جدید» می‌ره و پیام امروز ویرایش نمی‌شه؛ چیزی تو شیت/Gist ذخیره نمی‌شه"
         type: boolean
         default: false
 
@@ -44,7 +40,6 @@ jobs:
       - name: Run Market Tracker
         env:
           FORCE_RUN: ${{ inputs.force_run }}
-          RICH_REPORT: ${{ inputs.rich_report }}
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
