@@ -16,6 +16,7 @@ import os
 import ssl
 import tempfile
 import threading
+import time
 
 import certifi
 import requests
@@ -46,6 +47,14 @@ RAHAVARD_HEADERS = {
     "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8",
     "Referer": "https://rahavard365.com/",
     "Origin": "https://rahavard365.com",
+}
+
+TRADERSARENA_PREFIX = "https://tradersarena.ir"
+TRADERSARENA_HEADERS = {
+    "User-Agent": RAHAVARD_HEADERS["User-Agent"],
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8",
+    "Referer": "https://tradersarena.ir/",
 }
 
 _bundle_lock = threading.Lock()
@@ -107,24 +116,34 @@ def _combined_ca_bundle():
         return path
 
 
-def _rahavard_get(url, params=None, timeout=None, **_ignored):
+def _browser_get(url, headers, verify, params=None, timeout=None):
     """GET با امضای کروم. خطاها رو به requests.exceptions تبدیل می‌کنه تا except های قبلیِ کد کار کنن."""
+    t0 = time.time()
     try:
-        with curl_requests.Session(impersonate=IMPERSONATE, verify=_combined_ca_bundle()) as s:
-            resp = s.get(url, params=params, headers=RAHAVARD_HEADERS, timeout=timeout)
+        with curl_requests.Session(impersonate=IMPERSONATE, verify=verify) as s:
+            resp = s.get(url, params=params, headers=headers, timeout=timeout)
     except _CurlError as e:
+        logger.warning(f"⏱️ {url.split('?')[0]} خطا بعد از {time.time() - t0:.1f}s")
         raise requests.exceptions.RequestException(f"curl_cffi: {e}") from e
+    logger.info(f"⏱️ {url.split('?')[0]} → HTTP {resp.status_code} در {time.time() - t0:.1f}s (curl_cffi)")
     if resp.status_code >= 400:
         raise requests.exceptions.HTTPError(f"HTTP {resp.status_code} برای {url}")
     return resp
 
 
-def trusted_get(url, **kwargs):
-    """rahavard365.com → curl_cffi (امضای کروم + ریشه‌ی اضافه)؛ بقیه‌ی آدرس‌ها → requests عادی."""
-    if url.startswith(RAHAVARD_PREFIX) and curl_requests is not None:
-        return _rahavard_get(url, **kwargs)
-    if url.startswith(RAHAVARD_PREFIX):
-        logger.warning("⚠️ curl_cffi نصب نیست؛ رهاورد با requests ساده زده می‌شه (ممکنه ~۶۰ ثانیه معطل بشه)")
+def trusted_get(url, params=None, headers=None, timeout=None, **kwargs):
+    """rahavard365.com → curl_cffi (امضای کروم + ریشه‌ی اضافه)؛ tradersarena.ir → curl_cffi (CA معمولی)؛
+    بقیه‌ی آدرس‌ها → requests عادی. هدرهای مرورگرِ هم‌خوان با پروفایل جایگزین headers ورودی می‌شن."""
+    if curl_requests is not None:
+        if url.startswith(RAHAVARD_PREFIX):
+            return _browser_get(url, RAHAVARD_HEADERS, _combined_ca_bundle(), params, timeout)
+        if url.startswith(TRADERSARENA_PREFIX):
+            return _browser_get(url, TRADERSARENA_HEADERS, True, params, timeout)
+    elif url.startswith((RAHAVARD_PREFIX, TRADERSARENA_PREFIX)):
+        logger.warning("⚠️ curl_cffi نصب نیست؛ با requests ساده زده می‌شه (ممکنه ~۶۰ ثانیه معطل بشه)")
+    t0 = time.time()
     with requests.Session() as session:
         mount_extra_trust(session)
-        return session.get(url, **kwargs)
+        resp = session.get(url, params=params, headers=headers, timeout=timeout, **kwargs)
+    logger.info(f"⏱️ {url.split('?')[0]} → HTTP {resp.status_code} در {time.time() - t0:.1f}s (requests)")
+    return resp
