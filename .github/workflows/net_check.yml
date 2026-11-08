@@ -1,0 +1,29 @@
+name: Network Check (دستی)
+
+# فقط دستی. بررسی می‌کنه runner گیت‌هاب به منبع‌های ربات وصل می‌شه یا نه (DNS، اتصال، TLS، کد HTTP).
+# به Secrets و ربات و شیت و Gist ربطی نداره.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  net:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check endpoints
+        run: |
+          echo "runner IP: $(curl -sS -m 10 https://api.ipify.org || echo unknown)"
+          for url in \
+            https://rahavard365.com/api/v2/gold/light-charts \
+            https://rahavard365.com/api/v2/asset/51198 \
+            https://tradersarena.ir/data/industries/gold-funds/snapshot \
+            https://alanchand.com/en/currencies-price/aed \
+            https://api.telegram.org ; do
+            host=$(echo "$url" | awk -F/ '{print $3}')
+            echo "=== $url"
+            getent hosts "$host" || echo "DNS: بدون جواب"
+            curl -sS -o /dev/null -m 20 --connect-timeout 10 -A "Mozilla/5.0" \
+              -w "http=%{http_code} dns=%{time_namelookup}s connect=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s ip=%{remote_ip}\n" \
+              "$url" || echo "FAILED (curl exit $?)"
+          done
