@@ -1,11 +1,14 @@
-"""ارسال گزارش به‌صورت Telegram Rich Message (Bot API 10.1+): یک پیام با عکس‌های جاسازی‌شده + متن بلند.
+"""گزارش کانال = یک Telegram Rich Message (Bot API 10.1+) برای طلا + نقره، با عکس‌های جاسازی‌شده.
 
-مستقل از مسیر آلبوم فعلی: هیچ‌چیز تو Gist/Sheet ذخیره نمی‌کنه، پین نمی‌کنه، و پیام قبلی رو ویرایش نمی‌کنه
-(هر بار یه پیام جدید). فقط وقتی صدا زده می‌شه که FORCE_RUN و RICH_REPORT هر دو true باشن.
+این ماژول فقط «چیدمان» و «ارسال/ویرایش خام» رو انجام می‌ده؛ تصمیم «پیام جدید یا ویرایش پیام امروز»
+(و ذخیره‌ی message_id تو Gist) تو telegram_sender.flush_rich_report گرفته می‌شه.
 
-دو حالت (RICH_MERGE):
-  True  → طلا و نقره تو «یک» پیام (دلار یک بار): هر کالا بعد از پردازش stage می‌شه و آخرِ حلقه‌ی main با flush_rich_report یک‌جا می‌ره.
-  False → برای هر کالا یک پیام جدا (send_rich_report).
+جریان: هر کالا بعد از پردازش با stage_rich_part نگه داشته می‌شه → آخر حلقه‌ی main با take_staged
+هر دو کالا تو «یک» پیام رندر می‌شن (دلار یک بار).
+
+چیدمان (از بالا به پایین):
+  آپدیت  →  ⚡ نگاه سریع (دلار/اونس/شمش)  →  💵 دلار  →  برای هر کالا: عنوان، اسلایدشوی عکس‌ها،
+  اونس، صندوق‌ها، «قیمت دارایی‌ها» (یک جدول جمع‌وجور)، 🔬 دلار/اونس ضمنی (تاشو)، ⚖️ R/R شمش، 🏦 عسکه  →  هندل کانال
 """
 
 import html as _html
@@ -22,27 +25,42 @@ logger = logging.getLogger(__name__)
 RICH_MESSAGE_LIMIT = 32768  # کاراکتر، طبق مستندات Bot API
 RICH_TIMEOUT = 90
 USE_SLIDESHOW = True  # هر جفت عکس تو یه اسلایدشو (<tg-slideshow>) که ورق می‌خوره؛ False = عکس‌ها زیر هم
-RICH_MERGE = True     # طلا + نقره تو یک پیام
-_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
 _LABELS = {"gold": "طلا", "silver": "نقره"}
-_STAGED = {}  # commodity → {"images": [img1, img2], "ctx": dict|None, "html": str|None}
+_STAGED = {}  # commodity → {"commodity", "images": [img1, img2], "ctx": dict|None, "html": str|None}
 
 
 # ───────────────────────── HTML سازنده‌ها ─────────────────────────
+class H(str):
+    """رشته‌ی HTML آماده (escape نمی‌شه). بقیه‌ی رشته‌ها تو جدول‌ها escape می‌شن."""
+
+
 def _e(text):
     return _html.escape(str(text), quote=False)
 
 
-def _table(headers, rows):
-    head = "".join(f"<th>{_e(h)}</th>" for h in headers)
-    body = "".join("<tr>" + "".join(f"<td>{_e(c) if str(c).strip() else '—'}</td>" for c in r) + "</tr>" for r in rows)
+def _cell(c, empty="—"):
+    if isinstance(c, H):
+        return str(c)
+    return _e(c) if str(c).strip() else empty
+
+
+def _table(headers, rows, aligns=None):
+    """جدول با حاشیه و ردیف‌های راه‌راه. aligns: لیست align برای هر ستون (مثلاً [None, 'center', 'center'])."""
+    def attr(i):
+        # تلگرام دسکتاپ سلول‌های بدون align رو چپ‌چین نشون می‌داد (is_rtl فقط جهت متن رو عوض می‌کنه): ستون اول راست، بقیه وسط
+        al = (aligns[i] if aligns and aligns[i] else None) or ("right" if i == 0 else "center")
+        return f' align="{al}"'
+    head = "".join(f"<th{attr(i)}>{_cell(h, empty='')}</th>" for i, h in enumerate(headers))
+    body = "".join(
+        "<tr>" + "".join(f"<td{attr(i)}>{_cell(c)}</td>" for i, c in enumerate(r)) + "</tr>"
+        for r in rows
+    )
     return f"<table bordered striped><tr>{head}</tr>{body}</table>"
 
 
 def caption_to_rich_html(caption):
-    """تبدیل کپشن HTML فعلی (بلاک‌ها با خط خالی جدا شدن) به HTML Rich: هر بلاک یه <p> با <br/> بین خطوط،
-    و یه جداکننده‌ی واقعی <hr/> قبل از بلاک آخر (هندل کانال)."""
+    """(فقط fallback) تبدیل کپشن متنی HTML (بلاک‌ها با خط خالی جدا شدن) به HTML Rich: هر بلاک یه <p> با <br/>."""
     blocks = [b for b in re.split(r"\n\s*\n", caption.strip()) if b.strip()]
     parts = []
     for i, block in enumerate(blocks):
@@ -61,62 +79,101 @@ def _footer(channel):
             f'🔗 {handle}</tg-button></tg-button-row>')
 
 
-def _dollar_html(ctx):
-    d = ctx["dollar"]
-    parts = ["<h3>💵 دلار</h3>", _table(d["head"], d["rows"])]
-    if d.get("valuation"):
-        parts.append(_table(["ارزش‌گذاری دلار", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"]))
-    return parts
-
-
-def _commodity_html(ctx):
-    """اونس، صندوق‌ها، دارایی‌ها (و جدول ریسک به ریوارد زیر شمش)."""
-    o = ctx["ounce"]
-    t = f" 🕐 {_e(o['time'])}" if o.get("time") else ""
-    parts = [f"<h3>{_e(o['title'])}{t}</h3>", _table(o["head"], o["rows"])]
-
-    f = ctx.get("funds")
-    if f:
-        parts += [f"<h3>{_e(f['title'])}</h3>", _table(["شاخص", "مقدار", "نسبت"], f["rows"])]
-
-    for a in ctx["assets"]:
-        t = f" 🕐 {_e(a['time'])}" if a.get("time") else ""
-        parts += [f"<h3>{_e(a['title'])}{t}</h3>", _table(["شاخص", "مقدار"], a["rows"])]
-        for tb in a.get("tables", []):
-            parts += [f"<h4>{_e(tb['title'])}</h4>", _table(tb["headers"], tb["rows"])]
-    return parts
-
-
 def _slideshow(ids):
     imgs = "".join(f'<img src="tg://photo?id={i}"/>' for i in ids)
     return f"<tg-slideshow>{imgs}</tg-slideshow>"
 
 
-def render_rich_caption(ctx):
-    """چیدمان Rich یک کالا از روی ctx (مقدارها از قبل فرمت‌شده‌ان). عکس‌ها جدا (build_rich_message) اضافه می‌شن."""
-    parts = [f"<p>🔄 <b>آپدیت: {_e(ctx['update'])}</b></p>"]
-    parts += _dollar_html(ctx)
-    parts += _commodity_html(ctx)
-    parts += ["<hr/>", _footer(ctx["channel"])]
-    return "\n".join(parts)
+def _time_tag(t):
+    return f" 🕐 {_e(t)}" if t else ""
+
+
+def _quick_html(ctxs):
+    """⚡ نگاه سریع: دلار + اونس و شمش هر کالا تو یک جدول سه‌ستونه (روی گوشی بدون اسکرول افقی جا می‌شه)."""
+    rows = []
+    d = ctxs[0]["dollar"].get("last")
+    if d:
+        rows.append([H("<b>💵 دلار</b> <sub>تومان</sub>"), d[0], d[1]])
+    for c in ctxs:
+        for label, price, change in c.get("quick", []):
+            rows.append([H(label), price, change])
+    if not rows:
+        return []
+    return ["<h3>⚡ نگاه سریع</h3>", _table(["", "قیمت", "تغییر روزانه"], rows, [None, "center", "center"])]
+
+
+def _dollar_html(ctx):
+    d = ctx["dollar"]
+    parts = ["<h2>💵 دلار</h2>", _table(d["head"], d["rows"])]
+    if d.get("valuation"):
+        parts += ["<h4>🧮 کف، ارزش و سقف</h4>",
+                  _table(["ارزش‌گذاری دلار", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"])]
+    return parts
+
+
+def _assets_html(ctx):
+    """یک جدول جمع‌وجور برای همه‌ی دارایی‌ها (به‌جای یک جدول جدا برای هرکدوم) + دلار/اونس ضمنی تو بلاک تاشو."""
+    assets = ctx["assets"]
+    if not assets:
+        return []
+    price_rows, implied_rows = [], []
+    for a in assets:
+        name = H(f"{_e(a['title'])}" + (f" <sub>{_e(a['time'])}</sub>" if a.get("time") else ""))
+        price_rows.append([name, a["price"], a["change"], a["bubble"]])
+        implied_rows.append([H(_e(a["title"])), a["dollar"], a["ounce"]])
+    parts = ["<h3>🏷 قیمت دارایی‌ها</h3>",
+             _table(["دارایی", "قیمت (تومان)", "تغییر", "حباب"], price_rows, [None, "center", "center", "center"]),
+             "<details><summary>🔬 دلار و اونس ضمنی هر دارایی</summary>",
+             _table(["دارایی", "دلار ضمنی", "اونس ضمنی"], implied_rows, [None, "center", "center"]),
+             "</details>"]
+    for a in assets:
+        for tb in a.get("tables", []):
+            parts += [f"<h3>{_e(tb['title'])}</h3>", _table(tb["headers"], tb["rows"], [None, "center", "center"])]
+    return parts
+
+
+def _eskeh_html(ctx):
+    e = ctx.get("eskeh")
+    if not e:
+        return []
+    return [f"<h3>{_e(e['title'])}{_time_tag(e.get('time'))}</h3>",
+            _table(["شاخص", "مقدار"], e["rows"], [None, "center"])]
+
+
+def _commodity_html(ctx):
+    """اونس، صندوق‌ها، دارایی‌ها، R/R و عسکه."""
+    o = ctx["ounce"]
+    parts = [f"<h3>{_e(o['title'])}{_time_tag(o.get('time'))}</h3>",
+             _table(o["head"], o["rows"], [None, "center", "center", "center"])]
+
+    f = ctx.get("funds")
+    if f:
+        parts += [f"<h3>{_e(f['title'])}</h3>", _table(["شاخص", "مقدار", "نسبت"], f["rows"], [None, "center", "center"])]
+
+    parts += _assets_html(ctx)
+    parts += _eskeh_html(ctx)
+    return parts
 
 
 def render_rich_merged(parts_list):
-    """یک پیام برای چند کالا: آپدیت و جدول دلار (یک بار) → برای هر کالا: عنوان، اسلایدشوی عکس‌هاش، اونس/صندوق‌ها/دارایی‌ها → هندل.
+    """یک پیام برای چند کالا: آپدیت + نگاه سریع + دلار (یک بار) → برای هر کالا: عنوان، اسلایدشوی عکس‌هاش و جزئیات → هندل.
 
     parts_list: لیست مرتب {"commodity", "images", "ctx"|"html"}؛ عکس n‌ام (۱..) با id=img{n} تو media می‌ره.
     """
     ctxs = [p["ctx"] for p in parts_list if p.get("ctx")]
     out = []
     if ctxs:
+        out.append("<h1>📊 طلا و نقره لحظه‌ای</h1>")
         out.append(f"<p>🔄 <b>آپدیت: {_e(ctxs[0]['update'])}</b></p>")
+        out.append("<hr/>")
+        out += _quick_html(ctxs)
         out += _dollar_html(ctxs[0])  # دلار بین طلا و نقره مشترکه؛ نسخه‌ی طلا (با کف/ارزش/سقف) اولویت داره
     n = 0
     for p in parts_list:
         ids = [f"img{n + i + 1}" for i in range(len(p["images"]))]
         n += len(p["images"])
         title = p["ctx"]["section_title"] if p.get("ctx") else f"بازار {_LABELS.get(p['commodity'], p['commodity'])}"
-        out += [f"<h2>{_e(title)}</h2>", _slideshow(ids)]
+        out += ["<hr/>", f"<h2>{_e(title)}</h2>", _slideshow(ids)]
         out += _commodity_html(p["ctx"]) if p.get("ctx") else [p.get("html") or ""]
     channel = ctxs[0]["channel"] if ctxs else ""
     if channel:
@@ -125,13 +182,16 @@ def render_rich_merged(parts_list):
 
 
 def _degrade(html):
-    """قالب امن‌تر برای وقتی که تلگرام ۴۰۰ می‌ده: اسلایدشو → عکس‌های ساده، دکمه‌ی هندل → یه پاراگراف (mention خودکار)."""
+    """قالب امن‌تر برای وقتی که تلگرام ۴۰۰ می‌ده: اسلایدشو → عکس‌های ساده، دکمه‌ی هندل → یه پاراگراف (mention خودکار)،
+    بلاک تاشو → عنوان + محتوای باز."""
     html = re.sub(r"<tg-slideshow>(.*?)</tg-slideshow>", lambda m: m.group(1).replace("/><", "/>\n<"), html, flags=re.S)
     html = re.sub(r"<tg-button-row[^>]*>.*?<tg-button[^>]*>(.*?)</tg-button>.*?</tg-button-row>", r"<p>\1</p>", html, flags=re.S)
+    html = re.sub(r"<details[^>]*>\s*<summary>(.*?)</summary>", r"<h4>\1</h4>", html, flags=re.S)
+    html = html.replace("</details>", "")
     return html
 
 
-# ───────────────────────── ارسال ─────────────────────────
+# ───────────────────────── ارسال / ویرایش ─────────────────────────
 def _rich_payload(html, n_images):
     return {
         "html": html,
@@ -141,22 +201,20 @@ def _rich_payload(html, n_images):
     }
 
 
-def build_rich_message(caption, slideshow=True, body_is_html=False):
-    """(کنار گذاشته‌شده برای سازگاری) عکس‌ها بالا و بعدش متن؛ فقط برای مسیر تک‌کالایی."""
-    body = caption if body_is_html else caption_to_rich_html(caption)
-    imgs = _slideshow(["img1", "img2"]) if slideshow else '<img src="tg://photo?id=img1"/>\n<img src="tg://photo?id=img2"/>'
-    return _rich_payload(imgs + "\n" + body, 2)
-
-
-def _send(bot_token, chat_id, images, html, label):
-    """True = ارسال شد | False = شکست قطعی (شبکه/۴۲۹/...) | None = ۴۰۰ (رد شدن payload؛ قابل تلاش مجدد با قالب ساده‌تر)."""
+def _post(method, bot_token, fields, images, html, label):
+    """یک فراخوانی Bot API با payload Rich. برمی‌گردونه (وضعیت، message_id|توضیح):
+        ("ok", message_id)   موفق
+        ("400", توضیح)       رد شدن payload (قابل تلاش مجدد با قالب ساده‌تر)
+        ("same", توضیح)      «message is not modified» (برای ویرایش یعنی چیزی نیاز به تغییر نبود)
+        ("fail", توضیح)      شکست قطعی (شبکه/۴۲۹/...)
+    """
     if len(html) > RICH_MESSAGE_LIMIT:
         logger.error(f"❌ [{label}] متن Rich {len(html)} کاراکتره (حد {RICH_MESSAGE_LIMIT})")
-        return False
+        return "fail", "too long"
 
     rich = _rich_payload(html, len(images))
-    url = f"https://api.telegram.org/bot{bot_token}/sendRichMessage"
-    data = {"chat_id": chat_id, "rich_message": json.dumps(rich, ensure_ascii=False)}
+    url = f"https://api.telegram.org/bot{bot_token}/{method}"
+    data = dict(fields, rich_message=json.dumps(rich, ensure_ascii=False))
 
     for attempt in (1, 2):
         files = {f"photo{i + 1}": (f"img{i + 1}.png", io.BytesIO(b), "image/png") for i, b in enumerate(images)}
@@ -168,62 +226,82 @@ def _send(bot_token, chat_id, images, html, label):
             except ValueError:
                 body = {}
         except requests.RequestException as e:
-            logger.error(f"❌ [{label}] Rich: خطای شبکه: {e}")
-            return False
+            logger.error(f"❌ [{label}] Rich/{method}: خطای شبکه: {e}")
+            return "fail", str(e)
 
         elapsed = time.time() - t0
         if resp.status_code == 200 and body.get("ok"):
-            mid = (body.get("result") or {}).get("message_id")
-            logger.info(f"✅ [{label}] Rich Message ارسال شد (ID: {mid}, {elapsed:.1f}s, "
+            result = body.get("result")
+            mid = result.get("message_id") if isinstance(result, dict) else None
+            logger.info(f"✅ [{label}] Rich/{method} موفق (ID: {mid}, {elapsed:.1f}s, "
                         f"{sum(len(b) for b in images) / 1e6:.2f}MB, {len(html)} کاراکتر)")
-            return True
+            return "ok", mid
 
+        desc = str(body.get("description", resp.text))[:300]
         retry_after = (body.get("parameters") or {}).get("retry_after")
         if resp.status_code == 429 and retry_after and attempt == 1:
-            logger.warning(f"⏳ [{label}] Rich: 429 — {retry_after}s صبر و تلاش مجدد")
+            logger.warning(f"⏳ [{label}] Rich/{method}: 429 — {retry_after}s صبر و تلاش مجدد")
             time.sleep(int(retry_after) + 1)
             continue
 
-        logger.error(f"❌ [{label}] Rich ناموفق: HTTP {resp.status_code} — {str(body.get('description', resp.text))[:300]}")
-        return None if resp.status_code == 400 else False
-    return False
+        if resp.status_code == 400 and "not modified" in desc.lower():
+            return "same", desc
+        logger.error(f"❌ [{label}] Rich/{method} ناموفق: HTTP {resp.status_code} — {desc}")
+        return ("400" if resp.status_code == 400 else "fail"), desc
+    return "fail", "retries exhausted"
 
 
-def _send_with_fallback(bot_token, chat_id, images, html, label):
-    """اول قالب کامل؛ اگه ۴۰۰ شد یک بار با قالب ساده (فقط وقتی اولی ارسال نشده، پس پیام تکراری نمی‌شه)."""
+def _with_fallback(call, html, label):
+    """اول قالب کامل؛ اگه ۴۰۰ شد یک بار با قالب ساده (فقط وقتی اولی اعمال نشده، پس پیام تکراری نمی‌شه)."""
     if not USE_SLIDESHOW:
         html = _degrade(html)
-    ok = _send(bot_token, chat_id, images, html, label)
-    if ok is None:
+    status, info = call(html)
+    if status == "400":
         degraded = _degrade(html)
         if degraded != html:
-            logger.warning(f"⚠️ [{label}] Rich با قالب کامل رد شد — تلاش مجدد با قالب ساده (بدون اسلایدشو/دکمه)")
-            ok = _send(bot_token, chat_id, images, degraded, label)
-    return bool(ok)
+            logger.warning(f"⚠️ [{label}] Rich با قالب کامل رد شد — تلاش مجدد با قالب ساده (بدون اسلایدشو/دکمه/تاشو)")
+            status, info = call(degraded)
+    return status, info
 
 
-def send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label="", body_is_html=False):
-    """یک پیام Rich جدید برای یک کالا. True/False؛ بدون ذخیره‌ی هیچ‌چیز."""
-    body = caption if body_is_html else caption_to_rich_html(caption)
-    html = _slideshow(["img1", "img2"]) + "\n" + body
-    return _send_with_fallback(bot_token, chat_id, [img1_bytes, img2_bytes], html, label)
+def send_rich(bot_token, chat_id, images, html, label=""):
+    """پیام Rich جدید. message_id برمی‌گردونه، یا None اگه نرفت."""
+    status, info = _with_fallback(
+        lambda h: _post("sendRichMessage", bot_token, {"chat_id": chat_id}, images, h, label), html, label)
+    return info if status == "ok" else None
 
 
-# ───────────────────────── حالت ادغام (طلا + نقره = یک پیام) ─────────────────────────
+def edit_rich(bot_token, chat_id, message_id, images, html, label=""):
+    """ویرایش پیام Rich قبلی (متن + عکس‌ها). True اگه ویرایش شد (یا چیزی برای تغییر نبود)."""
+    status, _ = _with_fallback(
+        lambda h: _post("editMessageText", bot_token, {"chat_id": chat_id, "message_id": message_id}, images, h, label),
+        html, label)
+    return status in ("ok", "same")
+
+
+def delete_message(bot_token, chat_id, message_id):
+    """حذف پیام (best-effort)؛ برای وقتی که ویرایش نشد و پیام جدید جاش رفت تا کانال شلوغ نشه."""
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{bot_token}/deleteMessage",
+                          data={"chat_id": chat_id, "message_id": message_id}, timeout=30)
+        return r.status_code == 200
+    except requests.RequestException as e:
+        logger.warning(f"⚠️ حذف پیام قدیمی ناموفق: {e}")
+        return False
+
+
+# ───────────────────────── مرحله‌بندی (طلا + نقره = یک پیام) ─────────────────────────
 def stage_rich_part(commodity, img1_bytes, img2_bytes, ctx=None, html=None):
     """بخش یک کالا رو برای پیام ادغام‌شده نگه می‌داره (هنوز ارسال نمی‌کنه)."""
     _STAGED[commodity] = {"commodity": commodity, "images": [img1_bytes, img2_bytes], "ctx": ctx, "html": html}
     logger.info(f"📦 [{commodity}] بخش Rich آماده‌ی ادغام شد ({len(_STAGED)} بخش)")
 
 
-def flush_rich_report(bot_token, chat_id):
-    """همه‌ی بخش‌های stage‌شده رو تو «یک» پیام Rich می‌فرسته. True اگه ارسال شد (یا چیزی برای ارسال نبود)."""
+def take_staged():
+    """بخش‌های stage‌شده رو به شکل (images, html, label) برمی‌گردونه و خالی‌شون می‌کنه؛ None اگه چیزی نبود."""
     parts = list(_STAGED.values())
     _STAGED.clear()
     if not parts:
-        logger.warning("⚠️ RICH_REPORT: هیچ بخشی برای ارسال stage نشده بود")
-        return False
+        return None
     images = [b for p in parts for b in p["images"]]
-    html = render_rich_merged(parts)
-    label = "+".join(p["commodity"] for p in parts)
-    return _send_with_fallback(bot_token, chat_id, images, html, label)
+    return images, render_rich_merged(parts), "+".join(p["commodity"] for p in parts)
