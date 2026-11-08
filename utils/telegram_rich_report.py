@@ -4,6 +4,7 @@
 (هر بار یه پیام جدید). فقط وقتی صدا زده می‌شه که FORCE_RUN و RICH_REPORT هر دو true باشن.
 """
 
+import html as _html
 import io
 import json
 import logging
@@ -33,11 +34,66 @@ def caption_to_rich_html(caption):
     return "\n".join(parts)
 
 
-def build_rich_message(caption, slideshow=True):
+def _e(text):
+    return _html.escape(str(text), quote=False)
+
+
+def _table(headers, rows):
+    head = "".join(f"<th>{_e(h)}</th>" for h in headers)
+    body = "".join("<tr>" + "".join(f"<td>{_e(c) if str(c).strip() else '—'}</td>" for c in r) + "</tr>" for r in rows)
+    return f"<table bordered striped><tr>{head}</tr>{body}</table>"
+
+
+def render_rich_caption(ctx):
+    """چیدمان Rich گزارش از روی ctx (همه‌ی مقدارها از قبل فرمت‌شده‌ان؛ این تابع فقط ساختار HTML می‌سازه).
+
+    ctx: update, dollar{rows, trade, trade_pct, tick, bid, ask}, ounce{title, time, price, pct},
+         funds{title, rows}|None, assets[{title, time, rows, extra}], rr{title, rows}|None, channel
+    """
+    d = ctx["dollar"]
+    parts = [f"<p>🔄 <b>آپدیت: {_e(ctx['update'])}</b></p>", "<h3>💵 دلار</h3>"]
+    if d["rows"]:
+        parts.append(_table(["", "قیمت (تومان)", "فاصله از قیمت معامله"], d["rows"]))
+    tick = f" {d['tick']}" if d.get("tick") else ""
+    parts.append(
+        f"<p>🤝 معامله: <b>{_e(d['trade'])}</b> ({_e(d['trade_pct'])}%){tick}"
+        f"<br/>🟢 خرید: {_e(d['bid'])} | 🔴 فروش: {_e(d['ask'])}</p>"
+    )
+
+    o = ctx["ounce"]
+    t = f" 🕐 {_e(o['time'])}" if o.get("time") else ""
+    parts.append(f"<h3>{_e(o['title'])}{t}</h3>")
+    # \u2066…\u2069 (LRI/PDI): درصدِ علامت‌دار تو متن RTL جابه‌جا نشه (-1.45% نه %1.45-)
+    parts.append(f"<p>📊 <b>{_e(o['price'])}</b> دلار \u2066({_e(o['pct'])})\u2069</p>")
+
+    f = ctx.get("funds")
+    if f:
+        parts.append(f"<h3>{_e(f['title'])}</h3>")
+        parts.append(_table(["شاخص", "مقدار", "نسبت"], f["rows"]))
+
+    for a in ctx["assets"]:
+        t = f" 🕐 {_e(a['time'])}" if a.get("time") else ""
+        parts.append(f"<h3>{_e(a['title'])}{t}</h3>")
+        parts.append(_table(["شاخص", "مقدار"], a["rows"]))
+        for line in a.get("extra", []):
+            parts.append(f"<p>{_e(line)}</p>")
+
+    rr = ctx.get("rr")
+    if rr:
+        parts.append(f"<h3>{_e(rr['title'])}</h3>")
+        parts.append(_table(["سناریوی دلار", "سود/زیان تا ارزش شمش", "ریوارد به ریسک"], rr["rows"]))
+
+    parts.append("<hr/>")
+    parts.append(f"<p>🔗 {_e(ctx['channel'])}</p>")
+    return "\n".join(parts)
+
+
+def build_rich_message(caption, slideshow=True, body_is_html=False):
     """عکس‌ها بالا (همون ترتیب آلبوم فعلی) و بعدش متن. slideshow=True: هر دو عکس تو یه اسلایدشوی ورق‌خور."""
     imgs = '<img src="tg://photo?id=img1"/><img src="tg://photo?id=img2"/>'
     images_html = f"<tg-slideshow>{imgs}</tg-slideshow>" if slideshow else imgs.replace("/><", "/>\n<")
-    html = images_html + "\n" + caption_to_rich_html(caption)
+    body = caption if body_is_html else caption_to_rich_html(caption)
+    html = images_html + "\n" + body
     return {
         "html": html,
         "media": [
@@ -48,13 +104,13 @@ def build_rich_message(caption, slideshow=True):
     }
 
 
-def send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label=""):
+def send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label="", body_is_html=False):
     """یک پیام Rich جدید می‌فرسته. True/False برمی‌گردونه؛ هیچ fallback و هیچ ذخیره‌ای نداره."""
-    ok = _send(bot_token, chat_id, img1_bytes, img2_bytes, build_rich_message(caption, USE_SLIDESHOW), label)
+    ok = _send(bot_token, chat_id, img1_bytes, img2_bytes, build_rich_message(caption, USE_SLIDESHOW, body_is_html), label)
     if ok is None and USE_SLIDESHOW:
         # اسلایدشو رد شد (۴۰۰) → یک بار با دو عکس ساده‌ی زیر هم؛ فقط وقتی اولی ارسال نشده، پس پیام تکراری نمی‌شه
         logger.warning(f"⚠️ [{label}] Rich با اسلایدشو رد شد — تلاش مجدد با عکس‌های ساده")
-        ok = _send(bot_token, chat_id, img1_bytes, img2_bytes, build_rich_message(caption, False), label)
+        ok = _send(bot_token, chat_id, img1_bytes, img2_bytes, build_rich_message(caption, False, body_is_html), label)
     return bool(ok)
 
 
