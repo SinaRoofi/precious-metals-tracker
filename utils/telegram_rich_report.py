@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 RICH_MESSAGE_LIMIT = 32768  # کاراکتر، طبق مستندات Bot API
 RICH_TIMEOUT = 90
+USE_SLIDESHOW = True  # دو عکس تو یه اسلایدشو (<tg-slideshow>) که ورق می‌خوره؛ False = دو عکس زیر هم
 _HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
 
@@ -32,9 +33,11 @@ def caption_to_rich_html(caption):
     return "\n".join(parts)
 
 
-def build_rich_message(caption):
-    """عکس‌ها بالا (همون ترتیب آلبوم فعلی) و بعدش متن."""
-    html = '<img src="tg://photo?id=img1"/>\n<img src="tg://photo?id=img2"/>\n' + caption_to_rich_html(caption)
+def build_rich_message(caption, slideshow=True):
+    """عکس‌ها بالا (همون ترتیب آلبوم فعلی) و بعدش متن. slideshow=True: هر دو عکس تو یه اسلایدشوی ورق‌خور."""
+    imgs = '<img src="tg://photo?id=img1"/><img src="tg://photo?id=img2"/>'
+    images_html = f"<tg-slideshow>{imgs}</tg-slideshow>" if slideshow else imgs.replace("/><", "/>\n<")
+    html = images_html + "\n" + caption_to_rich_html(caption)
     return {
         "html": html,
         "media": [
@@ -47,7 +50,16 @@ def build_rich_message(caption):
 
 def send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label=""):
     """یک پیام Rich جدید می‌فرسته. True/False برمی‌گردونه؛ هیچ fallback و هیچ ذخیره‌ای نداره."""
-    rich = build_rich_message(caption)
+    ok = _send(bot_token, chat_id, img1_bytes, img2_bytes, build_rich_message(caption, USE_SLIDESHOW), label)
+    if ok is None and USE_SLIDESHOW:
+        # اسلایدشو رد شد (۴۰۰) → یک بار با دو عکس ساده‌ی زیر هم؛ فقط وقتی اولی ارسال نشده، پس پیام تکراری نمی‌شه
+        logger.warning(f"⚠️ [{label}] Rich با اسلایدشو رد شد — تلاش مجدد با عکس‌های ساده")
+        ok = _send(bot_token, chat_id, img1_bytes, img2_bytes, build_rich_message(caption, False), label)
+    return bool(ok)
+
+
+def _send(bot_token, chat_id, img1_bytes, img2_bytes, rich, label):
+    """True = ارسال شد | False = شکست قطعی (شبکه/۴۲۹/...) | None = ۴۰۰ (رد شدن payload؛ قابل تلاش مجدد با قالب دیگه)."""
     if len(rich["html"]) > RICH_MESSAGE_LIMIT:
         logger.error(f"❌ [{label}] متن Rich {len(rich['html'])} کاراکتره (حد {RICH_MESSAGE_LIMIT})")
         return False
@@ -85,5 +97,5 @@ def send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label=
             continue
 
         logger.error(f"❌ [{label}] Rich ناموفق: HTTP {resp.status_code} — {str(body.get('description', resp.text))[:300]}")
-        return False
+        return None if resp.status_code == 400 else False
     return False
