@@ -9,7 +9,7 @@ on:
 jobs:
   net:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Check endpoints
         run: |
@@ -27,3 +27,22 @@ jobs:
               -w "http=%{http_code} dns=%{time_namelookup}s connect=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s ip=%{remote_ip}\n" \
               "$url" || echo "FAILED (curl exit $?)"
           done
+
+      - name: Rahavard با curl_cffi (امضای کروم) در برابر requests ساده
+        run: |
+          python3 -m pip install -q curl_cffi requests certifi
+          python3 - <<'PY'
+          import time, requests
+          from curl_cffi import requests as cr
+          url = "https://rahavard365.com/api/v2/gold/light-charts"
+          h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+               "Referer": "https://rahavard365.com/", "Origin": "https://rahavard365.com"}
+          # verify=False فقط برای تشخیص (ریشه‌ی ISRG Root YE)؛ در کد اصلی استفاده نمی‌شه
+          for name, fn in (("curl_cffi chrome120", lambda: cr.get(url, headers=h, impersonate="chrome120", timeout=90, verify=False)),
+                           ("requests ساده", lambda: requests.get(url, headers=h, timeout=90, verify=False))):
+              t0 = time.time()
+              try:
+                  r = fn(); print(f"{name}: http={r.status_code} t={time.time()-t0:.1f}s bytes={len(r.content)}")
+              except Exception as e:
+                  print(f"{name}: FAILED t={time.time()-t0:.1f}s {type(e).__name__}: {e}")
+          PY
