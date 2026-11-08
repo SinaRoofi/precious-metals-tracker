@@ -18,7 +18,7 @@ from persiantools.jdatetime import JalaliDateTime
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE, is_force_run,
+    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE, is_force_run, is_rich_report,
     FONT_BOLD_PATH, FONT_MEDIUM_PATH, FONT_REGULAR_PATH,
     TREEMAP_WIDTH, TREEMAP_HEIGHT, TREEMAP_SCALE,
     TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
@@ -39,6 +39,8 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
 # حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
+from utils.telegram_rich_report import RICH_MESSAGE_LIMIT, send_rich_report
+
 TELEGRAM_CAPTION_LIMIT = 1024
 _HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
@@ -501,12 +503,20 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
             img1_bytes = future_treemap.result()
             img2_bytes = future_chart.result()
 
+        # Rich Message (تست): فقط با FORCE_RUN + RICH_REPORT؛ اجرای عادی هیچ‌وقت وارد این مسیر نمی‌شه
+        use_rich = is_force_run() and is_rich_report()
+
         logger.info(f"📝 [{commodity}] در حال ساخت کپشن...")
         caption = create_simple_caption(
             commodity, data, dollar_prices, global_price,
             global_yesterday, yesterday_close, global_time, dirham_price,
             tether_price, tether_change_percent, salaf_lines, funds_open=funds_open,
+            caption_limit=RICH_MESSAGE_LIMIT if use_rich else TELEGRAM_CAPTION_LIMIT,
         )
+
+        if use_rich:
+            logger.warning(f"🧪 [{commodity}] RICH_REPORT: ارسال به‌صورت Rich Message (پیام جدید؛ بدون Gist/Sheet/پین)")
+            return send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, caption, label=commodity)
 
         gist_data, gist_status = get_gist_data(commodity)
         saved_message_id = gist_data.get("message_id")
@@ -1278,7 +1288,7 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
                            yesterday_close, global_time, dirham_price=None,
                            tether_price=None, tether_change_percent=None, salaf_lines=None,
-                           funds_open=True):
+                           funds_open=True, caption_limit=TELEGRAM_CAPTION_LIMIT):
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
     # funds_open=False (مثلاً پنج‌شنبه): بازار صندوق‌ها بسته‌ست و داده‌ی صندوق‌ها همون چهارشنبه‌ست؛ بلاک
@@ -1546,31 +1556,31 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     #   ۱) میانه حباب حذف می‌شه (عسکه می‌مونه)
     #   ۲) عسکه حذف می‌شه (میانه حباب برمی‌گرده)
     #   ۳) سکه امامی هم حذف می‌شه (fallback قبلی، پایین‌تر)
-    if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT and salaf_lines:
+    if _caption_visible_len(caption) > caption_limit and salaf_lines:
         logger.warning(
-            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
+            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {caption_limit}) — "
             f"خط «میانه حباب» حذف می‌شه تا جا برای عسکه باز شه"
         )
         caption = (header_no_median + build_assets_block(include_capsule_items=True) + footer).strip()
 
-        if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT:
+        if _caption_visible_len(caption) > caption_limit:
             logger.warning(
                 f"⚠️ [{commodity}] کپشن هنوز {_caption_visible_len(caption)} کاراکتره — خط‌های عسکه حذف می‌شن "
                 f"(میانه حباب برمی‌گرده)"
             )
             caption = (header + build_assets_block(include_capsule_items=True, include_salaf=False) + footer).strip()
 
-    if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT:
+    if _caption_visible_len(caption) > caption_limit:
         logger.warning(
-            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {TELEGRAM_CAPTION_LIMIT}) — "
+            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {caption_limit}) — "
             f"بخش سکه امامی از کپشن حذف می‌شه (اونس ضمنی و R/R همیشه نگه داشته می‌شن)"
         )
         caption = (header + build_assets_block(include_capsule_items=False) + footer).strip()
 
-    if _caption_visible_len(caption) > TELEGRAM_CAPTION_LIMIT:
+    if _caption_visible_len(caption) > caption_limit:
         logger.error(
             f"❌ [{commodity}] کپشن حتی بعد از حذف سکه امامی هم {_caption_visible_len(caption)} کاراکتره — truncate اضطراری"
         )
-        caption = _truncate_caption(caption, TELEGRAM_CAPTION_LIMIT)
+        caption = _truncate_caption(caption, caption_limit)
 
     return caption
