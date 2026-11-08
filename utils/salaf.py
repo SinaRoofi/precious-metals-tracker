@@ -19,6 +19,8 @@ from datetime import datetime
 
 import pytz
 import requests
+
+from utils.tls_trust import trusted_get
 from persiantools.jdatetime import JalaliDate
 
 from config import (
@@ -53,7 +55,7 @@ def fetch_salaf():
         return None  # بعد از سررسید: بدون درخواست شبکه
 
     try:
-        resp = requests.get(
+        resp = trusted_get(
             SALAF_ASSET_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=REQUEST_TIMEOUT
         )
         resp.raise_for_status()
