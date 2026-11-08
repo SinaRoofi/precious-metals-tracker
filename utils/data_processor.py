@@ -4,7 +4,7 @@
 import pandas as pd
 import numpy as np
 import logging
-from config import ASSET_ORDER, PRICING_FACTORS, TROY_OZ
+from config import ASSET_ORDER, PRICING_FACTORS, TROY_OZ, ESKEH_SLUG, ESKEH_RIAL_SCALE
 
 pd.set_option("future.no_silent_downcasting", True)
 logger = logging.getLogger(__name__)
@@ -93,6 +93,12 @@ def process_market_data(
         ).round(2)
 
         dfp = dfp.reindex(ASSET_ORDER[commodity])
+
+        # عسکه: رهاورد قیمتش رو «×۱۰۰ = تومان» می‌ده (مثلاً 2,540,060 → 254,006,000 تومان)؛ اینجا به ریال هم‌مقیاس
+        # بقیه‌ی سکه‌ها می‌بریمش تا همه‌جا divisor=10 جواب تومان بده. اگه عسکه تو پاسخ نبود (NaN)، دست نمی‌زنیم.
+        if ESKEH_SLUG in dfp.index:
+            dfp["close_price"] = pd.to_numeric(dfp["close_price"], errors="coerce").astype(float)
+            dfp.loc[ESKEH_SLUG, "close_price"] = dfp.loc[ESKEH_SLUG, "close_price"] * ESKEH_RIAL_SCALE
         dfp.insert(1, "Value", np.nan)
         dfp["pricing_dollar"] = np.nan
         dfp[f"pricing_{commodity}"] = np.nan
