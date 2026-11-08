@@ -18,7 +18,7 @@ from persiantools.jdatetime import JalaliDateTime
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE, is_force_run, is_rich_report,
+    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE, is_force_run,
     FONT_BOLD_PATH, FONT_MEDIUM_PATH, FONT_REGULAR_PATH,
     TREEMAP_WIDTH, TREEMAP_HEIGHT, TREEMAP_SCALE,
     TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
@@ -26,7 +26,7 @@ from config import (
     MAX_RETRIES, RETRY_DELAY,
     ASSET_ORDER, PRICING_FACTORS, TROY_OZ, GOLD_YEAR_END_OUNCE_TARGET,
     SILVER_YEAR_END_OUNCE_TARGET,
-    SALAF_AFTER_ASSET_KEY,
+    ESKEH_SLUG, ESKEH_ACTIVE, ESKEH_GUARANTEE_PRICE, eskeh_days_to_maturity, eskeh_floor_return,
 )
 from utils.chart_creator import create_market_charts
 from utils.alerts import get_sarane_kharid_baseline, get_sarane_forosh_baseline
@@ -40,7 +40,7 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 # حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
 from utils.telegram_rich_report import (
-    RICH_MERGE, RICH_MESSAGE_LIMIT, caption_to_rich_html, render_rich_caption, send_rich_report, stage_rich_part,
+    RICH_MESSAGE_LIMIT, H, caption_to_rich_html, delete_message, edit_rich, send_rich, stage_rich_part, take_staged,
 )
 
 TELEGRAM_CAPTION_LIMIT = 1024
@@ -112,7 +112,7 @@ def _should_show_quarter_coin(funds_open=True):
     return not (
         _caption_flag("SHOW_TETHER_IN_CAPTION", False)
         and _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
-        and _caption_flag("SHOW_SALAF_IN_CAPTION", True)
+        and _caption_flag("SHOW_ESKEH_IN_REPORT", True)
     )
 
 
@@ -274,6 +274,10 @@ CAPTION_ASSETS = {
         # فقط وقتی تاگل‌های کپشن اجازه بدن (SHOW_QUARTER_COIN_IN_CAPTION)؛ کم‌اهمیت‌ترین آیتم، مثل امامی
         # توسط fallback طول کپشن (حد ۱۰۲۴ تلگرام) اول از همه حذف می‌شه.
         {"key": "ربع-سکه", "title": "🟠 ربع سکه", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule", "quarter_coin_only": True},
+        # عسکه (سلف استاندارد سکه مرکزی): از همون JSON رهاورد مثل بقیه‌ی دارایی‌ها میاد؛ ۱۹ آذر ۱۴۰۵ خودکار حذف می‌شه.
+        # چیدمان Rich یه بلاک مخصوص داره (قیمت + حداقل بازده + روز تا سررسید)؛ eskeh=True یعنی جزو جدول معمولی دارایی‌ها نیست.
+        *([{"key": ESKEH_SLUG, "title": "🏦 عسکه", "unit": "تومان", "divisor": 10, "show_ounce_calc": False,
+            "style": "capsule", "eskeh": True}] if ESKEH_ACTIVE else []),
     ],
     "silver": [
         {"key": "شمش-نقره", "title": "⬜ شمش نقره بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
@@ -286,7 +290,8 @@ CAPTION_ASSETS = {
 
 def _empty_message_store():
     return {"gold": {"message_id": None, "message_id2": None, "date": None},
-            "silver": {"message_id": None, "message_id2": None, "date": None}}
+            "silver": {"message_id": None, "message_id2": None, "date": None},
+            "rich": {"message_id": None, "message_id2": None, "date": None}}
 
 
 # کدهای وضعیتی که «گذرا» فرض می‌شن و ارزش retry دارن:
@@ -470,13 +475,17 @@ def get_today_date():
 
 def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_price,
                       global_yesterday, global_time, yesterday_close, dirham_price=None,
-                      tether_price=None, tether_change_percent=None, salaf_lines=None,
-                      funds_open=True):
-    """ارسال گزارش یک کالا (gold یا silver) به کانال تلگرام مشترک، به‌صورت پیام مستقل.
+                      tether_price=None, tether_change_percent=None, funds_open=True):
+    """ساخت بخش گزارش یک کالا (gold یا silver) برای «پیام Rich» کانال و نگه‌داشتنش (stage).
 
-    funds_open=False (روزی که بازار صندوق‌ها بسته‌ست، مثل پنج‌شنبه): همون دو تصویر + کپشن می‌ره (بدون سلف)،
-    ولی بدون صندوق‌ها: تصویر اول جدول قیمت/R-R/بازده بازار غیرصندوقیه به‌جای نقشه‌ی صندوق‌ها، تصویر دوم
-    نمودارهای ۴ پنل اول، و کپشن بدون بلاک صندوق‌ها."""
+    ارسال واقعی همین‌جا انجام نمی‌شه: طلا و نقره تو «یک» پیام می‌رن و آخر حلقه‌ی main با
+    flush_rich_report فرستاده/ویرایش می‌شن (bot_token/chat_id فقط برای هم‌امضا بودن با قبل مونده).
+
+    funds_open=False (روزی که بازار صندوق‌ها بسته‌ست، مثل پنج‌شنبه): همون دو تصویر + چیدمان، ولی بدون صندوق‌ها:
+    تصویر اول جدول قیمت/R-R/بازده بازار غیرصندوقیه به‌جای نقشه‌ی صندوق‌ها، تصویر دوم نمودارهای ۴ پنل اول،
+    و بخش صندوق‌ها (و عسکه) تو پیام نمیاد.
+
+    Returns: True = بخش آماده شد | False = ساخت ناموفق (این کالا تو پیام نمیاد)."""
     if commodity not in CAPTION_ASSETS:
         raise ValueError(f"کالای نامعتبر: {commodity}")
 
@@ -505,78 +514,61 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
             img1_bytes = future_treemap.result()
             img2_bytes = future_chart.result()
 
-        # Rich Message (تست): فقط با FORCE_RUN + RICH_REPORT؛ اجرای عادی هیچ‌وقت وارد این مسیر نمی‌شه
-        use_rich = is_force_run() and is_rich_report()
-
-        logger.info(f"📝 [{commodity}] در حال ساخت کپشن...")
+        logger.info(f"📝 [{commodity}] در حال ساخت چیدمان Rich...")
         caption_args = (commodity, data, dollar_prices, global_price,
                         global_yesterday, yesterday_close, global_time, dirham_price,
-                        tether_price, tether_change_percent, salaf_lines)
-
-        if use_rich:
-            logger.warning(f"🧪 [{commodity}] RICH_REPORT: Rich Message (پیام جدید؛ بدون Gist/Sheet/پین)"
-                           f"{' — ادغام طلا+نقره، ارسال آخر حلقه' if RICH_MERGE else ''}")
-            ctx = body = None
-            try:
-                ctx = create_simple_caption(*caption_args, funds_open=funds_open, rich_html=True, rich_ctx=True)
-            except Exception as e:  # چیدمان Rich نباید ارسال رو بخوابونه: برمی‌گردیم به کپشن متنی (بدون حد ۱۰۲۴)
-                logger.error(f"❌ [{commodity}] ساخت چیدمان Rich ناموفق ({e}) — کپشن متنی جایگزین می‌شه", exc_info=True)
-                body = caption_to_rich_html(
-                    create_simple_caption(*caption_args, funds_open=funds_open, caption_limit=RICH_MESSAGE_LIMIT))
-            if RICH_MERGE:
-                stage_rich_part(commodity, img1_bytes, img2_bytes, ctx=ctx, html=body)
-                return True  # ارسال واقعی آخر حلقه‌ی main با flush_rich_report
-            if ctx is not None:
-                body = render_rich_caption(ctx)
-            return send_rich_report(bot_token, chat_id, img1_bytes, img2_bytes, body, label=commodity, body_is_html=True)
-
-        caption = create_simple_caption(*caption_args, funds_open=funds_open)
-
-        gist_data, gist_status = get_gist_data(commodity)
-        saved_message_id = gist_data.get("message_id")
-        saved_message_id2 = gist_data.get("message_id2")
-        saved_date = gist_data.get("date")
-        today = get_today_date()
-
-        if gist_status != "ok":
-            # خواندن گیست fail شده (تایم‌اوت/شبکه/کد غیر ۲۰۰/پارس) — data خالیه ولی
-            # این با «امروز هنوز پیامی نبوده» فرق داره. اگه امروز واقعاً پیام قبلی
-            # وجود داشته باشه، این مسیر باعث ارسال یک پیام جدیدِ تکراری می‌شه چون
-            # الان نمی‌تونیم بفهمیم message_id قبلی چیه.
-            logger.warning(
-                f"⚠️ [{commodity}] گیست درست خونده نشد (status={gist_status}) — با فرضِ "
-                f"'بدون پیام ذخیره‌شده' ادامه داده می‌شه؛ اگه امروز پیام قبلی واقعاً "
-                f"وجود داشته باشه، این باعث ارسال یک پیام جدید (تکراری) به‌جای آپدیت می‌شه"
-            )
-
-        if saved_date != today:
-            logger.info(f"📅 [{commodity}] روز جدید ({today}) - ریست message_id")
-            saved_message_id = None
-            saved_message_id2 = None
-
-        if saved_message_id and saved_message_id2:
-            logger.info(f"🔄 [{commodity}] در حال آپدیت پیام امروز (ID: {saved_message_id}, {saved_message_id2})...")
-            if update_media_group_correctly(bot_token, chat_id, saved_message_id, saved_message_id2,
-                                             img1_bytes, img2_bytes, caption):
-                logger.info(f"✅ [{commodity}] پیام امروز آپدیت شد")
-                return True
-            logger.warning(f"⚠️ [{commodity}] آپدیت پیام ناموفق بود، پیام جدید ارسال می‌شود")
-        elif saved_message_id:
-            logger.warning(f"⚠️ [{commodity}] فقط message_id اول ذخیره شده بود (داده‌ی قدیمی) - پیام جدید ارسال می‌شود")
-
-        logger.info(f"📤 [{commodity}] ارسال پیام جدید...")
-        new_id1, new_id2 = send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption)
-        if new_id1 and new_id2:
-            save_gist_data(commodity, new_id1, new_id2, today)
-            logger.info(f"✅ [{commodity}] پیام جدید ارسال شد (ID: {new_id1}, {new_id2})")
-            return True
-
-        logger.error(f"❌ [{commodity}] ارسال پیام ناموفق بود")
-        return False
+                        tether_price, tether_change_percent)
+        ctx = body = None
+        try:
+            ctx = create_simple_caption(*caption_args, funds_open=funds_open, rich_html=True, rich_ctx=True)
+        except Exception as e:  # چیدمان Rich نباید ارسال رو بخوابونه: برمی‌گردیم به متن ساده (بدون حد ۱۰۲۴)
+            logger.error(f"❌ [{commodity}] ساخت چیدمان Rich ناموفق ({e}) — متن ساده جایگزین می‌شه", exc_info=True)
+            body = caption_to_rich_html(
+                create_simple_caption(*caption_args, funds_open=funds_open, caption_limit=RICH_MESSAGE_LIMIT))
+        stage_rich_part(commodity, img1_bytes, img2_bytes, ctx=ctx, html=body)
+        return True
 
     except Exception as e:
-        logger.error(f"❌ [{commodity}] خطا در ارسال به تلگرام: {e}", exc_info=True)
+        logger.error(f"❌ [{commodity}] خطا در ساخت گزارش: {e}", exc_info=True)
         return False
+
+
+def flush_rich_report(bot_token, chat_id):
+    """همه‌ی بخش‌های stage‌شده رو به‌صورت «یک» پیام Rich می‌فرسته. True اگه ارسال/ویرایش شد.
+
+    - اجرای عادی: اولین اجرای هر روز پیام جدید می‌فرسته و message_id رو تو Gist نگه می‌داره؛ اجراهای بعدیِ همون روز
+      همون پیام رو ویرایش می‌کنن (کانال شلوغ نمی‌شه). اگه ویرایش نشد، پیام جدید می‌ره و قدیمی پاک می‌شه.
+    - FORCE_RUN (تست دستی): همیشه پیام جدید؛ هیچ‌چیز تو Gist نوشته نمی‌شه و پیام امروز دست نمی‌خوره.
+    """
+    staged = take_staged()
+    if staged is None:
+        logger.warning("⚠️ هیچ بخشی برای ارسال stage نشده بود")
+        return False
+    images, html, label = staged
+
+    if is_force_run():
+        logger.warning("🧪 FORCE_RUN: پیام Rich جدید (بدون ویرایش/ذخیره‌ی message_id)")
+        return send_rich(bot_token, chat_id, images, html, label) is not None
+
+    today = get_today_date()
+    saved, status = get_gist_data("rich")
+    old_id = saved.get("message_id") if saved.get("date") == today else None
+    if status != "ok":
+        logger.warning(f"⚠️ گیست درست خونده نشد (status={status}) — اگه امروز پیامی رفته باشه، این یکی پیام جدیدِ تکراری می‌شه")
+
+    if old_id:
+        logger.info(f"🔄 ویرایش پیام Rich امروز (ID: {old_id})...")
+        if edit_rich(bot_token, chat_id, old_id, images, html, label):
+            return True
+        logger.warning("⚠️ ویرایش ناموفق بود — پیام جدید می‌رود و پیام قبلی پاک می‌شود")
+
+    new_id = send_rich(bot_token, chat_id, images, html, label)
+    if not new_id:
+        return False
+    save_gist_data("rich", new_id, None, today)
+    if old_id:
+        delete_message(bot_token, chat_id, old_id)
+    return True
 
 
 def send_weekly_report(commodity, bot_token, chat_id):
@@ -652,93 +644,6 @@ def send_monthly_report(commodity, bot_token, chat_id):
 
 
 # ────────────────── MediaGroup ──────────────────
-
-def send_media_group(bot_token, chat_id, img1_bytes, img2_bytes, caption):
-    """ارسال media group و برگردوندن ID واقعیِ هر دو عکس (نه یکی + فرض شده)."""
-    try:
-        url = f"https://api.telegram.org/bot{bot_token}/sendMediaGroup"
-        files = {
-            "photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png"),
-            "photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png"),
-        }
-        media = [
-            {"type": "photo", "media": "attach://photo1", "caption": caption, "parse_mode": "HTML"},
-            {"type": "photo", "media": "attach://photo2"},
-        ]
-        response = requests.post(
-            url, files=files, data={"chat_id": chat_id, "media": json.dumps(media)}, timeout=60
-        )
-        if response.status_code == 200:
-            result = response.json()["result"]
-            return result[0]["message_id"], result[1]["message_id"]
-        logger.error(f"خطای ارسال MediaGroup: {response.status_code} - {response.text}")
-    except Exception as e:
-        logger.error(f"خطا در sendMediaGroup: {e}")
-    return None, None
-
-
-# آپلود عکس گاهی بیشتر از timeout کوتاه (5,15) طول می‌کشه، به‌خصوص روی شبکه‌ی کند.
-# sendMediaGroup (ارسال پیام جدید) از قبل timeout=60 داشت؛ editMessageMedia نداشت — همین
-# فرق باعث می‌شد آپدیت بیشتر از ارسال جدید تایم‌اوت بخوره. اینجا هم زیادش می‌کنیم.
-EDIT_MEDIA_TIMEOUT = 60
-EDIT_MEDIA_MAX_ATTEMPTS = 2  # تلاش اول + یک retry روی خطای گذرا (تایم‌اوت/شبکه)
-
-
-def _edit_single_photo(url, chat_id, message_id, media, files_factory, label):
-    """یک عکس رو با retry روی خطای شبکه/تایم‌اوت (نه روی خطای منطقی مثل 400) ادیت می‌کنه."""
-    last_error = None
-    for attempt in range(1, EDIT_MEDIA_MAX_ATTEMPTS + 1):
-        try:
-            r = requests.post(
-                url,
-                data={"chat_id": chat_id, "message_id": message_id, "media": json.dumps(media)},
-                files=files_factory(), timeout=EDIT_MEDIA_TIMEOUT,
-            )
-            if r.ok:
-                return True
-            # خطای منطقی تلگرام (مثل 400 message to edit not found) با retry حل نمی‌شه
-            logger.warning(f"خطای آپدیت {label} (تلاش {attempt}/{EDIT_MEDIA_MAX_ATTEMPTS}): {r.status_code} - {r.text}")
-            if r.status_code != 429:
-                return False
-            last_error = f"{r.status_code} - {r.text}"
-        except requests.RequestException as e:
-            # خطای شبکه/تایم‌اوت - گذراست، ارزش retry داره
-            logger.warning(f"خطای شبکه در آپدیت {label} (تلاش {attempt}/{EDIT_MEDIA_MAX_ATTEMPTS}): {e}")
-            last_error = str(e)
-
-        if attempt < EDIT_MEDIA_MAX_ATTEMPTS:
-            time.sleep(2)
-
-    logger.warning(f"آپدیت {label} بعد از {EDIT_MEDIA_MAX_ATTEMPTS} تلاش ناموفق ماند: {last_error}")
-    return False
-
-
-def update_media_group_correctly(bot_token, chat_id, message_id1, message_id2, img1_bytes, img2_bytes, caption):
-    """آپدیت هر دو عکس با IDهای واقعی‌شون (بدون فرض message_id+1 برای عکس دوم)،
-    با timeout بزرگ‌تر و یک retry روی خطای گذرای شبکه/تایم‌اوت."""
-    try:
-        url = f"https://api.telegram.org/bot{bot_token}/editMessageMedia"
-
-        media1 = {"type": "photo", "media": "attach://photo1", "caption": caption, "parse_mode": "HTML"}
-        ok1 = _edit_single_photo(
-            url, chat_id, message_id1, media1,
-            lambda: {"photo1": ("treemap.png", io.BytesIO(img1_bytes), "image/png")},
-            "عکس اول",
-        )
-
-        media2 = {"type": "photo", "media": "attach://photo2"}
-        ok2 = _edit_single_photo(
-            url, chat_id, message_id2, media2,
-            lambda: {"photo2": ("charts.png", io.BytesIO(img2_bytes), "image/png")},
-            "عکس دوم",
-        )
-
-        return ok1 and ok2
-
-    except Exception as e:
-        logger.error(f"خطا در آپدیت عکس‌ها: {e}")
-        return False
-
 
 def pin_message(bot_token, chat_id, message_id):
     """⚠️ دیگه توسط send_to_telegram صدا زده نمی‌شه (طبق درخواست: گزارش روزانه پین نشه).
@@ -1325,42 +1230,16 @@ def _implied_prices(commodity, key, close_price, global_price, dollar_last):
             int(((close_price / factor) * TROY_OZ) / dollar_last / f["scale"]))
 
 
-def _parse_salaf_lines(salaf_lines):
-    """خطوط عسکه ("🏦 عسکه: 255,603,000 (-1.2%)" و "🎯 حداقل بازده: -1.6%") → بخش جدولی Rich؛ None اگه نبود."""
-    if not salaf_lines:
-        return None
-    price = re.search(r"عسکه:\s*([\d,]+)\s*\(([^)]*)\)", salaf_lines)
-    yld = re.search(r"حداقل بازده:\s*(\S+)", salaf_lines)
-    if not price:
-        logger.warning("⚠️ خط عسکه قابل پارس نبود — از کپشن Rich حذف شد")
-        return None
-    def colored(text):
-        m = re.search(r"-?\d+(?:\.\d+)?", text.replace("−", "-"))
-        if not m:
-            return text
-        v = float(m.group())
-        return f"{'🟢' if v > 0 else ('🔴' if v < 0 else '⚪')} {text}"
-
-    rows = [["قیمت", price.group(1)], ["تغییر روزانه", colored(price.group(2))]]
-    if yld:
-        rows.append(["حداقل بازده تا سررسید", colored(yld.group(1))])
-    return {"title": "🏦 عسکه", "time": "", "rows": rows, "tables": []}
-
-
 def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
                            yesterday_close, global_time, dirham_price=None,
-                           tether_price=None, tether_change_percent=None, salaf_lines=None,
+                           tether_price=None, tether_change_percent=None,
                            funds_open=True, caption_limit=TELEGRAM_CAPTION_LIMIT, rich_html=False, rich_ctx=False):
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
     # funds_open=False (مثلاً پنج‌شنبه): بازار صندوق‌ها بسته‌ست و داده‌ی صندوق‌ها همون چهارشنبه‌ست؛ بلاک
     # صندوق‌ها از کپشن حذف می‌شه. دلار، اونس، شمش، سکه و طلا/نقره‌ی گرمی مثل روز عادی می‌مونن.
-    # سلف (عسکه) پنج‌شنبه معامله نمی‌شه، پس خطوطش هم نمیاد.
-    if not funds_open:
-        salaf_lines = None
-    # تاگل‌ها (config.py): False = خط تو کپشن نمیاد
-    if not _caption_flag("SHOW_SALAF_IN_CAPTION", True):
-        salaf_lines = None
+    # عسکه پنج‌شنبه معامله نمی‌شه، پس اون روز تو گزارش نمیاد. تاگل‌ها (config.py): False = نمیاد.
+    show_eskeh = funds_open and _caption_flag("SHOW_ESKEH_IN_REPORT", True) and ESKEH_ACTIVE
     show_dirham = _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
     show_quarter_coin = _should_show_quarter_coin(funds_open) if commodity == "gold" else False
 
@@ -1510,9 +1389,6 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 """
 
     header = caption
-    # نسخه‌ی بدون خط «میانه حباب» — اولین چیزی که وقتی جا برای عسکه کم باشه کنار می‌ره
-    median_line = f"\u200F🫧 میانه حباب: {fmt_pct(median_bubble, 2)}%\n"
-    header_no_median = header.replace(median_line, "", 1)
     footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
     rr = calculate_bullion_rr(commodity, dfp)
@@ -1566,8 +1442,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         ounce_ctx = {
             "title": f"{ounce_emoji} اونس {label}",
             "time": global_time[:5] if global_time else "",
-            "head": ["", "قیمت (دلار)", "تغییر روزانه", "بازده هفتگی"],
-            "rows": [[f"اونس {label}", f"{global_price:,.0f}", cpct(global_change, 2), weekly("اونس")]],
+            "head": ["قیمت (دلار)", "تغییر روزانه", "بازده هفتگی"],
+            "rows": [[f"{global_price:,.0f}", cpct(global_change, 2), weekly("اونس")]],
         }
 
         funds_ctx = None
@@ -1597,12 +1473,35 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                         "headers": ["سناریو", "سود/زیان تا ارزش شمش", "R/R"], "rows": rr_rows}
 
         assets_ctx = []
+        eskeh_ctx = None
         for asset_cfg in assets_config:
             key = asset_cfg["key"]
             if key not in dfp.index:
-                logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن Rich حذف شد")
+                logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از گزارش Rich حذف شد")
                 continue
             row = dfp.loc[key]
+            if asset_cfg.get("eskeh"):
+                # عسکه: بلاک مخصوص خودش (قیمت، تغییر، حداقل بازده تا سررسید، روز تا سررسید). داده‌ی ناقص/بعد از سررسید = نمیاد.
+                days_left = eskeh_days_to_maturity()
+                if (not show_eskeh or days_left < 0 or pd.isna(row["close_price"]) or row["close_price"] <= 0
+                        or pd.isna(row["close_price_change_percent"])):
+                    if show_eskeh:
+                        logger.warning(f"⚠️ [{commodity}] داده‌ی عسکه نامعتبر/سررسید گذشته — از گزارش Rich حذف شد")
+                    continue
+                e_price = row["close_price"] / asset_cfg["divisor"]
+                e_floor = eskeh_floor_return(e_price) * 100
+                trade_time = row.get("last_trade_time")
+                eskeh_ctx = {
+                    "title": "🏦 عسکه",
+                    "time": trade_time[:5] if trade_time else "",
+                    "rows": [
+                        ["قیمت (تومان)", f"{e_price:,.0f}"],
+                        ["تغییر روزانه", cpct(row["close_price_change_percent"], 1)],
+                        ["حداقل بازده تا سررسید", cpct(e_floor, 1)],
+                        ["تا سررسید", "امروز (آخرین روز)" if days_left == 0 else f"{days_left} روز"],
+                    ],
+                }
+                continue
             if asset_cfg.get("quarter_coin_only") and (
                 pd.isna(row["close_price"]) or row["close_price"] <= 0 or pd.isna(row["close_price_change_percent"])
             ):
@@ -1610,43 +1509,48 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 continue
             price = row["close_price"] / asset_cfg["divisor"]
             d_calc, _diff_d, o_calc, _diff_o = calc_diffs(row)
-            unit = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else " تومان"
+            unit = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
             trade_time = row.get("last_trade_time")
-            rows = [
-                ["قیمت", f"{price:,.0f}{unit}"],
-                ["تغییر روزانه", cpct(row["close_price_change_percent"], 1)],
-                ["حباب", pct(row["Bubble"], 1)],
-            ]
             # دلار/اونس ضمنی برای همه‌ی دارایی‌ها؛ برای اونی که data_processor حسابش نکرده (صفر) از فرمول همون حساب می‌شه
             if not d_calc or pd.isna(d_calc) or not o_calc or pd.isna(o_calc):
                 d_calc, o_calc = _implied_prices(commodity, key, row["close_price"], global_price, dollar_last)
-            rows.append(["دلار ضمنی", f"{d_calc:,.0f}" if d_calc else "—"])
-            rows.append(["اونس ضمنی", f"{o_calc:,.0f}" if o_calc else "—"])
             assets_ctx.append({
+                "key": key,
                 "title": rich_title(key, asset_cfg["title"]),
                 "time": trade_time[:5] if trade_time else "",
-                "rows": rows,
+                "price": f"{price:,.0f}{unit}",
+                "change": cpct(row["close_price_change_percent"], 1),
+                "bubble": pct(row["Bubble"], 1),
+                "dollar": f"{d_calc:,.0f}" if d_calc else "—",
+                "ounce": f"{o_calc:,.0f}" if o_calc else "—",
                 "tables": [rr_table] if (rr_table and key == bullion_key) else [],
             })
 
-        # عسکه آخر از همه (بعد از ربع سکه)
-        salaf_ctx = _parse_salaf_lines(salaf_lines)
-        if salaf_ctx:
-            assets_ctx.append(salaf_ctx)
+        # «نگاه سریع» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
+        quick = [[f"<b>{ounce_ctx['title']}</b> <sub>دلار</sub>", f"{global_price:,.0f}", cpct(global_change, 2)]]
+        bullion_asset = next((a for a in assets_ctx if a["key"] == bullion_key), None)
+        if bullion_asset:
+            b_unit = "ریال" if bullion_asset["price"].endswith("ریال") else "تومان"
+            quick.append([f"<b>{bullion_asset['title']}</b> <sub>{b_unit}</sub>",
+                          bullion_asset["price"].replace(" ریال", ""), bullion_asset["change"]])
+        quick = [(H(l), p_, c_) for l, p_, c_ in quick]
 
         ctx = {
             "commodity": commodity,
             "section_title": f"{fund_emoji} بازار {label}",
             "update": current_time,
-            "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation},
+            "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation,
+                       "last": (f"{dollar_last:,.0f}", cpct(dollar_change, 2))},
             "ounce": ounce_ctx,
             "funds": funds_ctx,
             "assets": assets_ctx,
+            "eskeh": eskeh_ctx,
+            "quick": quick,
             "channel": CHANNEL_HANDLE,
         }
-        return ctx if rich_ctx else render_rich_caption(ctx)
+        return ctx
 
-    def build_assets_block(include_capsule_items, include_salaf=True):
+    def build_assets_block(include_capsule_items):
         """
         include_capsule_items=False یعنی دارایی‌های با style="capsule"
         (فعلاً فقط «سکه امامی») کلاً از کپشن حذف می‌شن.
@@ -1671,6 +1575,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 continue
 
             if asset_cfg.get("quarter_coin_only") and not show_quarter_coin:
+                continue
+            if asset_cfg.get("eskeh") and (not show_eskeh or eskeh_days_to_maturity() < 0):
                 continue
 
             row = dfp.loc[key]
@@ -1698,8 +1604,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     f"{prefix}{asset_cfg['title']}: {price:,.0f} "
                     f"({fmt_pct(row['close_price_change_percent'], 1)}%)\n"
                 )
-                if include_salaf and salaf_lines and key == SALAF_AFTER_ASSET_KEY:
-                    block += salaf_lines  # عسکه — درست زیر امامی
+                if asset_cfg.get("eskeh"):
+                    block += f"🎯 حداقل بازده: {fmt_pct(eskeh_floor_return(price) * 100, 1)}%\n"
                 prev_was_capsule = True
                 continue
 
@@ -1742,24 +1648,6 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         return block
 
     caption = (header + build_assets_block(include_capsule_items=True) + footer).strip()
-
-    # فاصله‌ی اولویت وقتی جا کم بیاد (به ترتیب):
-    #   ۱) میانه حباب حذف می‌شه (عسکه می‌مونه)
-    #   ۲) عسکه حذف می‌شه (میانه حباب برمی‌گرده)
-    #   ۳) سکه امامی هم حذف می‌شه (fallback قبلی، پایین‌تر)
-    if _caption_visible_len(caption) > caption_limit and salaf_lines:
-        logger.warning(
-            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {caption_limit}) — "
-            f"خط «میانه حباب» حذف می‌شه تا جا برای عسکه باز شه"
-        )
-        caption = (header_no_median + build_assets_block(include_capsule_items=True) + footer).strip()
-
-        if _caption_visible_len(caption) > caption_limit:
-            logger.warning(
-                f"⚠️ [{commodity}] کپشن هنوز {_caption_visible_len(caption)} کاراکتره — خط‌های عسکه حذف می‌شن "
-                f"(میانه حباب برمی‌گرده)"
-            )
-            caption = (header + build_assets_block(include_capsule_items=True, include_salaf=False) + footer).strip()
 
     if _caption_visible_len(caption) > caption_limit:
         logger.warning(
