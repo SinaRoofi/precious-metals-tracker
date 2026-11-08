@@ -3,6 +3,12 @@
 import os
 
 
+def is_rich_report():
+    """RICH_REPORT=true → گزارش به‌صورت Rich Message (یک پیام با دو عکس + متن بلند) فرستاده می‌شه.
+    فقط وقتی اثر داره که FORCE_RUN هم true باشه (telegram_sender.send_to_telegram)؛ اجرای عادی/زمان‌بندی‌شده هیچ‌وقت Rich نمی‌فرسته."""
+    return os.getenv("RICH_REPORT", "false").strip().lower() == "true"
+
+
 def is_force_run():
     """FORCE_RUN=true (اجرای دستی/تست از GitHub Actions) → هیچ‌چیز تو Google Sheet و Gist ذخیره/پاک نمی‌شه.
     خوندن، ارسال تلگرام و هشدارها مثل همیشه کار می‌کنن."""
@@ -15,8 +21,8 @@ def is_force_run():
 DOLLAR_HIGH = 270_000
 DOLLAR_LOW = 265_000
 # --- طلا ---
-SHAMS_HIGH = 34_000_000
-SHAMS_LOW = 33_000_000
+SHAMS_HIGH = 35_000_000
+SHAMS_LOW = 34_000_000
 
 GOLD_HIGH = 4150
 GOLD_LOW = 4000
@@ -148,7 +154,7 @@ SHOW_QUARTER_COIN_IN_CAPTION = "auto"
 # 📐 پیش‌بینی ریسک/ریوارد شمش طلا بورس کالا (تا پایان سال)
 # ════════════════════════════════════════════════════════════════
 GOLD_YEAR_END_OUNCE_TARGET = 4500  
-SILVER_YEAR_END_OUNCE_TARGET = 60
+SILVER_YEAR_END_OUNCE_TARGET = 70 
 
 # ════════════════════════════════════════════════════════════════
 # 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌ها)
