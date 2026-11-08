@@ -44,27 +44,29 @@ def _table(headers, rows):
     return f"<table bordered striped><tr>{head}</tr>{body}</table>"
 
 
+def _footer(channel):
+    """هندل کانال چپ‌چین (سلول جدول بدون border با align=left) و قابل کلیک."""
+    link = f'<a href="https://t.me/{_e(channel.lstrip("@"))}">{_e(channel)}</a>'
+    return f'<table><tr><td align="left">🔗 {link}</td></tr></table>'
+
+
 def render_rich_caption(ctx):
     """چیدمان Rich گزارش از روی ctx (همه‌ی مقدارها از قبل فرمت‌شده‌ان؛ این تابع فقط ساختار HTML می‌سازه).
 
-    ctx: update, dollar{rows, trade, trade_pct, tick, bid, ask}, ounce{title, time, price, pct},
-         funds{title, rows}|None, assets[{title, time, rows, extra}], rr{title, rows}|None, channel
+    ctx: update, dollar{head, rows, valuation}, ounce{title, rows}, funds{title, rows}|None,
+         assets[{title, time, rows, tables:[{title, headers, rows}]}], channel
     """
-    d = ctx["dollar"]
-    parts = [f"<p>🔄 <b>آپدیت: {_e(ctx['update'])}</b></p>", "<h3>💵 دلار</h3>"]
-    if d["rows"]:
-        parts.append(_table(["", "قیمت (تومان)", "فاصله از قیمت معامله"], d["rows"]))
-    tick = f" {d['tick']}" if d.get("tick") else ""
-    parts.append(
-        f"<p>🤝 معامله: <b>{_e(d['trade'])}</b> ({_e(d['trade_pct'])}%){tick}"
-        f"<br/>🟢 خرید: {_e(d['bid'])} | 🔴 فروش: {_e(d['ask'])}</p>"
-    )
+    d, o = ctx["dollar"], ctx["ounce"]
+    parts = [f"<p>🔄 <b>آپدیت: {_e(ctx['update'])}</b></p>"]
 
-    o = ctx["ounce"]
+    parts.append("<h3>💵 دلار</h3>")
+    parts.append(_table(d["head"], d["rows"]))
+    if d.get("valuation"):
+        parts.append(_table(["ارزش‌گذاری دلار", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"]))
+
     t = f" 🕐 {_e(o['time'])}" if o.get("time") else ""
     parts.append(f"<h3>{_e(o['title'])}{t}</h3>")
-    # \u2066…\u2069 (LRI/PDI): درصدِ علامت‌دار تو متن RTL جابه‌جا نشه (-1.45% نه %1.45-)
-    parts.append(f"<p>📊 <b>{_e(o['price'])}</b> دلار \u2066({_e(o['pct'])})\u2069</p>")
+    parts.append(_table(o["head"], o["rows"]))
 
     f = ctx.get("funds")
     if f:
@@ -75,16 +77,12 @@ def render_rich_caption(ctx):
         t = f" 🕐 {_e(a['time'])}" if a.get("time") else ""
         parts.append(f"<h3>{_e(a['title'])}{t}</h3>")
         parts.append(_table(["شاخص", "مقدار"], a["rows"]))
-        for line in a.get("extra", []):
-            parts.append(f"<p>{_e(line)}</p>")
-
-    rr = ctx.get("rr")
-    if rr:
-        parts.append(f"<h3>{_e(rr['title'])}</h3>")
-        parts.append(_table(["سناریوی دلار", "سود/زیان تا ارزش شمش", "ریوارد به ریسک"], rr["rows"]))
+        for tb in a.get("tables", []):
+            parts.append(f"<h4>{_e(tb['title'])}</h4>")
+            parts.append(_table(tb["headers"], tb["rows"]))
 
     parts.append("<hr/>")
-    parts.append(f"<p>🔗 {_e(ctx['channel'])}</p>")
+    parts.append(_footer(ctx["channel"]))
     return "\n".join(parts)
 
 
