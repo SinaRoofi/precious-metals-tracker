@@ -40,7 +40,7 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 # حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
 from utils.telegram_rich_report import (
-    RICH_MESSAGE_LIMIT, H, caption_to_rich_html, delete_message, edit_rich, send_rich, stage_rich_part, take_staged,
+    RICH_MESSAGE_LIMIT, H, Span, caption_to_rich_html, delete_message, edit_rich, send_rich, stage_rich_part, take_staged,
 )
 
 TELEGRAM_CAPTION_LIMIT = 1024
@@ -1242,6 +1242,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     show_eskeh = funds_open and _caption_flag("SHOW_ESKEH_IN_REPORT", True) and ESKEH_ACTIVE
     show_dirham = _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
     show_quarter_coin = _should_show_quarter_coin(funds_open) if commodity == "gold" else False
+    # قیمت‌های دلاری اونس (و اونس ضمنی): نقره همه‌جا دو رقم اعشار، طلا گرد
+    ounce_fmt = ",.2f" if commodity == "silver" else ",.0f"
 
     def days_passed_this_year():
         tehran_tz = pytz.timezone("Asia/Tehran")
@@ -1374,7 +1376,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     ounce_sign = "+" if global_change >= 0 else "-"
     caption += f"""
 <b>{ounce_emoji} اونس {label}</b>{ounce_time_str}
-\u200F📊 {global_price:,.0f} \u2066(%{fmt_pct(abs(global_change), 2, sign=False)}{ounce_sign})\u2069
+\u200F📊 {global_price:{ounce_fmt}} \u2066(%{fmt_pct(abs(global_change), 2, sign=False)}{ounce_sign})\u2069
 """
     if funds_open:
         caption += f"""
@@ -1424,8 +1426,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         dollar_head = ["", "قیمت (تومان)", "تغییر روزانه", "بازده هفتگی"]
         dollar_rows = [
             ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
-            ["قیمت خرید", f"{dollar_prices['bid']:,.0f}", "", ""],
-            ["قیمت فروش", f"{dollar_prices['ask']:,.0f}", "", ""],
+            # خرید و فروش تو «یک» ردیف (سه ستون ادغام‌شده)؛ قبلاً دو ردیف با خط‌تیره‌ی خالی بود
+            ["خرید | فروش", Span(f"🟢 {dollar_prices['bid']:,.0f}  |  🔴 {dollar_prices['ask']:,.0f}", 3)],
         ]
         valuation = []
         if commodity != "silver":
@@ -1443,7 +1445,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             "title": f"{ounce_emoji} اونس {label}",
             "time": global_time[:5] if global_time else "",
             "head": ["قیمت (دلار)", "تغییر روزانه", "بازده هفتگی"],
-            "rows": [[f"{global_price:,.0f}", cpct(global_change, 2), weekly("اونس")]],
+            "rows": [[f"{global_price:{ounce_fmt}}", cpct(global_change, 2), weekly("اونس")]],
         }
 
         funds_ctx = None
@@ -1522,12 +1524,12 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 "change": cpct(row["close_price_change_percent"], 1),
                 "bubble": pct(row["Bubble"], 1),
                 "dollar": f"{d_calc:,.0f}" if d_calc else "—",
-                "ounce": f"{o_calc:,.0f}" if o_calc else "—",
+                "ounce": f"{o_calc:{ounce_fmt}}" if o_calc else "—",
                 "tables": [rr_table] if (rr_table and key == bullion_key) else [],
             })
 
         # «نگاه سریع» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
-        quick = [[f"<b>{ounce_ctx['title']}</b> <sub>دلار</sub>", f"{global_price:,.0f}", cpct(global_change, 2)]]
+        quick = [[f"<b>{ounce_ctx['title']}</b> <sub>دلار</sub>", f"{global_price:{ounce_fmt}}", cpct(global_change, 2)]]
         bullion_asset = next((a for a in assets_ctx if a["key"] == bullion_key), None)
         if bullion_asset:
             b_unit = "ریال" if bullion_asset["price"].endswith("ریال") else "تومان"
@@ -1627,7 +1629,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 💵 دلار ضمنی: {d_calc:,.0f}
 """
             if asset_cfg["show_ounce_calc"]:
-                block += f"{ounce_emoji} اونس ضمنی: {o_calc:,.0f}\n"
+                block += f"{ounce_emoji} اونس ضمنی: {o_calc:{ounce_fmt}}\n"
 
             if key == BULLION_KEY.get(commodity) and rr:
                 rr_lines = []
