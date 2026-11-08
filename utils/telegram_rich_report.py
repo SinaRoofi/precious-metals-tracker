@@ -120,8 +120,8 @@ def _quick_html(ctxs):
     if d:
         rows.append([H("<b>💵 دلار</b> <sub>تومان</sub>"), d[0], d[1]])
     for c in ctxs:
-        for label, price, change in c.get("quick", []):
-            rows.append([H(label), price, change])
+        for row in c.get("quick", []):
+            rows.append([H(row[0]), *row[1:]])
     if not rows:
         return []
     return ["<h3>⚡ نگاه سریع</h3>", _table(["", "قیمت", "تغییر روزانه"], rows, [None, "center", "center"])]
@@ -173,7 +173,7 @@ def _commodity_html(ctx):
 
     f = ctx.get("funds")
     if f:
-        parts += [f"<h3>{_e(f['title'])}</h3>", _table(["شاخص", "مقدار", "نسبت"], f["rows"], [None, "center", "center"])]
+        parts += [f"<h3>{_e(f['title'])}</h3>", _table(["شاخص", "مقدار", "نسبت", "مبنای نسبت"], f["rows"], [None, "center", "center", "center"])]
 
     parts += _assets_html(ctx)
     parts += _eskeh_html(ctx)
