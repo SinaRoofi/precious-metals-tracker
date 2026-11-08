@@ -45,18 +45,43 @@ def _cell(c, empty="—"):
     return _e(c) if str(c).strip() else empty
 
 
+class Span(H):
+    """سلول HTML آماده که چند ستون رو می‌گیره (colspan). مثلاً Span("خرید | فروش", 3)."""
+
+    def __new__(cls, text, n=2):
+        obj = super().__new__(cls, text)
+        obj.n = n
+        return obj
+
+
 def _table(headers, rows, aligns=None):
-    """جدول با حاشیه و ردیف‌های راه‌راه. aligns: لیست align برای هر ستون (مثلاً [None, 'center', 'center'])."""
-    def attr(i):
+    """جدول با حاشیه و ردیف‌های راه‌راه. aligns: لیست align برای هر ستون (مثلاً [None, 'center', 'center']).
+
+    سلول Span (colspan) همیشه وسط‌چین می‌شه.
+    """
+    def attr(i, span=1):
         # تلگرام دسکتاپ سلول‌های بدون align رو چپ‌چین نشون می‌داد (is_rtl فقط جهت متن رو عوض می‌کنه): ستون اول راست، بقیه وسط
+        if span > 1:
+            return f' colspan="{span}" align="center"'
         al = (aligns[i] if aligns and aligns[i] else None) or ("right" if i == 0 else "center")
         return f' align="{al}"'
-    head = "".join(f"<th{attr(i)}>{_cell(h, empty='')}</th>" for i, h in enumerate(headers))
-    body = "".join(
-        "<tr>" + "".join(f"<td{attr(i)}>{_cell(c)}</td>" for i, c in enumerate(r)) + "</tr>"
-        for r in rows
-    )
-    return f"<table bordered striped><tr>{head}</tr>{body}</table>"
+
+    def row_html(cells, tag, empty):
+        out, col = [], 0
+        for c in cells:
+            span = c.n if isinstance(c, Span) else 1
+            out.append(f"<{tag}{attr(col, span)}>{_cell(c, empty=empty)}</{tag}>")
+            col += span
+        return "<tr>" + "".join(out) + "</tr>"
+
+    head = row_html(headers, "th", "")
+    body = "".join(row_html(r, "td", "—") for r in rows)
+    return f"<table bordered striped>{head}{body}</table>"
+
+
+def _collapsible(title, inner_parts):
+    """بلاک تاشو (بسته به‌صورت پیش‌فرض). title متن ساده‌ست (escape می‌شه)."""
+    return [f"<details><summary>{_e(title)}</summary>", *inner_parts, "</details>"]
 
 
 def caption_to_rich_html(caption):
@@ -128,7 +153,7 @@ def _assets_html(ctx):
              "</details>"]
     for a in assets:
         for tb in a.get("tables", []):
-            parts += [f"<h3>{_e(tb['title'])}</h3>", _table(tb["headers"], tb["rows"], [None, "center", "center"])]
+            parts += _collapsible(tb["title"], [_table(tb["headers"], tb["rows"], [None, "center", "center"])])
     return parts
 
 
@@ -136,8 +161,8 @@ def _eskeh_html(ctx):
     e = ctx.get("eskeh")
     if not e:
         return []
-    return [f"<h3>{_e(e['title'])}{_time_tag(e.get('time'))}</h3>",
-            _table(["شاخص", "مقدار"], e["rows"], [None, "center"])]
+    return _collapsible(f"{e['title']}{_time_tag(e.get('time'))}",
+                        [_table(["شاخص", "مقدار"], e["rows"], [None, "center"])])
 
 
 def _commodity_html(ctx):
