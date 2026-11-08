@@ -1449,17 +1449,24 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         }
 
         funds_ctx = None
+        final_change_avg = None
         if funds_open:
+            # تغییر قیمت پایانی: همون «fund_final_price_avg» نمودار/شیت (میانگین ساده‌ی final_price_change صندوق‌ها)
+            if "final_price_change" in df_funds.columns and not df_funds.empty:
+                _fc = df_funds["final_price_change"].mean()
+                final_change_avg = None if pd.isna(_fc) else float(_fc)
             funds_ctx = {
                 "title": f"{fund_emoji} صندوق‌های {label}",
+                # ستون‌ها: شاخص | مقدار | نسبت (فقط عدد) | مبنای نسبت (تعریف)؛ ردیف بدون نسبت = یک سلول ادغام‌شده
                 "rows": [
-                    ["ارزش معاملات (میلیارد تومان)", f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}% میانگین ماهانه"],
-                    ["ورود پول (میلیارد تومان)", f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}% از ارزش معاملات"],
-                    ["آخرین قیمت (میانگین وزنی)", cpct(avg_change_percent_weighted, 2), ""],
-                    ["سرانه خرید", f"{sarane_kharid_w:,.0f}", f"{sarane_kharid_ratio_str} میانگین ۱۰ روز"],
-                    ["سرانه فروش", f"{sarane_forosh_w:,.0f}", f"{sarane_forosh_ratio_str} میانگین ۱۰ روز"],
-                    ["میانگین حباب", pct(avg_bubble_weighted, 2), ""],
-                    ["میانه حباب", pct(median_bubble, 2), ""],
+                    ["ارزش معاملات (میلیارد تومان)", f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"],
+                    ["ورود پول (میلیارد تومان)", f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"],
+                    ["تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2), Span("—", 2)],
+                    ["تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—", Span("—", 2)],
+                    ["سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"],
+                    ["سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"],
+                    ["میانگین حباب", pct(avg_bubble_weighted, 2), Span("—", 2)],
+                    ["میانه حباب", pct(median_bubble, 2), Span("—", 2)],
                 ],
             }
 
@@ -1535,7 +1542,10 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             b_unit = "ریال" if bullion_asset["price"].endswith("ریال") else "تومان"
             quick.append([f"<b>{bullion_asset['title']}</b> <sub>{b_unit}</sub>",
                           bullion_asset["price"].replace(" ریال", ""), bullion_asset["change"]])
-        quick = [(H(l), p_, c_) for l, p_, c_ in quick]
+        if funds_ctx:
+            # صندوق‌ها تو نگاه سریع: فقط «تغییر آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
+            quick.append([f"<b>{fund_emoji} صندوق‌های {label}</b> <sub>تغییر آخرین قیمت</sub>", Span(cpct(avg_change_percent_weighted, 2), 2)])
+        quick = [tuple(H(x) if i == 0 else x for i, x in enumerate(r)) for r in quick]
 
         ctx = {
             "commodity": commodity,
