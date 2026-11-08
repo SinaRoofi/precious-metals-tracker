@@ -7,6 +7,10 @@ on:
         description: "اجرا حتی اگه امروز تعطیل تشخیص داده بشه (فقط برای تست)"
         type: boolean
         default: false
+      rich_report:
+        description: "ارسال گزارش به‌صورت Rich Message (فقط وقتی force_run هم روشنه اثر داره؛ پیام جدید تو کانال اصلی)"
+        type: boolean
+        default: false
 
 concurrency:
   group: market-tracker
@@ -40,6 +44,7 @@ jobs:
       - name: Run Market Tracker
         env:
           FORCE_RUN: ${{ inputs.force_run }}
+          RICH_REPORT: ${{ inputs.rich_report }}
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
