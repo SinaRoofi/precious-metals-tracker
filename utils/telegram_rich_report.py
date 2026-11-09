@@ -7,7 +7,7 @@
 هر دو کالا تو «یک» پیام رندر می‌شن (دلار یک بار).
 
 چیدمان (از بالا به پایین):
-  آپدیت  →  ⚡ نگاه سریع (دلار/اونس/شمش)  →  💵 دلار  →  برای هر کالا: عنوان، اسلایدشوی عکس‌ها،
+  آپدیت  →  ⚡ خلاصه بازار (دلار/دلار درهم/اونس/شمش/صندوق‌ها)  →  💵 دلار  →  برای هر کالا: عنوان، اسلایدشوی عکس‌ها،
   اونس، صندوق‌ها، «قیمت دارایی‌ها» (یک جدول جمع‌وجور)، 🔬 دلار/اونس ضمنی (تاشو)، ⚖️ R/R شمش، 🏦 عسکه  →  هندل کانال
 """
 
@@ -60,10 +60,10 @@ def _table(headers, rows, aligns=None):
     سلول Span (colspan) همیشه وسط‌چین می‌شه.
     """
     def attr(i, span=1):
-        # تلگرام دسکتاپ سلول‌های بدون align رو چپ‌چین نشون می‌داد (is_rtl فقط جهت متن رو عوض می‌کنه): ستون اول راست، بقیه وسط
+        # تلگرام دسکتاپ سلول‌های بدون align رو چپ‌چین نشون می‌داد (is_rtl فقط جهت متن رو عوض می‌کنه): همه‌ی ستون‌ها (از جمله اول) وسط‌چین
         if span > 1:
             return f' colspan="{span}" align="center"'
-        al = (aligns[i] if aligns and aligns[i] else None) or ("right" if i == 0 else "center")
+        al = (aligns[i] if aligns and aligns[i] else None) or "center"
         return f' align="{al}"'
 
     def row_html(cells, tag, empty):
@@ -114,25 +114,29 @@ def _time_tag(t):
 
 
 def _quick_html(ctxs):
-    """⚡ نگاه سریع: دلار + اونس و شمش هر کالا تو یک جدول سه‌ستونه (روی گوشی بدون اسکرول افقی جا می‌شه)."""
+    """⚡ خلاصه بازار: دلار، دلار درهم، اونس و شمش هر کالا تو یک جدول سه‌ستونه (روی گوشی بدون اسکرول افقی جا می‌شه)."""
     rows = []
     d = ctxs[0]["dollar"].get("last")
     if d:
         rows.append([H("<b>💵 دلار</b> <sub>تومان</sub>"), d[0], d[1]])
+    dh = next((c["dollar"].get("dirham") for c in ctxs if c["dollar"].get("dirham")), None)
+    if dh:  # زیر دلار؛ dh = (قیمت, تغییر روزانه|None). بدون تغییر روزانه، قیمت رو دو ستون می‌گیره (بدون خط‌تیره‌ی خالی)
+        label = H("<b>🇦🇪 دلار درهم</b> <sub>تومان</sub>")
+        rows.append([label, dh[0], dh[1]] if dh[1] else [label, Span(_e(dh[0]), 2)])
     for c in ctxs:
         for row in c.get("quick", []):
             rows.append([H(row[0]), *row[1:]])
     if not rows:
         return []
-    return ["<h3>⚡ نگاه سریع</h3>", _table(["", "قیمت", "تغییر روزانه"], rows, [None, "center", "center"])]
+    return ["<h3>⚡ خلاصه بازار</h3>", _table(["", "قیمت", "تغییر روزانه"], rows, [None, "center", "center"])]
 
 
 def _dollar_html(ctx):
     d = ctx["dollar"]
     parts = ["<h2>💵 دلار</h2>", _table(d["head"], d["rows"])]
     if d.get("valuation"):
-        parts += ["<h4>🧮 کف، ارزش و سقف</h4>",
-                  _table(["ارزش‌گذاری دلار", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"])]
+        parts += ["<h4>🧮 ارزش‌گذاری دلار</h4>",
+                  _table(["", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"])]
     return parts
 
 
@@ -149,7 +153,7 @@ def _assets_html(ctx):
     parts = ["<h3>🏷 قیمت دارایی‌ها</h3>",
              _table(["دارایی", "قیمت (تومان)", "تغییر", "حباب"], price_rows, [None, "center", "center", "center"]),
              "<details><summary>🔬 دلار و اونس ضمنی هر دارایی</summary>",
-             _table(["دارایی", "دلار ضمنی", "اونس ضمنی"], implied_rows, [None, "center", "center"]),
+             _table(["دارایی", H("دلار ضمنی <sub>تومان</sub>"), "اونس ضمنی"], implied_rows, [None, "center", "center"]),
              "</details>"]
     for a in assets:
         for tb in a.get("tables", []):
@@ -181,7 +185,7 @@ def _commodity_html(ctx):
 
 
 def render_rich_merged(parts_list):
-    """یک پیام برای چند کالا: آپدیت + نگاه سریع + دلار (یک بار) → برای هر کالا: عنوان، اسلایدشوی عکس‌هاش و جزئیات → هندل.
+    """یک پیام برای چند کالا: آپدیت + خلاصه بازار + دلار (یک بار) → برای هر کالا: عنوان، اسلایدشوی عکس‌هاش و جزئیات → هندل.
 
     parts_list: لیست مرتب {"commodity", "images", "ctx"|"html"}؛ عکس n‌ام (۱..) با id=img{n} تو media می‌ره.
     """
