@@ -1047,6 +1047,28 @@ def _bullion_returns(commodity, dollar_now, ounce_now, shams_now):
         return None
 
 
+def _sheet_daily_mean(commodity, column, n=20, min_days=5):
+    """میانگین مقدار پایانیِ روزانه‌ی یک ستون شیت تو n روز معاملاتیِ قبل از امروز. None اگه کمتر از min_days روز داده هست
+    یا شیت خونده نشد. (همون الگوی _bullion_returns: آخرین ردیف هر روز، فقط روزهای قبل از امروز)"""
+    import pandas as pd
+    from config import STANDARD_HEADER
+    try:
+        rows = read_from_sheets(commodity, limit=3000)
+        if not rows:
+            return None
+        df = pd.DataFrame(rows, columns=STANDARD_HEADER)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"])
+        today = datetime.now(pytz.timezone(TIMEZONE)).date()
+        df = df[df["timestamp"].dt.date < today]
+        series = pd.to_numeric(df[column], errors="coerce")
+        daily = series.groupby(df["timestamp"].dt.date).last().dropna().iloc[-n:]
+        return float(daily.mean()) if len(daily) >= min_days else None
+    except Exception as e:
+        logger.warning(f"⚠️ [{commodity}] میانگین {column} از شیت ناموفق: {e}")
+        return None
+
+
 def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yesterday, yesterday_close):
     """
     تصویر اول گزارش تو روزی که بازار صندوق‌ها بسته‌ست (جایگزین نقشه‌ی صندوق‌ها، مثلاً پنج‌شنبه):
@@ -1454,17 +1476,6 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 _fc = df_funds["final_price_change"].mean()
                 final_change_avg = None if pd.isna(_fc) else float(_fc)
 
-            # میانگین ماهانه‌ی حباب (وزنی به ارزش معاملات، هم‌وزن با میانگین حباب امروز): مبنای «نسبت» ردیف میانگین حباب.
-            # اگه مبنا صفر/منفی یا نامعلوم باشه نسبت بی‌معنیه → خط‌تیره.
-            bubble_ratio = None
-            if "avg_monthly_bubble" in df_funds.columns and not df_funds.empty:
-                _mb = pd.to_numeric(df_funds["avg_monthly_bubble"], errors="coerce")
-                _w = pd.to_numeric(df_funds["value"], errors="coerce")
-                _m = _mb.notna() & _w.notna()
-                if _m.any() and _w[_m].sum() > 0:
-                    _base = float((_mb[_m] * _w[_m]).sum() / _w[_m].sum())
-                    if _base > 0:
-                        bubble_ratio = f"{avg_bubble_weighted / _base * 100:.0f}%"
             # قدرت خرید (buyPower از API): میانگین وزنیِ ارزش معاملات صندوق‌ها، هم‌وزن با سرانه‌ها و حباب
             buy_power_w = None
             if "buy_power" in df_funds.columns and not df_funds.empty:
@@ -1477,28 +1488,35 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                         f"{'—' if buy_power_w is None else f'{buy_power_w:,.2f}'} | "
                         f"سرانه خرید÷فروش: {(sarane_kharid_w / sarane_forosh_w) if sarane_forosh_w else float('nan'):,.2f}")
             sarane_gap = sarane_kharid_w - sarane_forosh_w  # = میانگین وزنیِ اختلاف سرانه‌ی صندوق‌ها
+            gap_avg = _sheet_daily_mean(commodity, "ekhtelaf_sarane_weighted", n=20)  # میانگین ماهانه‌ی (۲۰ روز معاملاتی) از شیت
 
             def frow(label, value, ratio=None, basis=""):
-                """ردیف جدول صندوق‌ها: ۴ ستون (شاخص | مقدار | نسبت | مبنای نسبت)؛ بدون نسبت، مقدار سه ستون رو یکپارچه می‌گیره (خط‌تیره‌ی خالی نداریم)."""
+                """ردیف جدول «معاملات و پول»: ۴ ستون (شاخص | مقدار | نسبت | مبنای نسبت)؛ بدون نسبت، مقدار سه ستون رو یکپارچه می‌گیره."""
                 if ratio in (None, "", "—"):
                     return [label, Span(value, 3)]
                 return [label, value, ratio, basis]
 
+            def avgrow(label, value, avg_text):
+                """ردیف با «میانگین» به‌جای نسبت: مقدار | میانگین (یکپارچه رو دو ستون آخر)."""
+                return [label, value, Span(avg_text, 2)] if avg_text else frow(label, value)
+
             funds_ctx = {
                 "title": f"{fund_emoji} صندوق‌های {label}",
                 "tables": [
-                    {"title": "قیمت و حباب", "rows": [
-                        frow("تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2)),
-                        frow("تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—"),
-                        frow("میانگین حباب", pct(avg_bubble_weighted, 2), bubble_ratio, "میانگین ماهانه"),
-                        frow("میانه حباب", pct(median_bubble, 2)),
+                    # بدون نسبت/درصد: فقط شاخص و مقدار
+                    {"title": "قیمت و حباب", "headers": ["شاخص", "مقدار"], "rows": [
+                        ["تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2)],
+                        ["تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—"],
+                        ["میانگین حباب", pct(avg_bubble_weighted, 2)],
+                        ["میانه حباب", pct(median_bubble, 2)],
                     ]},
                     {"title": "معاملات و پول", "rows": [
                         frow(H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"),
                         frow(H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
                         frow("سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"),
                         frow("سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"),
-                        frow("اختلاف سرانه", f"{dot(sarane_gap, 0)} {sarane_gap:+,.0f}"),
+                        avgrow("اختلاف سرانه", f"{dot(sarane_gap, 0)} {sarane_gap:+,.0f}",
+                               None if gap_avg is None else f"میانگین ۲۰ روز: {gap_avg:+,.0f}"),
                         frow("قدرت خرید", "—" if buy_power_w is None else f"{buy_power_w:,.2f}"),
                     ]},
                 ],
