@@ -1122,12 +1122,12 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
     if rr is not None:
         def target(v):
             return fmt_num(v / divisor, ",.0f", f" {unit}")
-        scen = ["تا سقف", "تا ارزش"]
+        scen = ["کران بالا", "ارزش دلار"]
         t2_cells = [scen, [target(rr["value_high"]), target(rr["value_value"])],
                     [fmt_num(_z(rr["reward_high"], 2), "+.2f", "%"), fmt_num(_z(rr["reward_value"], 2), "+.2f", "%")],
                     [fmt_num(_z(-rr["risk"], 2), "+.2f", "%")] * 2,
                     [fmt_num(rr["rr_high"], ".2f"), fmt_num(rr["rr_value"], ".2f")], scen]
-        t2_header = ["سناریو", "هدف", "ریوارد", "ریسک تا کف", "R/R", "سناریو"]
+        t2_header = ["سناریو", "هدف", "ریوارد", "ریسک تا کران پایین", "R/R", "سناریو"]
 
         def rr_color(v):
             if v is None:
@@ -1427,19 +1427,17 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         dollar_rows = [
             ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
             # خرید و فروش تو «یک» ردیف (سه ستون ادغام‌شده)؛ قبلاً دو ردیف با خط‌تیره‌ی خالی بود
-            ["خرید | فروش", Span(f"🟢 {dollar_prices['bid']:,.0f}  |  🔴 {dollar_prices['ask']:,.0f}", 3)],
+            ["سرخط خرید | فروش", Span(f"🟢 {dollar_prices['bid']:,.0f}  |  🔴 {dollar_prices['ask']:,.0f}", 3)],
         ]
         valuation = []
         if commodity != "silver":
             valuation = [
-                ["کف", f"{low_total:,.0f}", pct(low_pct, 1, False)],
-                ["ارزش", f"{value_total:,.0f}", pct(value_pct, 1, False)],
-                ["سقف", f"{high_total:,.0f}", pct(high_pct, 1, False)],
+                ["کران پایین", f"{low_total:,.0f}", pct(low_pct, 1, False)],
+                ["ارزش دلار", f"{value_total:,.0f}", pct(value_pct, 1, False)],
+                ["کران بالا", f"{high_total:,.0f}", pct(high_pct, 1, False)],
             ]
             if tether_price is not None and _caption_flag("SHOW_TETHER_IN_CAPTION", False):
                 valuation.append(["تتر", f"{tether_price:,.0f}", pct(tether_change_percent, 1)])
-            if show_dirham and dollar_from_dirham is not None:
-                valuation.append(["دلار ضمنی از درهم", f"{dollar_from_dirham:,.0f}", pct(dirham_diff_pct, 1)])
 
         ounce_ctx = {
             "title": f"{ounce_emoji} اونس {label}",
@@ -1455,17 +1453,31 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             if "final_price_change" in df_funds.columns and not df_funds.empty:
                 _fc = df_funds["final_price_change"].mean()
                 final_change_avg = None if pd.isna(_fc) else float(_fc)
+
+            # میانگین ماهانه‌ی حباب (وزنی به ارزش معاملات، هم‌وزن با میانگین حباب امروز): مبنای «نسبت» ردیف میانگین حباب.
+            # اگه مبنا صفر/منفی یا نامعلوم باشه نسبت بی‌معنیه → خط‌تیره.
+            bubble_ratio = None
+            if "avg_monthly_bubble" in df_funds.columns and not df_funds.empty:
+                _mb = pd.to_numeric(df_funds["avg_monthly_bubble"], errors="coerce")
+                _w = pd.to_numeric(df_funds["value"], errors="coerce")
+                _m = _mb.notna() & _w.notna()
+                if _m.any() and _w[_m].sum() > 0:
+                    _base = float((_mb[_m] * _w[_m]).sum() / _w[_m].sum())
+                    if _base > 0:
+                        bubble_ratio = f"{avg_bubble_weighted / _base * 100:.0f}%"
+            bubble_cells = [bubble_ratio, "میانگین ماهانه"] if bubble_ratio else [Span("—", 2)]
+
             funds_ctx = {
                 "title": f"{fund_emoji} صندوق‌های {label}",
                 # ستون‌ها: شاخص | مقدار | نسبت (فقط عدد) | مبنای نسبت (تعریف)؛ ردیف بدون نسبت = یک سلول ادغام‌شده
                 "rows": [
-                    ["ارزش معاملات (میلیارد تومان)", f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"],
-                    ["ورود پول (میلیارد تومان)", f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"],
                     ["تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2), Span("—", 2)],
                     ["تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—", Span("—", 2)],
+                    [H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"],
+                    [H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"],
                     ["سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"],
                     ["سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"],
-                    ["میانگین حباب", pct(avg_bubble_weighted, 2), Span("—", 2)],
+                    ["میانگین حباب", pct(avg_bubble_weighted, 2), *bubble_cells],
                     ["میانه حباب", pct(median_bubble, 2), Span("—", 2)],
                 ],
             }
@@ -1475,7 +1487,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         if rr and (rr["rr_high"] is not None or rr["rr_value"] is not None):
             rr_rows = []
             if rr["rr_high"] is not None:
-                rr_rows.append(["سقف دلار", f"{reward_emoji(rr['reward_high'])} {pct(rr['reward_high'], 2)}", format_rr_ratio(rr["rr_high"])])
+                rr_rows.append(["کران بالا", f"{reward_emoji(rr['reward_high'])} {pct(rr['reward_high'], 2)}", format_rr_ratio(rr["rr_high"])])
             if rr["rr_value"] is not None:
                 rr_rows.append(["ارزش دلار", f"{reward_emoji(rr['reward_value'])} {pct(rr['reward_value'], 2)}", format_rr_ratio(rr["rr_value"])])
             rr_table = {"title": "⚖️ ریسک به ریوارد شمش (تا پایان سال)",
@@ -1535,7 +1547,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 "tables": [rr_table] if (rr_table and key == bullion_key) else [],
             })
 
-        # «نگاه سریع» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
+        # «خلاصه بازار» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
         quick = [[f"<b>{ounce_ctx['title']}</b> <sub>دلار</sub>", f"{global_price:{ounce_fmt}}", cpct(global_change, 2)]]
         bullion_asset = next((a for a in assets_ctx if a["key"] == bullion_key), None)
         if bullion_asset:
@@ -1543,7 +1555,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             quick.append([f"<b>{bullion_asset['title']}</b> <sub>{b_unit}</sub>",
                           bullion_asset["price"].replace(" ریال", ""), bullion_asset["change"]])
         if funds_ctx:
-            # صندوق‌ها تو نگاه سریع: فقط «تغییر آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
+            # صندوق‌ها تو خلاصه بازار: فقط «تغییر آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
             quick.append([f"<b>{fund_emoji} صندوق‌های {label}</b> <sub>تغییر آخرین قیمت</sub>", Span(cpct(avg_change_percent_weighted, 2), 2)])
         quick = [tuple(H(x) if i == 0 else x for i, x in enumerate(r)) for r in quick]
 
@@ -1552,7 +1564,11 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             "section_title": f"{fund_emoji} بازار {label}",
             "update": current_time,
             "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation,
-                       "last": (f"{dollar_last:,.0f}", cpct(dollar_change, 2))},
+                       "last": (f"{dollar_last:,.0f}", cpct(dollar_change, 2)),
+                       # دلار درهم: ردیف خلاصه بازار (قیمت، تغییر روزانه)؛ مستقل از طلا/نقره.
+                       # تغییر روزانه‌ی درهم هنوز از منبع (alanchand) خونده نمی‌شه → None = فقط قیمت
+                       "dirham": ((f"{dollar_from_dirham:,.0f}", None)
+                                  if (show_dirham and dollar_from_dirham is not None) else None)},
             "ounce": ounce_ctx,
             "funds": funds_ctx,
             "assets": assets_ctx,
