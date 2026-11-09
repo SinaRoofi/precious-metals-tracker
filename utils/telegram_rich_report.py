@@ -179,8 +179,9 @@ def _commodity_html(ctx):
     if f:
         parts.append(f"<h3>{_e(f['title'])}</h3>")
         for tb in f["tables"]:  # دو جدول: «قیمت و حباب» و «معاملات و پول»
+            headers = tb.get("headers") or ["شاخص", "مقدار", "نسبت", "مبنای نسبت"]
             parts += [f"<h4>{_e(tb['title'])}</h4>",
-                      _table(["شاخص", "مقدار", "نسبت", "مبنای نسبت"], tb["rows"], [None, "center", "center", "center"])]
+                      _table(headers, tb["rows"], [None] + ["center"] * (len(headers) - 1))]
 
     parts += _assets_html(ctx)
     parts += _eskeh_html(ctx)
