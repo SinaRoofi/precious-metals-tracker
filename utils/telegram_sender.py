@@ -1465,20 +1465,42 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     _base = float((_mb[_m] * _w[_m]).sum() / _w[_m].sum())
                     if _base > 0:
                         bubble_ratio = f"{avg_bubble_weighted / _base * 100:.0f}%"
-            bubble_cells = [bubble_ratio, "میانگین ماهانه"] if bubble_ratio else [Span("—", 2)]
+            # قدرت خرید (buyPower از API): میانگین وزنیِ ارزش معاملات صندوق‌ها، هم‌وزن با سرانه‌ها و حباب
+            buy_power_w = None
+            if "buy_power" in df_funds.columns and not df_funds.empty:
+                _bp = pd.to_numeric(df_funds["buy_power"], errors="coerce")
+                _w2 = pd.to_numeric(df_funds["value"], errors="coerce")
+                _m2 = _bp.notna() & _w2.notna()
+                if _m2.any() and _w2[_m2].sum() > 0:
+                    buy_power_w = float((_bp[_m2] * _w2[_m2]).sum() / _w2[_m2].sum())
+            logger.info(f"💪 [{commodity}] قدرت خرید (وزنی از API): "
+                        f"{'—' if buy_power_w is None else f'{buy_power_w:,.2f}'} | "
+                        f"سرانه خرید÷فروش: {(sarane_kharid_w / sarane_forosh_w) if sarane_forosh_w else float('nan'):,.2f}")
+            sarane_gap = sarane_kharid_w - sarane_forosh_w  # = میانگین وزنیِ اختلاف سرانه‌ی صندوق‌ها
+
+            def frow(label, value, ratio=None, basis=""):
+                """ردیف جدول صندوق‌ها: ۴ ستون (شاخص | مقدار | نسبت | مبنای نسبت)؛ بدون نسبت، مقدار سه ستون رو یکپارچه می‌گیره (خط‌تیره‌ی خالی نداریم)."""
+                if ratio in (None, "", "—"):
+                    return [label, Span(value, 3)]
+                return [label, value, ratio, basis]
 
             funds_ctx = {
                 "title": f"{fund_emoji} صندوق‌های {label}",
-                # ستون‌ها: شاخص | مقدار | نسبت (فقط عدد) | مبنای نسبت (تعریف)؛ ردیف بدون نسبت = یک سلول ادغام‌شده
-                "rows": [
-                    ["تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2), Span("—", 2)],
-                    ["تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—", Span("—", 2)],
-                    [H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"],
-                    [H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"],
-                    ["سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"],
-                    ["سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"],
-                    ["میانگین حباب", pct(avg_bubble_weighted, 2), *bubble_cells],
-                    ["میانه حباب", pct(median_bubble, 2), Span("—", 2)],
+                "tables": [
+                    {"title": "قیمت و حباب", "rows": [
+                        frow("تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2)),
+                        frow("تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—"),
+                        frow("میانگین حباب", pct(avg_bubble_weighted, 2), bubble_ratio, "میانگین ماهانه"),
+                        frow("میانه حباب", pct(median_bubble, 2)),
+                    ]},
+                    {"title": "معاملات و پول", "rows": [
+                        frow(H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"),
+                        frow(H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
+                        frow("سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"),
+                        frow("سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"),
+                        frow("اختلاف سرانه", f"{dot(sarane_gap, 0)} {sarane_gap:+,.0f}"),
+                        frow("قدرت خرید", "—" if buy_power_w is None else f"{buy_power_w:,.2f}"),
+                    ]},
                 ],
             }
 
