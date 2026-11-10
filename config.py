@@ -130,7 +130,7 @@ ALERT_CHANNEL_HANDLE = "@ALERT_METALS"
 VALUE_DIFF = 111_000
 LOW_VALUE = 162
 VALUE = 285
-HIGH_VALUE = 581
+HIGH_VALUE = 605
 
 # ════════════════════════════════════════════════════════════════
 # 🧾 تاگل‌های کپشن گزارش تلگرام (فقط کپشن طلا)
