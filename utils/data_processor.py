@@ -185,6 +185,8 @@ def process_funds_data(data, commodity):
             "sarane_kharid": _dig(row, "live", "market", "clientType", "realBuyPerCapitaValue"),
             "sarane_forosh": _dig(row, "live", "market", "clientType", "realSellPerCapitaValue"),
             "buy_power": _dig(row, "live", "market", "clientType", "buyPower"),
+            # میانگین ۲۰ روزه‌ی قدرت خرید (static.marketHistory.buyPower: پنجره‌های ۵/۱۰/۲۰/۶۰ روز)
+            "buy_power_avg20": _dig(row, "static", "marketHistory", "buyPower", "20"),
             "pol_hagigi": _dig(row, "live", "market", "clientType", "moneyFlowValue"),
             "buy_order_value": _dig(row, "live", "market", "orders", "buyValue"),
             "sell_order_value": _dig(row, "live", "market", "orders", "sellValue"),
@@ -266,6 +268,8 @@ def process_funds_data(data, commodity):
     # قدرت خرید (buyPower) از API؛ قبلاً با final_columns حذف می‌شد. انتهای لیست اضافه می‌شه تا ترتیب بقیه ستون‌ها عوض نشه.
     if "buy_power" in Fund_df.columns:
         Fund_df["buy_power"] = pd.to_numeric(Fund_df["buy_power"], errors="coerce")
+    if "buy_power_avg20" in Fund_df.columns:
+        Fund_df["buy_power_avg20"] = pd.to_numeric(Fund_df["buy_power_avg20"], errors="coerce")
 
     Fund_df["value_to_avg_ratio"] = pd.to_numeric(
         Fund_df["value_to_avg_ratio"], errors="coerce"
@@ -286,7 +290,7 @@ def process_funds_data(data, commodity):
         "net_asset", "sarane_kharid", "sarane_forosh", "ekhtelaf_sarane",
         "pol_hagigi", "avg_money_flow_5", "cumulative_money_flow_20", "pol_to_value_ratio",
         "value", "avg_weekly_value", "avg_monthly_value", "value_to_avg_ratio",
-        "buy_power",
+        "buy_power", "buy_power_avg20",
     ]
     existing_columns = [col for col in final_columns if col in Fund_df.columns]
     Fund_df = Fund_df[existing_columns]
