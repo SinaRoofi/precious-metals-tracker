@@ -109,6 +109,11 @@ def _slideshow(ids):
     return f"<tg-slideshow>{imgs}</tg-slideshow>"
 
 
+def _plain_title(title):
+    """اسم دارایی بدون ایموجی ابتدایی (تو جدول دارایی‌ها و دلار/اونس ضمنی)."""
+    return re.sub(r"^[^\w\u0600-\u06FF]+", "", str(title)).strip()
+
+
 def _time_tag(t):
     return f" 🕐 {_e(t)}" if t else ""
 
@@ -134,9 +139,9 @@ def _quick_html(ctxs):
 def _dollar_html(ctx):
     d = ctx["dollar"]
     parts = ["<h2>💵 دلار</h2>", _table(d["head"], d["rows"])]
-    if d.get("valuation"):
-        parts += ["<h4>🧮 ارزش‌گذاری دلار</h4>",
-                  _table(["", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"])]
+    if d.get("valuation"):  # ارزش‌گذاری (کف/ارزش/سقف/درهم) تاشوئه
+        parts += _collapsible("🧮 ارزش‌گذاری دلار",
+                              [_table(["", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"])])
     return parts
 
 
@@ -147,9 +152,9 @@ def _assets_html(ctx):
         return []
     price_rows, implied_rows = [], []
     for a in assets:
-        name = H(f"{_e(a['title'])}" + (f" <sub>{_e(a['time'])}</sub>" if a.get("time") else ""))
+        name = H(f"{_e(_plain_title(a['title']))}" + (f" <sub>{_e(a['time'])}</sub>" if a.get("time") else ""))
         price_rows.append([name, a["price"], a["change"], a["bubble"]])
-        implied_rows.append([H(_e(a["title"])), a["dollar"], a["ounce"]])
+        implied_rows.append([H(_e(_plain_title(a["title"]))), a["dollar"], a["ounce"]])
     parts = ["<h3>🏷 قیمت دارایی‌ها</h3>",
              _table(["دارایی", "قیمت (تومان)", "تغییر", "حباب"], price_rows, [None, "center", "center", "center"]),
              "<details><summary>🔬 دلار و اونس ضمنی هر دارایی</summary>",
@@ -182,6 +187,9 @@ def _commodity_html(ctx):
             headers = tb.get("headers") or ["شاخص", "مقدار", "نسبت", "مبنای نسبت"]
             parts += [f"<h4>{_e(tb['title'])}</h4>",
                       _table(headers, tb["rows"], [None] + ["center"] * (len(headers) - 1))]
+        top = f.get("top")
+        if top and top["rows"]:  # ۵ صندوق پرمعامله: تاشو
+            parts += _collapsible(top["summary"], [_table(top["headers"], top["rows"], [None, "center", "center", "center"])])
 
     parts += _assets_html(ctx)
     parts += _eskeh_html(ctx)
