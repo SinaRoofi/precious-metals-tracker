@@ -1228,7 +1228,7 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
 
 # اسم کامل دارایی‌ها تو کپشن Rich (کپشن عادی دست نمی‌خوره)
 # نقطه‌های رنگی 🟢/🔴 جلوی درصدها و عددها (Rich رنگ متن نداره). False = همه‌جا حذف می‌شن.
-RICH_COLOR_DOTS = True
+RICH_COLOR_DOTS = False
 
 RICH_ASSET_NAMES = {
     "طلا-گرم-24-عیار": "طلای ۲۴ عیار",
@@ -1524,19 +1524,19 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     ]},
                     {"title": "معاملات و پول", "headers": ["شاخص", "مقدار", "نسبت / اختلاف", "مبنا"], "rows": [
                         frow(H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"),
-                        frow(H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)}{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
+                        frow(H("ورود پول <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)}{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
                         frow("سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"),
                         frow("سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"),
-                        # اختلاف سرانه و قدرت خرید: «اختلاف» با میانگین ۲۰ روز (امروز − میانگین)؛ چون علامتشون می‌تونه عوض بشه
+                        # اختلاف سرانه و قدرت خرید: «اختلاف» با میانگین ماهانه (۲۰ روز معاملاتی؛ امروز − میانگین)؛ چون علامتشون می‌تونه عوض بشه
                         # و نسبت‌گیری بین مقدارِ مثبت و منفی بی‌معنیه. مثال: امروز +150، میانگین −150 ← اختلاف +300.
                         frow("اختلاف سرانه", f"{dot(sarane_gap, 0)}{sarane_gap:+,.0f}",
                              f"{sarane_gap - gap_avg:+,.0f}" if gap_avg is not None else None,
-                             f"از میانگین ۲۰ روز ({gap_avg:+,.0f})" if gap_avg is not None else ""),
+                             f"از میانگین ماهانه ({gap_avg:+,.0f})" if gap_avg is not None else ""),
                         (frow("قدرت خرید", f"{dot(buy_power_w, 2)}{buy_power_w:+.2f}",
                               f"{buy_power_w - buy_power_avg:+.2f}" if buy_power_avg is not None else None,
-                              f"از میانگین ۲۰ روز ({buy_power_avg:+.2f})" if buy_power_avg is not None else "")
+                              f"از میانگین ماهانه ({buy_power_avg:+.2f})" if buy_power_avg is not None else "")
                          if buy_power_w is not None else
-                         avgrow("قدرت خرید", "—", None if buy_power_avg is None else f"میانگین ۲۰ روز: {buy_power_avg:+.2f}")),
+                         avgrow("قدرت خرید", "—", None if buy_power_avg is None else f"میانگین ماهانه: {buy_power_avg:+.2f}")),
                     ]},
                 ],
             }
