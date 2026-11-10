@@ -1227,6 +1227,9 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
 
 
 # اسم کامل دارایی‌ها تو کپشن Rich (کپشن عادی دست نمی‌خوره)
+# نقطه‌های رنگی 🟢/🔴 جلوی درصدها و عددها (Rich رنگ متن نداره). False = همه‌جا حذف می‌شن.
+RICH_COLOR_DOTS = True
+
 RICH_ASSET_NAMES = {
     "طلا-گرم-24-عیار": "طلای ۲۴ عیار",
     "طلا-گرم-18-عیار": "طلای ۱۸ عیار",
@@ -1425,11 +1428,13 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
         def dot(v, d=1):
             """نقطه‌ی رنگی جلوی عدد (Rich رنگ متن نداره): 🟢 مثبت | 🔴 منفی | ⚪ صفر؛ بر اساس مقدارِ گردشده‌ی نمایشی."""
+            if not RICH_COLOR_DOTS:
+                return ""
             r = round(v, d)
-            return "🟢" if r > 0 else ("🔴" if r < 0 else "⚪")
+            return ("🟢" if r > 0 else ("🔴" if r < 0 else "⚪")) + " "
 
         def cpct(v, d=1):
-            return f"{dot(v, d)} {pct(v, d)}"
+            return f"{dot(v, d)}{pct(v, d)}"
 
         def rich_title(key, title):
             if key in RICH_ASSET_NAMES:  # ایموجی عنوان می‌مونه، اسم کامل می‌شه
@@ -1476,17 +1481,24 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 _fc = df_funds["final_price_change"].mean()
                 final_change_avg = None if pd.isna(_fc) else float(_fc)
 
-            # قدرت خرید (buyPower از API): میانگین وزنیِ ارزش معاملات صندوق‌ها، هم‌وزن با سرانه‌ها و حباب
-            buy_power_w = None
-            if "buy_power" in df_funds.columns and not df_funds.empty:
-                _bp = pd.to_numeric(df_funds["buy_power"], errors="coerce")
-                _w2 = pd.to_numeric(df_funds["value"], errors="coerce")
-                _m2 = _bp.notna() & _w2.notna()
-                if _m2.any() and _w2[_m2].sum() > 0:
-                    buy_power_w = float((_bp[_m2] * _w2[_m2]).sum() / _w2[_m2].sum())
-            logger.info(f"💪 [{commodity}] قدرت خرید (وزنی از API): "
-                        f"{'—' if buy_power_w is None else f'{buy_power_w:,.2f}'} | "
-                        f"سرانه خرید÷فروش: {(sarane_kharid_w / sarane_forosh_w) if sarane_forosh_w else float('nan'):,.2f}")
+            # قدرت خرید (buyPower از API) = نسبتِ علامت‌دار سرانه‌ها: مثبت = خریدارها قوی‌ترن (سرانه خرید÷فروش)،
+            # منفی = فروشنده‌ها قوی‌ترن (−سرانه فروش÷خرید)؛ قدرِ مطلقش همیشه ≥۱ ـه. امروز: میانگین وزنیِ ارزش معاملاتِ
+            # صندوق‌ها؛ میانگین ۲۰ روزه: همون میانگین وزنی با وزنِ «میانگین ماهانه‌ی ارزش معاملات» (static.marketHistory).
+            def _wmean(col, wcol):
+                if col not in df_funds.columns or df_funds.empty:
+                    return None
+                v = pd.to_numeric(df_funds[col], errors="coerce")
+                w = pd.to_numeric(df_funds[wcol], errors="coerce")
+                m = v.notna() & w.notna() & (w > 0)
+                return float((v[m] * w[m]).sum() / w[m].sum()) if m.any() else None
+
+            buy_power_w = _wmean("buy_power", "value")
+            buy_power_avg = _wmean("buy_power_avg20", "avg_monthly_value")
+            _signed = (sarane_kharid_w / sarane_forosh_w if sarane_kharid_w >= sarane_forosh_w else -(sarane_forosh_w / sarane_kharid_w)) \
+                if sarane_kharid_w and sarane_forosh_w else float("nan")
+            logger.info(f"💪 [{commodity}] قدرت خرید: امروز={'—' if buy_power_w is None else f'{buy_power_w:+.2f}'} | "
+                        f"میانگین ۲۰ روز={'—' if buy_power_avg is None else f'{buy_power_avg:+.2f}'} | "
+                        f"نسبت علامت‌دار سرانه‌ها (برای تطبیق)={_signed:+.2f}")
             sarane_gap = sarane_kharid_w - sarane_forosh_w  # = میانگین وزنیِ اختلاف سرانه‌ی صندوق‌ها
             gap_avg = _sheet_daily_mean(commodity, "ekhtelaf_sarane_weighted", n=20)  # میانگین ماهانه‌ی (۲۰ روز معاملاتی) از شیت
 
@@ -1505,21 +1517,42 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 "tables": [
                     # بدون نسبت/درصد: فقط شاخص و مقدار
                     {"title": "قیمت و حباب", "headers": ["شاخص", "مقدار"], "rows": [
-                        ["تغییر آخرین قیمت", cpct(avg_change_percent_weighted, 2)],
-                        ["تغییر قیمت پایانی", cpct(final_change_avg, 2) if final_change_avg is not None else "—"],
+                        ["آخرین قیمت ٪", cpct(avg_change_percent_weighted, 2)],
+                        ["قیمت پایانی ٪", cpct(final_change_avg, 2) if final_change_avg is not None else "—"],
                         ["میانگین حباب", pct(avg_bubble_weighted, 2)],
                         ["میانه حباب", pct(median_bubble, 2)],
                     ]},
-                    {"title": "معاملات و پول", "rows": [
+                    {"title": "معاملات و پول", "headers": ["شاخص", "مقدار", "نسبت / اختلاف", "مبنا"], "rows": [
                         frow(H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"),
-                        frow(H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)} {total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
+                        frow(H("ورود پول حقیقی <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)}{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
                         frow("سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"),
                         frow("سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"),
-                        avgrow("اختلاف سرانه", f"{dot(sarane_gap, 0)} {sarane_gap:+,.0f}",
-                               None if gap_avg is None else f"میانگین ۲۰ روز: {gap_avg:+,.0f}"),
-                        frow("قدرت خرید", "—" if buy_power_w is None else f"{buy_power_w:,.2f}"),
+                        # اختلاف سرانه و قدرت خرید: «اختلاف» با میانگین ۲۰ روز (امروز − میانگین)؛ چون علامتشون می‌تونه عوض بشه
+                        # و نسبت‌گیری بین مقدارِ مثبت و منفی بی‌معنیه. مثال: امروز +150، میانگین −150 ← اختلاف +300.
+                        frow("اختلاف سرانه", f"{dot(sarane_gap, 0)}{sarane_gap:+,.0f}",
+                             f"{sarane_gap - gap_avg:+,.0f}" if gap_avg is not None else None,
+                             f"از میانگین ۲۰ روز ({gap_avg:+,.0f})" if gap_avg is not None else ""),
+                        (frow("قدرت خرید", f"{dot(buy_power_w, 2)}{buy_power_w:+.2f}",
+                              f"{buy_power_w - buy_power_avg:+.2f}" if buy_power_avg is not None else None,
+                              f"از میانگین ۲۰ روز ({buy_power_avg:+.2f})" if buy_power_avg is not None else "")
+                         if buy_power_w is not None else
+                         avgrow("قدرت خرید", "—", None if buy_power_avg is None else f"میانگین ۲۰ روز: {buy_power_avg:+.2f}")),
                     ]},
                 ],
+            }
+
+            # ۵ صندوق پرارزش‌ترین معاملات (امروز؛ اگه هنوز معامله‌ای نیست بر اساس میانگین ماهانه‌ی ارزش) — عمداً بدون نقطه‌ی رنگی
+            _key = "value" if pd.to_numeric(df_funds["value"], errors="coerce").fillna(0).sum() > 0 else "avg_monthly_value"
+            _top = df_funds.assign(_k=pd.to_numeric(df_funds[_key], errors="coerce")).sort_values("_k", ascending=False).head(5)
+
+            def _p(x, d):
+                return "—" if pd.isna(x) else pct(x, d)
+
+            funds_ctx["top"] = {
+                "summary": f"🏆 ۵ صندوق پرمعامله {label}",
+                "headers": ["صندوق", "آخرین قیمت ٪", "حباب", "قدرت پول"],
+                "rows": [[str(sym), _p(r.get("close_price_change_percent"), 2), _p(r.get("nominal_bubble"), 2),
+                          _p(r.get("pol_to_value_ratio"), 0)] for sym, r in _top.iterrows()],
             }
 
         # ریسک به ریوارد: جدولش زیر خود شمش میاد
