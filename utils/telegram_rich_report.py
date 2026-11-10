@@ -81,7 +81,8 @@ def _table(headers, rows, aligns=None):
 
 def _collapsible(title, inner_parts):
     """بلاک تاشو (بسته به‌صورت پیش‌فرض). title متن ساده‌ست (escape می‌شه)."""
-    return [f"<details><summary>{_e(title)}</summary>", *inner_parts, "</details>"]
+    # \u200F (RLM) اول تیتر: جهت راست‌به‌چپ و راست‌چین‌شدنِ تیتر تاشو (حتی وقتی با ایموجی/عدد شروع می‌شه)
+    return [f"<details><summary>\u200F{_e(title)}</summary>", *inner_parts, "</details>"]
 
 
 def caption_to_rich_html(caption):
@@ -157,7 +158,7 @@ def _assets_html(ctx):
         implied_rows.append([H(_e(_plain_title(a["title"]))), a["dollar"], a["ounce"]])
     parts = ["<h3>🏷 قیمت دارایی‌ها</h3>",
              _table(["دارایی", "قیمت (تومان)", "تغییر", "حباب"], price_rows, [None, "center", "center", "center"]),
-             "<details><summary>🔬 دلار و اونس ضمنی هر دارایی</summary>",
+             "<details><summary>\u200F🔬 دلار و اونس ضمنی هر دارایی</summary>",
              _table(["دارایی", H("دلار ضمنی <sub>تومان</sub>"), "اونس ضمنی"], implied_rows, [None, "center", "center"]),
              "</details>"]
     for a in assets:
