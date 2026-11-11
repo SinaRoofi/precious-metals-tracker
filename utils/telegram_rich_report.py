@@ -268,6 +268,12 @@ def _post(method, bot_token, fields, images, html, label):
             except ValueError:
                 body = {}
         except requests.RequestException as e:
+            # ویرایش idempotent ـه (همون محتوا دوباره) → یک بار با کمی مکث تلاش مجدد (مثلاً Connection reset).
+            # ارسال پیام جدید عمداً تکرار نمی‌شه: اگه تلگرام پیام رو گرفته باشه ولی جوابش گم شده باشه، پیام تکراری می‌شد.
+            if method == "editMessageText" and attempt == 1:
+                logger.warning(f"⚠️ [{label}] Rich/{method}: خطای شبکه ({e}) — ۲ ثانیه بعد تلاش مجدد")
+                time.sleep(2)
+                continue
             logger.error(f"❌ [{label}] Rich/{method}: خطای شبکه: {e}")
             return "fail", str(e)
 
@@ -314,11 +320,17 @@ def send_rich(bot_token, chat_id, images, html, label=""):
 
 
 def edit_rich(bot_token, chat_id, message_id, images, html, label=""):
-    """ویرایش پیام Rich قبلی (متن + عکس‌ها). True اگه ویرایش شد (یا چیزی برای تغییر نبود)."""
+    """ویرایش پیام Rich قبلی (متن + عکس‌ها). خروجی یکی از:
+        "ok"      ویرایش شد (یا «message is not modified»: چیزی برای تغییر نبود)
+        "retry"   خطای موقت (شبکه/timeout/۴۲۹/۵xx): پیام سالمه؛ دقیقه‌ی بعد دوباره ویرایش کن، پیام جدید نفرست
+        "resend"  تلگرام این ویرایش رو رد کرد (۴۰۰: پیام پیدا نشد/قابل ویرایش نیست/payload ناسازگار): پیام جدید لازمه
+    """
     status, _ = _with_fallback(
         lambda h: _post("editMessageText", bot_token, {"chat_id": chat_id, "message_id": message_id}, images, h, label),
         html, label)
-    return status in ("ok", "same")
+    if status in ("ok", "same"):
+        return "ok"
+    return "retry" if status == "fail" else "resend"
 
 
 def delete_message(bot_token, chat_id, message_id):
@@ -330,6 +342,52 @@ def delete_message(bot_token, chat_id, message_id):
     except requests.RequestException as e:
         logger.warning(f"⚠️ حذف پیام قدیمی ناموفق: {e}")
         return False
+
+
+PIN_DAILY_REPORT = True    # پیام امروز (اولین ارسال هر روز) پین بشه و پین دیروز برداشته بشه
+DELETE_PIN_NOTICE = True   # پیام سرویسی «… یک پیام را پین کرد» پاک بشه (False = بمونه)
+
+
+def _api(bot_token, method, **data):
+    """فراخوانی ساده‌ی Bot API (بدون فایل). (ok, توضیح)."""
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{bot_token}/{method}", data=data, timeout=30)
+        try:
+            body = r.json()
+        except ValueError:
+            body = {}
+        return (r.status_code == 200 and bool(body.get("ok"))), str(body.get("description", ""))[:200]
+    except requests.RequestException as e:
+        return False, str(e)[:200]
+
+
+def pin_report(bot_token, chat_id, message_id, prev_id=None):
+    """پیام گزارش رو پین می‌کنه (بدون اعلان صوتی)، پین قبلی (دیروز) رو برمی‌داره و پیام سرویسی «پین شد» رو پاک می‌کنه.
+
+    پیام سرویسی بلافاصله بعد از پین ساخته می‌شه و شناسه‌ش «شناسه‌ی پیام پین‌شده + ۱»ـه (Bot API شناسه‌ش رو برنمی‌گردونه).
+    اگه تو همون چند ثانیه کسی تو کانال پیام بذاره، این فرض غلط می‌شه؛ برای همین فقط یه بار و فقط بعد از پینِ موفق
+    پاک می‌کنیم و با DELETE_PIN_NOTICE=False خاموش می‌شه. حقوق ادمین: پین = can_edit_messages، حذف = can_delete_messages.
+    """
+    if not PIN_DAILY_REPORT or not message_id:
+        return False
+    if prev_id and prev_id != message_id:
+        ok, desc = _api(bot_token, "unpinChatMessage", chat_id=chat_id, message_id=prev_id)
+        logger.info(f"📌 پین قبلی (ID: {prev_id}) برداشته شد" if ok else f"⚠️ برداشتن پین قبلی ناموفق: {desc}")
+    ok, desc = _api(bot_token, "pinChatMessage", chat_id=chat_id, message_id=message_id, disable_notification=True)
+    if not ok:
+        logger.warning(f"⚠️ پین ناموفق (ربات ادمین با حق «ویرایش پیام‌ها» هست؟): {desc}")
+        return False
+    logger.info(f"📌 پیام (ID: {message_id}) پین شد")
+    if DELETE_PIN_NOTICE:
+        for attempt in (1, 2):
+            ok, desc = _api(bot_token, "deleteMessage", chat_id=chat_id, message_id=int(message_id) + 1)
+            if ok:
+                logger.info(f"🧹 پیام سرویسی «پین شد» (ID: {int(message_id) + 1}) پاک شد")
+                return True
+            if attempt == 1:
+                time.sleep(1)
+        logger.warning(f"⚠️ پاک‌کردن پیام سرویسی پین ناموفق (ربات حق «حذف پیام‌ها» داره؟): {desc}")
+    return True
 
 
 # ───────────────────────── مرحله‌بندی (طلا + نقره = یک پیام) ─────────────────────────
