@@ -40,7 +40,7 @@ COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 # حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
 # long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
 from utils.telegram_rich_report import (
-    RICH_MESSAGE_LIMIT, H, Span, caption_to_rich_html, delete_message, edit_rich, send_rich, stage_rich_part, take_staged,
+    RICH_MESSAGE_LIMIT, H, Span, caption_to_rich_html, delete_message, edit_rich, pin_report, send_rich, stage_rich_part, take_staged,
 )
 
 TELEGRAM_CAPTION_LIMIT = 1024
@@ -553,14 +553,20 @@ def flush_rich_report(bot_token, chat_id):
     today = get_today_date()
     saved, status = get_gist_data("rich")
     old_id = saved.get("message_id") if saved.get("date") == today else None
+    prev_pinned = saved.get("message_id") if not old_id else None  # پیام دیروز (اگه اولین ارسال امروزه): پینش برداشته می‌شه
     if status != "ok":
         logger.warning(f"⚠️ گیست درست خونده نشد (status={status}) — اگه امروز پیامی رفته باشه، این یکی پیام جدیدِ تکراری می‌شه")
 
     if old_id:
         logger.info(f"🔄 ویرایش پیام Rich امروز (ID: {old_id})...")
-        if edit_rich(bot_token, chat_id, old_id, images, html, label):
+        result = edit_rich(bot_token, chat_id, old_id, images, html, label)
+        if result == "ok":
             return True
-        logger.warning("⚠️ ویرایش ناموفق بود — پیام جدید می‌رود و پیام قبلی پاک می‌شود")
+        if result == "retry":
+            # خطای موقت (شبکه/محدودیت): پیام امروز سالمه و هر دقیقه ویرایش می‌شه؛ پیام جدید/پاک‌کردن لازم نیست
+            logger.warning("⚠️ ویرایش موقتاً ناموفق بود — پیام جدید نمی‌فرستم؛ اجرای بعدی دوباره ویرایش می‌کنه")
+            return False
+        logger.warning("⚠️ تلگرام ویرایش رو رد کرد — پیام جدید می‌رود و پیام قبلی پاک می‌شود")
 
     new_id = send_rich(bot_token, chat_id, images, html, label)
     if not new_id:
@@ -568,6 +574,7 @@ def flush_rich_report(bot_token, chat_id):
     save_gist_data("rich", new_id, None, today)
     if old_id:
         delete_message(bot_token, chat_id, old_id)
+    pin_report(bot_token, chat_id, new_id, prev_id=prev_pinned)  # پین پیام جدید + پاک‌کردن پیام سرویسی «پین شد»
     return True
 
 
