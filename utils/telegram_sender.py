@@ -257,7 +257,47 @@ def calculate_bullion_rr(commodity, dfp):
         "reward_value": reward_value,
         "rr_high": rr_high,
         "rr_value": rr_value,
+        # برای جدول حساسیت (bullion_sensitivity): سناریوهای دلار پایان سال + ضرایب شمش + اونس هدف
+        "dollar_low": dollar_low,
+        "dollar_value": dollar_value,
+        "dollar_high": dollar_high,
+        "ounce_target": ounce_target,
+        "factors": factors,
     }
+
+
+def bullion_sensitivity(commodity, rr, dollar_today, ounce_today, ounce_steps=(-10, -5, 0, 5, 10)):
+    """جدول حساسیت: بازده شمش (٪ نسبت به قیمت فعلی) اگه اونس و دلار به یه سطح مشخص برسن.
+
+    هر خونه: ((دلار × اونس) ÷ TROY_OZ × عیار × وزن × scale − قیمت فعلی) ÷ قیمت فعلی × ۱۰۰ — همون فرمول ارزش ذاتی
+    calculate_bullion_rr/calculate_values. سطرها: اونس (−۱۰٪ … +۱۰٪ نسبت به امروز + اونس هدف پایان سال)،
+    ستون‌ها: دلار امروز و سه سناریوی پایان سال (کف/ارزش/سقف)، مرتب‌شده به ترتیب دلار.
+    خروجی: {"headers", "rows"} یا None اگه ورودی/کلیدها نبود.
+    """
+    need = ("current_price", "dollar_low", "dollar_value", "dollar_high", "ounce_target", "factors")
+    if not rr or any(rr.get(k) in (None, 0) for k in need) or not dollar_today or not ounce_today:
+        return None
+    f, cur = rr["factors"], rr["current_price"]
+    mult = f["purity"] * f["weight"] * f["scale"]
+
+    def ret(dollar, ounce):
+        return ((dollar * ounce / TROY_OZ) * mult - cur) / cur * 100
+
+    cols = sorted([("امروز", dollar_today), ("کف", rr["dollar_low"]), ("ارزش", rr["dollar_value"]), ("سقف", rr["dollar_high"])],
+                  key=lambda c: c[1])
+    tgt = rr["ounce_target"]
+    levels, tgt_used = [], False
+    for st in ounce_steps:
+        o = ounce_today * (1 + st / 100)
+        if not tgt_used and abs(tgt - o) / tgt <= 0.01:  # سطرِ نزدیک به هدف (≤۱٪) همون سطرِ هدفه؛ ردیف تکراری نمی‌ذاریم
+            levels.append((tgt, f"{tgt:,.0f} (هدف سال)")); tgt_used = True
+        else:
+            levels.append((o, f"{o:,.0f} (امروز)" if st == 0 else f"{o:,.0f} ({st:+d}٪)"))
+    if not tgt_used:
+        levels.append((tgt, f"{tgt:,.0f} (هدف سال)"))
+    rows = [[label] + [f"{ret(d, o):+.1f}%" for _, d in cols] for o, label in sorted(levels, key=lambda x: x[0])]
+    return {"headers": ["اونس ↓ / دلار →"] + [f"{d:,.0f}" for _, d in cols], "rows": rows}
+
 
 # دارایی‌هایی که در کپشن به‌صورت جداگانه نمایش داده می‌شن.
 # unit='ریال' یعنی close_price خام نمایش داده می‌شه (شمش/wholesale)
@@ -1572,6 +1612,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 rr_rows.append(["ارزش دلار", f"{reward_emoji(rr['reward_value'])} {pct(rr['reward_value'], 2)}", format_rr_ratio(rr["rr_value"])])
             rr_table = {"title": "⚖️ ریسک به ریوارد شمش (تا پایان سال)",
                         "headers": ["سناریو", "سود/زیان تا ارزش شمش", "R/R"], "rows": rr_rows}
+        sens = bullion_sensitivity(commodity, rr, dollar_last, global_price)  # حساسیت بازده شمش به اونس و دلار
+        sens_table = ({"title": "📊 حساسیت بازده شمش به اونس و دلار", **sens} if sens else None)
 
         assets_ctx = []
         eskeh_ctx = None
@@ -1624,7 +1666,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                 "bubble": pct(row["Bubble"], 1),
                 "dollar": f"{d_calc:,.0f}" if d_calc else "—",
                 "ounce": f"{o_calc:{ounce_fmt}}" if o_calc else "—",
-                "tables": [rr_table] if (rr_table and key == bullion_key) else [],
+                "tables": [t for t in (rr_table, sens_table) if t] if key == bullion_key else [],
             })
 
         # «خلاصه بازار» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
