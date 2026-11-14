@@ -266,12 +266,13 @@ def calculate_bullion_rr(commodity, dfp):
     }
 
 
-def bullion_sensitivity(commodity, rr, dollar_today, ounce_today, ounce_steps=(-10, -5, 0, 5, 10)):
+def bullion_sensitivity(commodity, rr, dollar_today, ounce_today, ounce_steps=(-20, -10, 0, 10, 20)):
     """جدول حساسیت: بازده شمش (٪ نسبت به قیمت فعلی) اگه اونس و دلار به یه سطح مشخص برسن.
 
     هر خونه: ((دلار × اونس) ÷ TROY_OZ × عیار × وزن × scale − قیمت فعلی) ÷ قیمت فعلی × ۱۰۰ — همون فرمول ارزش ذاتی
-    calculate_bullion_rr/calculate_values. سطرها: اونس (−۱۰٪ … +۱۰٪ نسبت به امروز + اونس هدف پایان سال)،
-    ستون‌ها: دلار امروز و سه سناریوی پایان سال (کف/ارزش/سقف)، مرتب‌شده به ترتیب دلار.
+    calculate_bullion_rr/calculate_values. سطرها: اونس امروز و پله‌های ۱۰٪ بالا/پایین (+ اونس هدف پایان سال)؛
+    ستون‌ها: دلار امروز و سه سناریوی پایان سال (کف/ارزش/سقف)، به ترتیب دلار. همه‌ی درصدها رند و بدون اعشار؛
+    کنار هر قیمتِ غیرِامروز، درصد فاصله از امروز تو پرانتز (پایین‌تر از امروز: منفی). سطر و ستون امروز بدون درصد و بولد.
     خروجی: {"headers", "rows"} یا None اگه ورودی/کلیدها نبود.
     """
     need = ("current_price", "dollar_low", "dollar_value", "dollar_high", "ounce_target", "factors")
@@ -283,20 +284,42 @@ def bullion_sensitivity(commodity, rr, dollar_today, ounce_today, ounce_steps=(-
     def ret(dollar, ounce):
         return ((dollar * ounce / TROY_OZ) * mult - cur) / cur * 100
 
+    def fp(v):  # درصد رندشده بدون اعشار؛ منفی فقط برای پایین‌تر از امروز
+        r = round(v)
+        return f"-{abs(r)}٪" if r < 0 else f"{r}٪"
+
+    def fr(v):  # درصد بازده خونه‌ها (با علامت)
+        r = round(v)
+        return "0%" if r == 0 else f"{r:+d}%"
+
+    def bold(text):
+        return H(f"<b>{text}</b>")
+
     cols = sorted([("امروز", dollar_today), ("کف", rr["dollar_low"]), ("ارزش", rr["dollar_value"]), ("سقف", rr["dollar_high"])],
                   key=lambda c: c[1])
     tgt = rr["ounce_target"]
-    levels, tgt_used = [], False
+    nf = (lambda v: f"{v:,.2f}") if ounce_today < 200 else (lambda v: f"{v:,.0f}")  # نقره (~۵۰ دلار) اعشار می‌خواد
+
+    levels, tgt_used = [], False  # (اونس، برچسب، سطر امروزه؟)
     for st in ounce_steps:
         o = ounce_today * (1 + st / 100)
-        if not tgt_used and abs(tgt - o) / tgt <= 0.01:  # سطرِ نزدیک به هدف (≤۱٪) همون سطرِ هدفه؛ ردیف تکراری نمی‌ذاریم
-            levels.append((tgt, f"{tgt:,.0f} (هدف سال)")); tgt_used = True
+        if st == 0:
+            levels.append((o, nf(o), True))
+        elif not tgt_used and abs(tgt - o) / tgt <= 0.01:  # پله‌ی نزدیک به هدف (≤۱٪) همون سطرِ هدفه؛ ردیف تکراری نمی‌ذاریم
+            levels.append((tgt, f"{nf(tgt)} ({fp((tgt / ounce_today - 1) * 100)})", False)); tgt_used = True
         else:
-            levels.append((o, f"{o:,.0f} (امروز)" if st == 0 else f"{o:,.0f} ({st:+d}٪)"))
-    if not tgt_used:
-        levels.append((tgt, f"{tgt:,.0f} (هدف سال)"))
-    rows = [[label] + [f"{ret(d, o):+.1f}%" for _, d in cols] for o, label in sorted(levels, key=lambda x: x[0])]
-    return {"headers": ["اونس ↓ / دلار →"] + [f"{d:,.0f}" for _, d in cols], "rows": rows}
+            levels.append((o, f"{nf(o)} ({fp(st)})", False))
+    if not tgt_used and abs(tgt - ounce_today) / tgt > 0.01:
+        levels.append((tgt, f"{nf(tgt)} ({fp((tgt / ounce_today - 1) * 100)})", False))
+
+    headers = ["اونس / دلار"]
+    for name, d in cols:
+        headers.append(bold(f"{d:,.0f}") if name == "امروز" else f"{d:,.0f} ({fp((d / dollar_today - 1) * 100)})")
+    rows = []
+    for o, label, is_today in sorted(levels, key=lambda x: x[0]):
+        cells = [bold(fr(ret(d, o))) if (is_today or name == "امروز") else fr(ret(d, o)) for name, d in cols]
+        rows.append([bold(label) if is_today else label] + cells)
+    return {"headers": headers, "rows": rows}
 
 
 # دارایی‌هایی که در کپشن به‌صورت جداگانه نمایش داده می‌شن.
