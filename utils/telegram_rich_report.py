@@ -163,7 +163,7 @@ def _assets_html(ctx):
              "</details>"]
     for a in assets:
         for tb in a.get("tables", []):
-            parts += _collapsible(tb["title"], [_table(tb["headers"], tb["rows"], [None, "center", "center"])])
+            parts += _collapsible(tb["title"], [_table(tb["headers"], tb["rows"], [None] + ["center"] * (len(tb["headers"]) - 1))])
     return parts
 
 
