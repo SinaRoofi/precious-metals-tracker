@@ -12,11 +12,11 @@ def is_force_run():
 # 🚨 آستانه‌های هشدار قیمتی
 # ════════════════════════════════════════════════════════════════
 
-DOLLAR_HIGH = 273_000
-DOLLAR_LOW = 270_000
+DOLLAR_HIGH = 270_000
+DOLLAR_LOW = 265_000
 # --- طلا ---
-SHAMS_HIGH = 33_500_000
-SHAMS_LOW = 32_500_000
+SHAMS_HIGH = 33_000_000
+SHAMS_LOW = 32_000_000
 
 GOLD_HIGH = 4000
 GOLD_LOW = 3850
@@ -25,7 +25,7 @@ GOLD_LOW = 3850
 SILVER_SHAMS_HIGH = 500_000
 SILVER_SHAMS_LOW = 400_000
 
-SILVER_HIGH = 50
+SILVER_HIGH = 55
 SILVER_LOW = 45
 
 # --- هشدار قیمتی نمادهای صندوق 
@@ -148,7 +148,7 @@ SHOW_QUARTER_COIN_IN_CAPTION = "auto"
 # 📐 پیش‌بینی ریسک/ریوارد شمش طلا بورس کالا (تا پایان سال)
 # ════════════════════════════════════════════════════════════════
 GOLD_YEAR_END_OUNCE_TARGET = 4200  
-SILVER_YEAR_END_OUNCE_TARGET = 50 
+SILVER_YEAR_END_OUNCE_TARGET = 55
 
 # ════════════════════════════════════════════════════════════════
 # 🔄 فیلتر آربیتراژ داینامیک (سوئیچ بین صندوق‌ها)
