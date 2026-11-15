@@ -284,13 +284,21 @@ def bullion_sensitivity(commodity, rr, dollar_today, ounce_today, ounce_steps=(-
     def ret(dollar, ounce):
         return ((dollar * ounce / TROY_OZ) * mult - cur) / cur * 100
 
-    def fp(v):  # درصد رندشده بدون اعشار؛ منفی فقط برای پایین‌تر از امروز
+    def _num(v, signed):
+        """رند و بدون اعشار؛ فقط اگه قدرمطلق کمتر از ۱ باشه یک رقم اعشار (۰٫۴ به ۰ یا ۱ رند نشه)."""
+        r1 = round(v, 1)
+        if abs(r1) < 1:
+            if r1 == 0:
+                return "0"
+            return f"{r1:+.1f}" if signed else f"{r1:.1f}"
         r = round(v)
-        return f"-{abs(r)}٪" if r < 0 else f"{r}٪"
+        return f"{r:+d}" if signed else f"{r}"
+
+    def fp(v):  # درصد فاصله (کنار قیمت): منفی فقط برای پایین‌تر از امروز، بدون +
+        return f"{_num(v, False)}٪"
 
     def fr(v):  # درصد بازده خونه‌ها (با علامت)
-        r = round(v)
-        return "0%" if r == 0 else f"{r:+d}%"
+        return f"{_num(v, True)}%"
 
     def bold(text):
         return H(f"<b>{text}</b>")
