@@ -2014,6 +2014,10 @@ def check_day_move_alerts(bot_token, chat_id, assets, status, now):
             last = int(rec.get("level", 0))
             new_last = last
             send = False
+            logger.info(
+                f"🔎 {asset['name']}: price={price:,.0f} open={open_price:,.0f} "
+                f"change={change:+.2f}% level_now={level_now} last={last}"
+            )
 
             if level_now != 0 and (
                 last == 0
@@ -2039,6 +2043,10 @@ def check_day_move_alerts(bot_token, chat_id, assets, status, now):
             if new_last != last:
                 rec["level"] = new_last
                 changed = True
+                if send:
+                    # بلافاصله بعد از ارسال ذخیره کن تا خطا/توقف بعدی در همین ران پله رو گم نکنه
+                    save_alert_status(status)
+                    logger.info(f"💾 پله‌ی {asset['name']} ({new_last}) در Gist ذخیره شد")
         except Exception as e:
             logger.warning(f"⚠️ خطا در هشدار حرکت روزانه‌ی {asset.get('name')}: {e}")
 
