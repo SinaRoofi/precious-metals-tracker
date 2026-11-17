@@ -31,12 +31,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "requirements.txt"
 
-      - name: Setup Python 3.11
-        run: uv python install 3.11
+      - name: Setup Python 3.12
+        run: uv python install 3.12
 
       - name: Create venv and install dependencies
         run: |
-          uv venv --python 3.11
+          uv venv --python 3.12
           uv pip install -q -r requirements.txt
 
       - name: Run Weekly Report
