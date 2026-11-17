@@ -1465,7 +1465,7 @@ def check_and_send_alerts(
             "key": f"{commodity}_fund_{holding}", "name": f"صندوق {holding}",
             "price": holding_row["close_price"], "unit": "ریال",
             "percent_key": commodity, "extra": _fund_bubble_lines(holding_row, title="حباب"),
-            "open_price": holding_row.get("open_price"),  # قیمت باز شدن رسمی صندوق (بدون ذخیره تو Gist)
+            "value": holding_row.get("value"),  # ارزش معاملات امروز؛ تا معامله‌ای نشده قیمت باز شدن ثبت نمی‌شه
         })
     if check_day_move_alerts(bot_token, chat_id, day_assets, status, now):
         changed = True
@@ -1989,25 +1989,23 @@ def check_day_move_alerts(bot_token, chat_id, assets, status, now):
                 continue
 
             rec = store.get(asset["key"])
-            if "open_price" in asset:
-                # صندوق: قیمت باز شدن رسمی هر ران از دیتا خونده می‌شه و تو Gist ذخیره نمی‌شه
-                # (فقط پله‌ی هشدار). بدون open معتبر → هشدار نمی‌ره (fallback نداریم).
-                open_price = pd.to_numeric(asset.get("open_price"), errors="coerce")
-                if pd.isna(open_price) or open_price <= 0:
-                    continue
-                if rec is None:
-                    rec = store[asset["key"]] = {"date": today, "level": 0}
-                    changed = True
-            else:
-                # دلار و شمش: اولین قیمت معتبر ربات تو روز (تو Gist)
-                if rec is None:
-                    store[asset["key"]] = {"date": today, "open": float(price), "level": 0}
-                    changed = True
-                    logger.info(f"🌅 قیمت باز شدن {asset['name']} ثبت شد: {price:,.0f}")
-                    continue
-                open_price = rec.get("open")
-                if not open_price or open_price <= 0:
-                    continue
+            # قیمت باز شدن برای همه (دلار، شمش، صندوق): اولین قیمت معتبری که ربات اون روز می‌بینه،
+            # تو Gist ثابت می‌مونه. open دیتای صندوق (prices.open) قابل‌اعتماد نیست
+            # (گاهی ۲۰۸٬۰۰۰ و گاهی برابر قیمت فعلی برمی‌گردونه) پس استفاده نمی‌شه.
+            if rec is None or not rec.get("open"):
+                if "value" in asset:
+                    # صندوق: قبل از اولین معامله‌ی امروز، قیمت فعلی همون قیمت دیروز/مرجعه، نه باز شدن واقعی
+                    traded = pd.to_numeric(asset.get("value"), errors="coerce")
+                    if pd.isna(traded) or traded <= 0:
+                        logger.info(f"⏳ {asset['name']}: هنوز معامله‌ای نشده — قیمت باز شدن ثبت نشد")
+                        continue
+                store[asset["key"]] = {"date": today, "open": float(price), "level": 0}
+                changed = True
+                logger.info(f"🌅 قیمت باز شدن {asset['name']} ثبت شد: {price:,.0f}")
+                continue
+            open_price = rec["open"]
+            if open_price <= 0:
+                continue
 
             change = (price - open_price) / open_price * 100
             level_now = int(change / step)
