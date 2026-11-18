@@ -20,7 +20,7 @@ SHAMS_HIGH = 33_000_000
 SHAMS_LOW = 32_000_000
 
 GOLD_HIGH = 4000
-GOLD_LOW = 3800
+GOLD_LOW = 3700
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
@@ -90,8 +90,8 @@ DAY_MOVE_HYSTERESIS_PERCENT = 0.25
 # 🛒 هشدار جهش سرانه خرید بازار (نسبت به میانگین چند روزه)
 SARANE_KHARID_MA_DAYS = 10       # تعداد روزهای گذشته (بسته، بدون امروز) برای میانگین پایه
 SARANE_KHARID_MA_MIN_DAYS = 5    # حداقل روز تاریخچه لازم — کمتر از این، سیگنال نامعتبر است
-SARANE_KHARID_SPIKE_MULTIPLIER = 1.5  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
-SARANE_FOROSH_SPIKE_MULTIPLIER = 1.5  # سرانه فروش فعلی باید حداقل این‌قدر برابر میانگین باشد
+SARANE_KHARID_SPIKE_MULTIPLIER = 2  # سرانه خرید فعلی باید حداقل این‌قدر برابر میانگین باشد
+SARANE_FOROSH_SPIKE_MULTIPLIER = 2  # سرانه فروش فعلی باید حداقل این‌قدر برابر میانگین باشد
 
 # 💹 هشدار ارزش معاملات (نسبت به میانگین ماهانه‌ی زنده‌ی avg_monthly_value، همون
 # فیلدی که در کپشن telegram_sender.py هم استفاده می‌شه — نه baseline جدا) —
