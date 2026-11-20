@@ -197,8 +197,9 @@ def _build_row(row_dict, timestamp):
     shams_date = row_dict.get('shams_date', None)
 
     if shams_date and not is_today(shams_date):
-        logger.warning(f"⚠️ داده شمش مال امروز نیست (تاریخ: {shams_date})")
-        shams_change = 0.0
+        # بدون صفرِ ساختگی: تغییرِ شمشِ کهنه خونه‌ی خالی می‌شه (صفر با «بدون تغییر» قاطی می‌شد)
+        logger.warning(f"⚠️ داده شمش مال امروز نیست (تاریخ: {shams_date}) — تغییر شمش خالی ذخیره می‌شود")
+        shams_change = None
 
     # ستون‌های صندوق می‌تونن None باشن (روزی که صندوق‌ها معامله ندارن، مثلاً پنج‌شنبه):
     # خونه‌ی خالی نوشته می‌شه تا تو میانگین‌ها/گزارش‌ها NaN بشه و نه صفر یا مقدار کهنه.
@@ -273,13 +274,16 @@ def save_to_sheets(commodity, row_dict):
 
 
 @_locked
-def read_from_sheets(commodity, limit=1000, raise_on_error=False):
+def read_from_sheets(commodity, limit=None, raise_on_error=False):
     """
     خواندن داده‌ها از تب مربوط به یک کالا
 
     Args:
         commodity: 'gold' یا 'silver'
-        limit: حداکثر تعداد ردیف‌های برگشتی (پیش‌فرض 1000)
+        limit: حداکثر تعداد ردیف‌های برگشتی (از انتها). None = همه‌ی ردیف‌ها.
+               کل شیت به‌هرحال یک‌بار دانلود می‌شه (کش)، پس limit فقط برش حافظه‌ایه؛ برای نیازهای «چند روز
+               اخیر» از limit ردیفی استفاده نکنید (با اجرای هر ۱ دقیقه ≈ ۳۶۰ ردیف/روز، ۳۰۰۰ ردیف فقط ≈ ۸ روزه)
+               و بر اساس تاریخ فیلتر کنید.
         raise_on_error: اگه True، خطای خواندن به‌جای [] به‌صورت SheetsReadError بالا میاد
 
     Returns:
@@ -327,7 +331,7 @@ def read_from_sheets(commodity, limit=1000, raise_on_error=False):
         # FORCE_RUN: ردیف‌های حافظه‌ای همین اجرا (ذخیره‌نشده تو شیت) آخر لیست می‌آن
         valid_rows.extend(list(r) for r in _FORCE_RUN_ROWS.get(commodity, []))
 
-        if len(valid_rows) > limit:
+        if limit is not None and len(valid_rows) > limit:
             valid_rows = valid_rows[-limit:]
 
         logger.info(f"✅ [{commodity}] {len(valid_rows)} ردیف از Sheet خوانده شد")
