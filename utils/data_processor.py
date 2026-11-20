@@ -92,6 +92,9 @@ def process_market_data(
             pd.to_numeric(dfp["close_price_change_percent"], errors="coerce") * 100
         ).round(2)
 
+        missing_assets = [s for s in ASSET_ORDER[commodity] if s not in dfp.index]
+        if missing_assets:
+            logger.warning(f"⚠️ [{commodity}] دارایی‌های غایب در پاسخ API (NaN می‌شن): {missing_assets}")
         dfp = dfp.reindex(ASSET_ORDER[commodity])
 
         # عسکه: رهاورد قیمتش رو «×۱۰۰ = تومان» می‌ده (مثلاً 2,540,060 → 254,006,000 تومان)؛ اینجا به ریال هم‌مقیاس
@@ -124,13 +127,42 @@ def process_market_data(
 
 def flatten_entities(df, list_col="related_entities"):
     if list_col in df.columns:
+        records = df.to_dict(orient="records")
+        # json_normalize ردیف‌هایی که لیستشون خالی/None هست رو بی‌صدا حذف می‌کنه؛ صریح حذف و لاگ می‌کنیم
+        # تا «غیب‌شدن یک دارایی» از API تو لاگ دیده بشه (بعدش close_price اون دارایی NaN می‌شه).
+        dropped = [r.get("slug") for r in records if not (isinstance(r.get(list_col), list) and r.get(list_col))]
+        if dropped:
+            logger.warning(f"⚠️ {len(dropped)} ردیف بدون {list_col} حذف شد: {dropped}")
+            records = [r for r in records if isinstance(r.get(list_col), list) and r.get(list_col)]
         return pd.json_normalize(
-            df.to_dict(orient="records"),
+            records,
             list_col,
             meta=[col for col in df.columns if col != list_col],
             errors="ignore",
         )
     return df
+
+
+def weighted_mean(df, col, weight="value"):
+    """
+    میانگین وزنی که ردیف‌های دارای NaN (در مقدار یا وزن) رو هم از صورت و هم از مخرج حذف می‌کنه.
+    (قبلاً مخرج = جمع وزن همه‌ی صندوق‌ها بود، پس صندوقی که مقدارش NaN بود میانگین رو به سمت صفر می‌کشید.)
+
+    Returns:
+        float | None: None یعنی هیچ ردیفِ معتبری نبود (داده‌ی ناقص — نه صفر ساختگی)؛
+        0.0 یعنی ردیف معتبر بود ولی جمع وزن‌ها صفر بود (مثلاً هنوز معامله‌ای نشده).
+    """
+    if df is None or df.empty or col not in df.columns or weight not in df.columns:
+        return None
+    vals = pd.to_numeric(df[col], errors="coerce")
+    w = pd.to_numeric(df[weight], errors="coerce")
+    mask = vals.notna() & w.notna()
+    if not mask.any():
+        return None
+    denom = w[mask].sum()
+    if denom == 0:
+        return 0.0
+    return float((vals[mask] * w[mask]).sum() / denom)
 
 
 # ==============================================================================
@@ -341,9 +373,16 @@ def calculate_values(dfp, commodity, global_price, dollar_last_trade):
         dfp.loc[idx, "pricing_dollar"] = (close * TROY_OZ) / (global_price * factor) / scale
         dfp.loc[idx, price_col] = ((close / factor) * TROY_OZ) / dollar_last_trade / scale
 
-    cols = ["Value", "close_price", "pricing_dollar", price_col]
+    # قبلاً astype(int) اعشار رو truncate می‌کرد: مثلاً اونس ضمنی نقره 47.9$ → 47 (≈۲٪ خطا در diff).
+    # Value/close_price (ریال) → گرد به int؛ pricing_* → float با ۴ رقم اعشار (فرمت نمایش تو مصرف‌کننده‌هاست).
     dfp = dfp.copy()
-    dfp[cols] = dfp[cols].fillna(0).astype(int)
+    dfp[["Value", "close_price"]] = (
+        dfp[["Value", "close_price"]].replace([np.inf, -np.inf], np.nan).fillna(0).round().astype("int64")
+    )
+    pricing_cols = ["pricing_dollar", price_col]
+    dfp[pricing_cols] = (
+        dfp[pricing_cols].replace([np.inf, -np.inf], np.nan).fillna(0).astype(float).round(4)
+    )
 
     dfp = dfp[
         [
