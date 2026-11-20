@@ -32,9 +32,7 @@ MONTHLY_MA_MIN_DAYS = 10
 
 # برای محاسبهٔ میانگین ماهانه باید به اندازهٔ کافی روز گذشته داشته باشیم.
 # اسکریپت هر ۱ دقیقه از ۱۲ تا ۱۸ اجرا می‌شه → حدود ۳۶۰ ردیف/روز.
-# برای پوشش امن ۲۰–۳۰ روز کاری (با احتساب تعطیلات) حدود ۱۰–۱۲ هزار ردیف لازم است.
-# KEEP_DAYS=40 است، پس حداکثر داده موجود ≈ ۱۴۰۰۰ ردیف.
-BUBBLE_HISTORY_LOOKBACK_ROWS = 12000
+# KEEP_DAYS=40 است، پس حداکثر داده موجود ≈ ۱۴۰۰۰ ردیف؛ همه‌ی تاریخچه خونده و با تاریخ فیلتر می‌شه.
 
 # اجرای اول هر روز: بخش clientType اسنپ‌شات تریدرآرنا (که سرانهٔ خرید/فروش و
 # پول حقیقی ازش می‌آد) دیرتر از trading.value آپدیت می‌شه، پس این ۴ ستون تو
@@ -83,7 +81,7 @@ def create_market_charts(commodity, funds_open=True):
     accent_color = COMMODITY_COLOR[commodity]
 
     try:
-        data_rows = read_from_sheets(commodity, limit=BUBBLE_HISTORY_LOOKBACK_ROWS)
+        data_rows = read_from_sheets(commodity)
         if not data_rows:
             logger.warning(f"⚠️ [{commodity}] داده‌ای از Sheets دریافت نشد")
             return None
@@ -107,8 +105,7 @@ def create_market_charts(commodity, funds_open=True):
 
         # میانگین ماهانه (۲۰ روز گذشته‌ی بسته) حباب صندوق و شمش —
         # از ردیف‌های تاریخچه‌ای که همین الان خوندیم محاسبه می‌شه (بدون خوندن اضافه‌ی Sheet/Gist).
-        # limit با BUBBLE_HISTORY_LOOKBACK_ROWS بزرگ‌تر شده تا حتی با اجرای پرتکرار روزانه
-        # حداقل ۱۰–۲۰ روز گذشته در دسترس باشه.
+        # کل تاریخچه‌ی شیت خونده می‌شه (نه سقف ردیفی) تا ۱۰–۲۰ روز گذشته همیشه در دسترس باشه.
         #
         # «مقدار روزانه» = آخرین ردیف اون روز (.last()) — نه میانگین کل روز —
         # هم‌رنگ با قراردادِ همه‌جای پروژه (weekly_report.py، monthly_report.py،
