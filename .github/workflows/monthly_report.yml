@@ -14,6 +14,9 @@ on:
     # ۲۹ روز از ۳۰ روزِ ماه، وقت/منابع CI برای venv ساختن هدر نره.
     - cron: "45 15 * * *"
 
+permissions:
+  contents: read
+
 concurrency:
   group: monthly-report
   cancel-in-progress: false
@@ -29,7 +32,7 @@ jobs:
       - name: Check if today is day 1 of the Jalali month (via jdatetime — همون کتابخونه‌ای که main.py و monthly_report_main.py استفاده می‌کنن)
         id: check
         run: |
-          pip install --quiet jdatetime
+          pip install --quiet jdatetime==5.0.0  # هم‌نسخه با requirements.txt
           DAY=$(python3 -c "import jdatetime; print(jdatetime.date.today().day)")
           echo "Persian day: $DAY"
           if [ "$DAY" = "1" ]; then
