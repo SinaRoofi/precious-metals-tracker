@@ -6,7 +6,6 @@ import json
 import logging
 import math
 import re
-import time
 import requests
 import pandas as pd
 import pytz
@@ -18,19 +17,20 @@ from persiantools.jdatetime import JalaliDateTime
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    GIST_ID, GIST_TOKEN, MESSAGE_ID_FILE, is_force_run,
+    MESSAGE_ID_FILE, is_force_run,
     FONT_BOLD_PATH, FONT_MEDIUM_PATH, FONT_REGULAR_PATH,
     TREEMAP_WIDTH, TREEMAP_HEIGHT, TREEMAP_SCALE,
     TREEMAP_COLORSCALE, CHANNEL_HANDLE, COLOR_GOLD, COLOR_SILVER,
     REQUEST_TIMEOUT, TIMEZONE, LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF,
-    MAX_RETRIES, RETRY_DELAY,
     ASSET_ORDER, PRICING_FACTORS, TROY_OZ, GOLD_YEAR_END_OUNCE_TARGET,
     SILVER_YEAR_END_OUNCE_TARGET,
-    ESKEH_SLUG, ESKEH_ACTIVE, ESKEH_GUARANTEE_PRICE, eskeh_days_to_maturity, eskeh_floor_return,
+    ESKEH_SLUG, ESKEH_ACTIVE, eskeh_days_to_maturity, eskeh_floor_return,
 )
 from utils.chart_creator import create_market_charts
 from utils.alerts import get_sarane_kharid_baseline, get_sarane_forosh_baseline
 from utils.sheets_storage import read_from_sheets
+from utils import gist_store
+from utils.data_processor import weighted_mean
 
 logger = logging.getLogger(__name__)
 
@@ -365,79 +365,8 @@ def _empty_message_store():
             "rich": {"message_id": None, "message_id2": None, "date": None}}
 
 
-# کدهای وضعیتی که «گذرا» فرض می‌شن و ارزش retry دارن:
-# 403 → معمولاً secondary rate limit گیت‌هاب (نه لزوماً توکن غلط)
-# 429 → rate limit صریح؛ 5xx → مشکل موقت سمت سرور گیت‌هاب
-_GIST_TRANSIENT_STATUS_CODES = {403, 429, 500, 502, 503, 504}
-
-
-def _gist_request_with_retry(method, url, commodity, label, headers=None, json_body=None,
-                              max_retries=MAX_RETRIES, retry_delay=RETRY_DELAY):
-    """درخواست GET/PATCH به گیست گیت‌هاب، با retry روی خطای گذرا (تایم‌اوت/خطای شبکه/۴۲۹/۵xx/۴۰۳).
-
-    ۴۰۴ عمداً retry نمی‌شه (معمولاً یعنی GIST_ID اشتباهه یا فایل هنوز ساخته نشده —
-    در هر دو حالت retry فایده نداره). خطاهای دیگه‌ی ۴xx هم permanent فرض می‌شن.
-
-    Returns:
-        (response یا None, status) — status یکی از:
-        "ok", "timeout", "network_error", "http_error:CODE"
-    """
-    last_status = "unknown_error"
-    for attempt in range(1, max_retries + 1):
-        start = time.monotonic()
-        try:
-            if method == "GET":
-                response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-            else:
-                response = requests.patch(url, headers=headers, json=json_body, timeout=REQUEST_TIMEOUT)
-            elapsed = time.monotonic() - start
-
-            if response.status_code == 200:
-                logger.info(f"✅ [{commodity}] {label} موفق (تلاش {attempt}/{max_retries}, {elapsed:.1f}s)")
-                return response, "ok"
-
-            if response.status_code == 404:
-                return response, "http_error:404"
-
-            last_status = f"http_error:{response.status_code}"
-            if response.status_code in _GIST_TRANSIENT_STATUS_CODES and attempt < max_retries:
-                logger.warning(
-                    f"⚠️ [{commodity}] {label} کد {response.status_code} برگشت (گذرا، تلاش "
-                    f"{attempt}/{max_retries}, {elapsed:.1f}s) — {retry_delay}s صبر و تلاش مجدد..."
-                )
-                time.sleep(retry_delay)
-                continue
-
-            logger.error(
-                f"❌ [{commodity}] {label} با کد {response.status_code} برگشت ({elapsed:.1f}s) — "
-                f"بدنه: {response.text[:300]}"
-            )
-            return response, last_status
-
-        except requests.exceptions.Timeout as e:
-            elapsed = time.monotonic() - start
-            last_status = "timeout"
-            logger.warning(
-                f"⏱️ [{commodity}] {label} TIMEOUT (تلاش {attempt}/{max_retries}, {elapsed:.1f}s, "
-                f"REQUEST_TIMEOUT={REQUEST_TIMEOUT}): {e}"
-            )
-        except requests.exceptions.RequestException as e:
-            elapsed = time.monotonic() - start
-            last_status = "network_error"
-            logger.warning(
-                f"🌐 [{commodity}] {label} خطای شبکه (تلاش {attempt}/{max_retries}, {elapsed:.1f}s): "
-                f"{type(e).__name__}: {e}"
-            )
-
-        if attempt < max_retries:
-            time.sleep(retry_delay)
-
-    logger.error(f"❌ [{commodity}] {label} بعد از {max_retries} تلاش ناموفق ماند (status={last_status})")
-    return None, last_status
-
-
 def get_gist_data(commodity):
-    """دریافت message_id های یک کالا از GitHub Gist (با retry روی خطای گذرا)
+    """دریافت message_id های یک کالا از GitHub Gist (با retry روی خطای گذرا، از utils/gist_store)
 
     Returns:
         (data, status) — data همیشه یک dict معتبره (در خطا خالی).
@@ -451,20 +380,16 @@ def get_gist_data(commodity):
     """
     empty = {"message_id": None, "message_id2": None, "date": None}
 
-    if not GIST_ID or not GIST_TOKEN:
+    if not gist_store.is_configured():
         logger.warning(f"⚠️ [{commodity}] GIST_ID یا GIST_TOKEN تنظیم نشده — خواندن گیست انجام نشد")
         return empty, "no_config"
 
-    url = f"https://api.github.com/gists/{GIST_ID}"
-    headers = {"Authorization": f"token {GIST_TOKEN}"}
-    response, status = _gist_request_with_retry("GET", url, commodity, "خواندن گیست", headers=headers)
-
+    files, status = gist_store.read_files(f"[{commodity}] خواندن گیست")
     if status != "ok":
         return empty, status
 
     try:
-        content = response.json()["files"][MESSAGE_ID_FILE]["content"]
-        store = json.loads(content)
+        store = json.loads(files[MESSAGE_ID_FILE]["content"])
     except (KeyError, ValueError, TypeError) as e:
         logger.error(f"❌ [{commodity}] گیست کد 200 برگردوند ولی پارس محتوا شکست خورد: {type(e).__name__}: {e}")
         return empty, "parse_error"
@@ -484,34 +409,30 @@ def save_gist_data(commodity, message_id, message_id2, date):
         logger.warning(f"🧪 [{commodity}] FORCE_RUN: message_id تو Gist ذخیره نشد")
         return
 
-    if not GIST_ID or not GIST_TOKEN:
+    if not gist_store.is_configured():
         logger.warning(f"⚠️ [{commodity}] GIST_ID یا GIST_TOKEN تنظیم نشده — ذخیره گیست انجام نشد")
         return
 
     try:
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-
         # اول کل store رو می‌خونیم تا کالای دیگه رو overwrite نکنیم.
         # اگه این GET (بعد از retry) بازم fail بشه، ادامه نمی‌دیم — وگرنه PATCH با یک
         # store خالی message_id کالای دیگه رو null می‌کنه (باگ واقعی که قبلاً پیدا شد).
-        response, get_status = _gist_request_with_retry(
-            "GET", url, commodity, "GET گیست (قبل از ذخیره)", headers=headers,
-        )
+        files, get_status = gist_store.read_files(f"[{commodity}] GET گیست (قبل از ذخیره)")
 
         if get_status == "ok":
-            try:
-                content = response.json()["files"][MESSAGE_ID_FILE]["content"]
-                store = _empty_message_store()
-                store.update(json.loads(content))
-            except (KeyError, ValueError, TypeError) as e:
-                logger.error(
-                    f"❌ [{commodity}] GET گیست (قبل از ذخیره) پارس محتوا شکست خورد — "
-                    f"ذخیره لغو شد: {type(e).__name__}: {e}"
-                )
-                return
+            store = _empty_message_store()
+            if MESSAGE_ID_FILE in files:
+                try:
+                    store.update(json.loads(files[MESSAGE_ID_FILE]["content"]))
+                except (KeyError, ValueError, TypeError) as e:
+                    logger.error(
+                        f"❌ [{commodity}] GET گیست (قبل از ذخیره) پارس محتوا شکست خورد — "
+                        f"ذخیره لغو شد: {type(e).__name__}: {e}"
+                    )
+                    return
+            # فایل هنوز ساخته نشده (اولین استفاده) → store خالی امنه
         elif get_status == "http_error:404":
-            # فایل/گیست هنوز هیچ داده‌ای نداره — این تنها حالتیه که store خالی امنه
+            # گیست/فایل هنوز هیچ داده‌ای نداره — store خالی امنه
             store = _empty_message_store()
         else:
             logger.error(
@@ -521,16 +442,12 @@ def save_gist_data(commodity, message_id, message_id2, date):
             return
 
         store[commodity] = {"message_id": message_id, "message_id2": message_id2, "date": date}
-        data = {"files": {MESSAGE_ID_FILE: {"content": json.dumps(store, ensure_ascii=False)}}}
 
-        _, patch_status = _gist_request_with_retry(
-            "PATCH", url, commodity, "PATCH گیست (ذخیره)", headers=headers, json_body=data,
-        )
-        if patch_status == "ok":
+        if gist_store.write_json(MESSAGE_ID_FILE, store, f"[{commodity}] PATCH گیست (ذخیره)"):
             logger.info(f"✅ [{commodity}] گیست ذخیره شد — message_id={message_id}, {message_id2}")
         else:
             logger.error(
-                f"❌ [{commodity}] ذخیره گیست نهایتاً ناموفق ماند (status={patch_status}) — "
+                f"❌ [{commodity}] ذخیره گیست نهایتاً ناموفق ماند — "
                 f"ران بعدی احتمالاً message_id قدیمی می‌خونه"
             )
     except Exception as e:
@@ -1098,7 +1015,7 @@ def _bullion_returns(commodity, dollar_now, ounce_now, shams_now):
     import pandas as pd
     from config import STANDARD_HEADER
     try:
-        rows = read_from_sheets(commodity, limit=3000)
+        rows = read_from_sheets(commodity)
         if not rows:
             return None
         df = pd.DataFrame(rows, columns=STANDARD_HEADER)
@@ -1131,7 +1048,7 @@ def _sheet_daily_mean(commodity, column, n=20, min_days=5):
     import pandas as pd
     from config import STANDARD_HEADER
     try:
-        rows = read_from_sheets(commodity, limit=3000)
+        rows = read_from_sheets(commodity)
         if not rows:
             return None
         df = pd.DataFrame(rows, columns=STANDARD_HEADER)
@@ -1180,7 +1097,6 @@ def create_nonfund_image(commodity, dfp, last_trade, global_price, global_yester
     def pct_change(now_val, ref):
         return _z((now_val - ref) / ref * 100, 2) if ref else None
 
-    shams_price = row["close_price"] / divisor if has_bullion else None
     ounce_fmt = ",.2f" if commodity == "silver" else ",.0f"
     tables = []   # (عنوان, header, ستون‌ها, رنگ‌ها)
 
@@ -1376,11 +1292,11 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     total_net_asset = df_funds["net_asset"].sum() if not df_funds.empty else 0
 
     if total_net_asset > 0 and total_value > 0:
-        avg_change_percent_weighted = (df_funds["close_price_change_percent"] * df_funds["value"]).sum() / total_value
-        avg_bubble_weighted = (df_funds["nominal_bubble"] * df_funds["value"]).sum() / total_value
-        avg_nav_change_weighted = (df_funds["NAV_change_percent"] * df_funds["net_asset"]).sum() / total_net_asset
+        # NaN-safe (weighted_mean): صندوقِ بدون مقدار از مخرج هم حذف می‌شه؛ None (بدون داده) → ۰ برای نمایش
+        avg_change_percent_weighted = weighted_mean(df_funds, "close_price_change_percent") or 0
+        avg_bubble_weighted = weighted_mean(df_funds, "nominal_bubble") or 0
     else:
-        avg_change_percent_weighted = avg_bubble_weighted = avg_nav_change_weighted = 0
+        avg_change_percent_weighted = avg_bubble_weighted = 0
 
     median_bubble = df_funds["nominal_bubble"].median() if not df_funds.empty else 0
 
@@ -1389,8 +1305,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     # سرانه خرید/سرانه فروش وزنی بازار — هم‌الگوی sarane_kharid_w/sarane_forosh_w در main.py
     # (هر دو همیشه غیرمنفی‌ان — سرانه فروش هم مثل سرانه خرید یک مقداره، نه یک اختلاف علامت‌دار)
     if total_value > 0:
-        sarane_kharid_w = (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
-        sarane_forosh_w = (df_funds["sarane_forosh"] * df_funds["value"]).sum() / total_value
+        sarane_kharid_w = weighted_mean(df_funds, "sarane_kharid") or 0
+        sarane_forosh_w = weighted_mean(df_funds, "sarane_forosh") or 0
     else:
         sarane_kharid_w = sarane_forosh_w = 0
 
