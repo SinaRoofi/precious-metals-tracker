@@ -18,13 +18,25 @@ from utils.tls_trust import trusted_get
 
 from config import (
     TELEGRAM_CHANNELS, API_URLS, HTTP_HEADERS,
-    MAX_RETRIES, RETRY_DELAY, REQUEST_TIMEOUT,
+    MAX_RETRIES, RETRY_DELAY, REQUEST_TIMEOUT, FETCH_DEADLINE_SECONDS,
     FUNDS_SNAPSHOT_TIMEFRAME,
 )
 
 logger = logging.getLogger(__name__)
 
 DOLLAR_CHANNEL = TELEGRAM_CHANNELS['dollar']
+
+
+def _budgeted_timeout(t0):
+    """REQUEST_TIMEOUT رو به زمانِ باقی‌مونده از FETCH_DEADLINE_SECONDS محدود می‌کنه (حداقل ۵ ثانیه)."""
+    connect, read = REQUEST_TIMEOUT
+    remaining = FETCH_DEADLINE_SECONDS - (time.monotonic() - t0)
+    return (connect, max(5, min(read, remaining)))
+
+
+def _deadline_exceeded(t0, retry_delay):
+    """True اگه بعد از یک sleep(retry_delay) و تلاش بعدی دیگه از بودجه‌ی زمانی بیرون می‌زنیم."""
+    return (time.monotonic() - t0) + retry_delay >= FETCH_DEADLINE_SECONDS
 
 
 def extract_prices_new(text):
@@ -120,11 +132,12 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
         raise ValueError(f"کالای نامعتبر: {commodity}")
 
     url = API_URLS[commodity]['light_charts']
+    t0 = time.monotonic()
 
     for attempt in range(1, max_retries + 1):
         try:
             logger.info(f"📡 [{commodity}] تلاش {attempt}/{max_retries} - درخواست light-charts...")
-            resp = trusted_get(url, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+            resp = trusted_get(url, headers=HTTP_HEADERS, timeout=_budgeted_timeout(t0))
             resp.raise_for_status()
             data = resp.json()["data"]
 
@@ -154,11 +167,11 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
         except (KeyError, IndexError, TypeError, ValueError) as e:
             logger.error(f"❌ [{commodity}] تلاش {attempt}: پاسخ light-charts نامعتبر - {e}")
 
-        if attempt < max_retries:
+        if attempt < max_retries and not _deadline_exceeded(t0, retry_delay):
             logger.info(f"⏳ [{commodity}] صبر {retry_delay} ثانیه قبل از تلاش مجدد...")
             time.sleep(retry_delay)
         else:
-            logger.error(f"❌ [{commodity}] همه‌ی تلاش‌های light-charts ناموفق بود")
+            logger.error(f"❌ [{commodity}] تلاش‌های light-charts ناموفق بود (بودجه‌ی زمانی/تعداد تلاش تموم شد)")
             return None
 
     return None
@@ -168,9 +181,9 @@ def fetch_light_chart(commodity: str, max_retries: int = MAX_RETRIES,
 # دارایی‌های داخلی (رهاورد intrinsic-values) و صندوق‌ها (تریدرآرنا)
 # ==============================================================================
 
-def _fetch_json(url, params=None):
+def _fetch_json(url, params=None, timeout=REQUEST_TIMEOUT):
     """یک GET مستقل برای هر thread. رهاورد با curl_cffi (utils/tls_trust.py)، بقیه با requests."""
-    resp = trusted_get(url, params=params, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+    resp = trusted_get(url, params=params, headers=HTTP_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -188,6 +201,7 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
 
     url_intrinsic = API_URLS[commodity]['intrinsic']
     url_funds = API_URLS[commodity]['funds']
+    t0 = time.monotonic()
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -200,9 +214,10 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
                 "timeframe": FUNDS_SNAPSHOT_TIMEFRAME,
                 "_": int(time.time() * 1000),
             }
+            attempt_timeout = _budgeted_timeout(t0)
             with ThreadPoolExecutor(max_workers=2) as pool:
-                f_intrinsic = pool.submit(_fetch_json, url_intrinsic)
-                f_funds = pool.submit(_fetch_json, url_funds, funds_params)
+                f_intrinsic = pool.submit(_fetch_json, url_intrinsic, None, attempt_timeout)
+                f_funds = pool.submit(_fetch_json, url_funds, funds_params, attempt_timeout)
                 intrinsic_data = f_intrinsic.result()
                 funds_data = f_funds.result()
             logger.info(f"✅ [{commodity}] intrinsic-values و funds دریافت شد")
@@ -214,11 +229,11 @@ def fetch_market_data(commodity: str, max_retries: int = MAX_RETRIES,
         except ValueError as e:
             logger.error(f"❌ [{commodity}] تلاش {attempt}: پاسخ JSON نامعتبر - {e}")
 
-        if attempt < max_retries:
+        if attempt < max_retries and not _deadline_exceeded(t0, retry_delay):
             logger.info(f"⏳ [{commodity}] صبر {retry_delay} ثانیه قبل از تلاش مجدد...")
             time.sleep(retry_delay)
         else:
-            logger.error(f"❌ [{commodity}] همه‌ی تلاش‌ها ناموفق بود")
+            logger.error(f"❌ [{commodity}] تلاش‌ها ناموفق بود (بودجه‌ی زمانی/تعداد تلاش تموم شد)")
             return None
 
     return None
@@ -283,6 +298,7 @@ def fetch_dirham_price():
     """دریافت قیمت فروش درهم امارات (تومان) از صفحه‌ی AED سایت alanchand.com"""
     try:
         resp = requests.get(DIRHAM_URL, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()  # صفحه‌ی خطا (۴xx/۵xx) نباید به‌عنوان صفحه‌ی قیمت پارس بشه
         price, source = _parse_dirham_toman(resp.text)
 
         if price:
