@@ -60,8 +60,7 @@ def _darken_hex(hex_color, factor=0.55):
 
 MA_SHORT_WINDOW = 5
 MA_LONG_WINDOW = 22
-# حداقل تعداد روز تاریخچه که برای میانگین ۲۲ روزه واکشی می‌کنیم (روزهای هفته جاری + حاشیه تعطیلات)
-TRADE_VALUE_HISTORY_LOOKBACK_ROWS = 3000
+# تاریخچه با تاریخ فیلتر می‌شه (نه تعداد ردیف): با ≈۳۶۰ ردیف/روز، سقف ردیفی تاریخچه رو کوتاه می‌کرد.
 
 
 def _jalali_day_label(d):
@@ -121,7 +120,7 @@ def _load_daily_history(commodity):
     سپس میانگین‌های متحرک ۵ و ۲۲ روزه‌ی ارزش معاملات را روی کل تاریخچه محاسبه می‌کند —
     این کار لازم است چون در ابتدای هفته باید میانگین با داده‌ی روزهای هفته‌ی قبل هم حساب شود.
     """
-    rows = read_from_sheets(commodity, limit=TRADE_VALUE_HISTORY_LOOKBACK_ROWS)
+    rows = read_from_sheets(commodity)
     if not rows:
         logger.warning(f"⚠️ [{commodity}] داده‌ای از Sheets دریافت نشد")
         return None
