@@ -1,7 +1,6 @@
 # utils/alerts.py
 
 import copy
-import json
 import logging
 import time
 import requests
@@ -31,8 +30,6 @@ from config import (
     HARD_SIGNAL_PERSIST_RUNS,
     HARD_SIGNAL_COOLDOWN_MIN,
     FUND_PRICE_ALERTS,
-    GIST_ID,
-    GIST_TOKEN,
     ALERT_STATUS_FILE,
     SARANE_KHARID_BASELINE_FILE,
     SARANE_FOROSH_BASELINE_FILE,
@@ -66,13 +63,16 @@ from config import (
     SWITCH_TOP_N,
 )
 from utils.sheets_storage import read_from_sheets
+from utils.data_processor import weighted_mean
+from utils import gist_store
 
-# حداکثر تعداد ردیف تاریخچه که برای محاسبه‌ی میانگین چند روزه‌ی سرانه خرید می‌خوانیم
-# (هم‌رده با TRADE_VALUE_HISTORY_LOOKBACK_ROWS در weekly_report.py)
-SARANE_KHARID_HISTORY_LOOKBACK_ROWS = 3000
 
-# ✅ کش محلی برای جلوگیری از reset در صورت خطای Gist (fallback، مثل ALERT_STATUS_CACHE)
-SARANE_KHARID_BASELINE_CACHE = None
+# ✅ کش محلی store‌های baseline (سرانه خرید/فروش) برای جلوگیری از reset در صورت خطای Gist
+_BASELINE_CACHE = {"kharid_baseline": None, "forosh_baseline": None}
+
+# هشدار «نوسان نسبت به ران قبل» (دلار/اونس) فقط وقتی معتبره که ردیف قبلی مال همین روز و نزدیک باشه.
+# تریگر هر ۱ دقیقه‌ست؛ بیشتر از این فاصله (تأخیر GitHub/قطعی) یعنی «۱ دقیقه پیش» دیگه درست نیست.
+PRICE_ALERT_MAX_GAP_MIN = 10
 
 logger = logging.getLogger(__name__)
 
@@ -226,9 +226,9 @@ def _default_alert_status():
 
 
 def get_alert_status():
-    """دریافت وضعیت هشدارها از Gist.
+    """دریافت وضعیت هشدارها از Gist (با retry، از utils/gist_store).
 
-    خروجی None یعنی «نتونستیم وضعیت واقعی رو بخونیم» (کد غیر ۲۰۰/خطای شبکه، بدون کش):
+    خروجی None یعنی «نتونستیم وضعیت واقعی رو بخونیم» (خطای شبکه/HTTP، بدون کش):
     caller باید هشدارها رو این ران رد کنه. برگردوندن وضعیتِ پیش‌فرض (همه normal) در این حالت
     باعث ارسال دوباره‌ی همه‌ی هشدارهای فعال و بازنویسی Gist با وضعیت ریست‌شده می‌شد.
     """
@@ -237,33 +237,25 @@ def get_alert_status():
     if is_force_run() and "alert_status" in _FORCE_RUN_SAVED:
         return copy.deepcopy(ALERT_STATUS_CACHE)
 
-    if not GIST_ID or not GIST_TOKEN:
+    if not gist_store.is_configured():
         logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
         return ALERT_STATUS_CACHE or _default_alert_status()
 
-    try:
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+    status, state = gist_store.read_json(ALERT_STATUS_FILE, "خواندن alert_status")
 
-        if r.status_code == 200:
-            files = r.json()["files"]
-            if ALERT_STATUS_FILE in files:
-                status = json.loads(files[ALERT_STATUS_FILE]["content"])
-                for key in _default_alert_status():
-                    status.setdefault(key, "normal")
-                ALERT_STATUS_CACHE = status
-                return status
-            # گیست هست ولی فایل وضعیت هنوز ساخته نشده (اولین استفاده) → وضعیت پیش‌فرض واقعیه
-            default = _default_alert_status()
-            ALERT_STATUS_CACHE = default
-            return default
+    if state == "ok" and isinstance(status, dict):
+        for key in _default_alert_status():
+            status.setdefault(key, "normal")
+        ALERT_STATUS_CACHE = status
+        return status
 
-        logger.error(f"خواندن alert_status ناموفق بود (HTTP {r.status_code})")
+    if state == "missing":
+        # گیست هست ولی فایل وضعیت هنوز ساخته نشده (اولین استفاده) → وضعیت پیش‌فرض واقعیه
+        default = _default_alert_status()
+        ALERT_STATUS_CACHE = default
+        return default
 
-    except Exception as e:
-        logger.error(f"خطا در خواندن alert_status: {e}")
-
+    logger.error(f"خواندن alert_status ناموفق بود (state={state})")
     if ALERT_STATUS_CACHE:
         logger.info("استفاده از کش محلی")
         return ALERT_STATUS_CACHE
@@ -280,33 +272,13 @@ def save_alert_status(status):
         logger.warning("🧪 FORCE_RUN: alert_status تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
         return
 
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            return
+    if not gist_store.is_configured():
+        return
 
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-
-        response = requests.patch(
-            url,
-            headers=headers,
-            json={
-                "files": {
-                    ALERT_STATUS_FILE: {
-                        "content": json.dumps(status, ensure_ascii=False)
-                    }
-                }
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
-
-        if response.status_code == 200:
-            ALERT_STATUS_CACHE = status
-        else:
-            logger.error(f"ذخیره alert_status ناموفق بود (HTTP {response.status_code}) — هشدارهای تکراری محتمله")
-
-    except Exception as e:
-        logger.error(f"خطا در ذخیره alert_status: {e}")
+    if gist_store.write_json(ALERT_STATUS_FILE, status, "ذخیره alert_status"):
+        ALERT_STATUS_CACHE = status
+    else:
+        logger.error("ذخیره alert_status ناموفق بود — هشدارهای تکراری محتمله")
 
 
 # ════════════════════════════════════════════════════════════════
@@ -326,6 +298,7 @@ def get_previous_state_from_sheet(commodity):
         "same_day": None,
         "trade_value": None,
         "run_index": 99,   # شماره‌ی ران امروز (1 = اولین ران روز)؛ 99 = نامشخص/عادی
+        "time_diff_min": None,  # فاصله‌ی ردیف قبلی تا ردیف فعلی (دقیقه)؛ None = نامشخص
     }
 
     try:
@@ -340,6 +313,7 @@ def get_previous_state_from_sheet(commodity):
 
         same_day = None
         run_index = 99
+        time_diff = None
         try:
             prev_time = datetime.strptime(prev_row[0][:19], "%Y-%m-%d %H:%M:%S")
             last_time = datetime.strptime(last_row[0][:19], "%Y-%m-%d %H:%M:%S")
@@ -360,7 +334,7 @@ def get_previous_state_from_sheet(commodity):
 
             if time_diff > 10:
                 logger.warning(
-                    f"⚠️ [{commodity}] فاصله زمانی غیرعادی: {time_diff:.1f} دقیقه (انتظار: ~5 دقیقه)"
+                    f"⚠️ [{commodity}] فاصله زمانی غیرعادی: {time_diff:.1f} دقیقه (انتظار: ~۱ دقیقه)"
                 )
             else:
                 logger.debug(f"✓ [{commodity}] فاصله زمانی: {time_diff:.1f} دقیقه")
@@ -392,6 +366,7 @@ def get_previous_state_from_sheet(commodity):
                 float(prev_row[14]) if len(prev_row) > 14 and prev_row[14] else None
             ),
             "run_index": run_index,
+            "time_diff_min": time_diff,
         }
 
     except Exception as e:
@@ -408,78 +383,64 @@ def _default_sarane_kharid_baseline_store():
     return {c: {"date": None, "baseline": None} for c in ("gold", "silver")}
 
 
-def get_sarane_kharid_baseline_store():
-    """
-    دریافت مقدار ذخیره‌شده‌ی baseline از Gist (فایل جدا، مستقل از alert_status.json)
-    با fallback به کش محلی — دقیقاً هم‌الگوی get_alert_status().
-    """
-    global SARANE_KHARID_BASELINE_CACHE
+def _default_sarane_forosh_baseline_store():
+    return {c: {"date": None, "baseline": None} for c in ("gold", "silver")}
 
-    if is_force_run() and "kharid_baseline" in _FORCE_RUN_SAVED:
-        return copy.deepcopy(SARANE_KHARID_BASELINE_CACHE)
 
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
-            return SARANE_KHARID_BASELINE_CACHE or _default_sarane_kharid_baseline_store()
+def _get_baseline_store(cache_key, filename, label, default_fn):
+    """خواندن یک store‌ی baseline از Gist (فایل جدا، مستقل از alert_status.json) با fallback به کش محلی.
+    (قبلاً این منطق برای سرانه خرید و فروش دو بار کپی شده بود.)"""
+    if is_force_run() and cache_key in _FORCE_RUN_SAVED:
+        return copy.deepcopy(_BASELINE_CACHE[cache_key])
 
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+    if not gist_store.is_configured():
+        logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
+        return _BASELINE_CACHE[cache_key] or default_fn()
 
-        if r.status_code == 200 and SARANE_KHARID_BASELINE_FILE in r.json()["files"]:
-            store = json.loads(r.json()["files"][SARANE_KHARID_BASELINE_FILE]["content"])
-            for key in _default_sarane_kharid_baseline_store():
-                store.setdefault(key, {"date": None, "baseline": None})
-            SARANE_KHARID_BASELINE_CACHE = store
-            return store
+    store, state = gist_store.read_json(filename, f"خواندن {label}")
 
-    except Exception as e:
-        logger.error(f"خطا در خواندن sarane_kharid_baseline: {e}")
-        if SARANE_KHARID_BASELINE_CACHE:
-            logger.info("استفاده از کش محلی baseline سرانه خرید")
-            return SARANE_KHARID_BASELINE_CACHE
+    if state == "ok" and isinstance(store, dict):
+        for key in default_fn():
+            store.setdefault(key, {"date": None, "baseline": None})
+        _BASELINE_CACHE[cache_key] = store
+        return store
 
-    default = _default_sarane_kharid_baseline_store()
-    SARANE_KHARID_BASELINE_CACHE = default
+    if state != "missing":
+        logger.error(f"خطا در خواندن {label} (state={state})")
+        if _BASELINE_CACHE[cache_key]:
+            logger.info(f"استفاده از کش محلی {label}")
+            return _BASELINE_CACHE[cache_key]
+
+    default = default_fn()
+    _BASELINE_CACHE[cache_key] = default
     return default
 
 
-def save_sarane_kharid_baseline_store(store):
-    """ذخیره‌ی store در Gist — فایل جدا از alert_status.json (این فایل هم از قبل باید در همون Gist ساخته شده باشد)."""
-    global SARANE_KHARID_BASELINE_CACHE
-
+def _save_baseline_store(cache_key, filename, label, store):
     if is_force_run():
-        SARANE_KHARID_BASELINE_CACHE = copy.deepcopy(store)
-        _FORCE_RUN_SAVED.add("kharid_baseline")
-        logger.warning("🧪 FORCE_RUN: sarane_kharid_baseline تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
+        _BASELINE_CACHE[cache_key] = copy.deepcopy(store)
+        _FORCE_RUN_SAVED.add(cache_key)
+        logger.warning(f"🧪 FORCE_RUN: {label} تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
         return
 
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            return
+    if not gist_store.is_configured():
+        return
 
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
+    if gist_store.write_json(filename, store, f"ذخیره {label}"):
+        _BASELINE_CACHE[cache_key] = store
+    else:
+        logger.error(f"ذخیره {label} ناموفق بود")
 
-        response = requests.patch(
-            url,
-            headers=headers,
-            json={
-                "files": {
-                    SARANE_KHARID_BASELINE_FILE: {
-                        "content": json.dumps(store, ensure_ascii=False)
-                    }
-                }
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
 
-        if response.status_code == 200:
-            SARANE_KHARID_BASELINE_CACHE = store
+def get_sarane_kharid_baseline_store():
+    """baseline سرانه خرید از Gist (فایل SARANE_KHARID_BASELINE_FILE)."""
+    return _get_baseline_store("kharid_baseline", SARANE_KHARID_BASELINE_FILE,
+                               "sarane_kharid_baseline", _default_sarane_kharid_baseline_store)
 
-    except Exception as e:
-        logger.error(f"خطا در ذخیره sarane_kharid_baseline: {e}")
+
+def save_sarane_kharid_baseline_store(store):
+    """ذخیره‌ی store در Gist — فایل جدا از alert_status.json."""
+    _save_baseline_store("kharid_baseline", SARANE_KHARID_BASELINE_FILE, "sarane_kharid_baseline", store)
 
 
 def get_sarane_kharid_baseline(commodity):
@@ -519,7 +480,7 @@ def get_sarane_kharid_baseline(commodity):
 def _compute_sarane_kharid_baseline(commodity, today):
     """محاسبه‌ی واقعی میانگین (بدون کش/Gist) — یک‌بار در روز از get_sarane_kharid_baseline صدا زده می‌شود."""
     try:
-        rows = read_from_sheets(commodity, limit=SARANE_KHARID_HISTORY_LOOKBACK_ROWS)
+        rows = read_from_sheets(commodity)
         if not rows:
             return None
 
@@ -573,80 +534,15 @@ def _compute_sarane_kharid_baseline(commodity, today):
 SARANE_FOROSH_BASELINE_CACHE = None
 
 
-def _default_sarane_forosh_baseline_store():
-    return {c: {"date": None, "baseline": None} for c in ("gold", "silver")}
-
-
 def get_sarane_forosh_baseline_store():
-    """مثل get_sarane_kharid_baseline_store، ولی از فایل Gist جدای SARANE_FOROSH_BASELINE_FILE می‌خونه."""
-    global SARANE_FOROSH_BASELINE_CACHE
-
-    if is_force_run() and "forosh_baseline" in _FORCE_RUN_SAVED:
-        return copy.deepcopy(SARANE_FOROSH_BASELINE_CACHE)
-
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            logger.warning("GIST_ID یا GIST_TOKEN تنظیم نشده است")
-            return SARANE_FOROSH_BASELINE_CACHE or _default_sarane_forosh_baseline_store()
-
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-
-        if r.status_code == 200 and SARANE_FOROSH_BASELINE_FILE in r.json()["files"]:
-            store = json.loads(r.json()["files"][SARANE_FOROSH_BASELINE_FILE]["content"])
-            for key in _default_sarane_forosh_baseline_store():
-                store.setdefault(key, {"date": None, "baseline": None})
-            SARANE_FOROSH_BASELINE_CACHE = store
-            return store
-
-    except Exception as e:
-        logger.error(f"خطا در خواندن sarane_forosh_baseline: {e}")
-        if SARANE_FOROSH_BASELINE_CACHE:
-            logger.info("استفاده از کش محلی baseline سرانه فروش")
-            return SARANE_FOROSH_BASELINE_CACHE
-
-    default = _default_sarane_forosh_baseline_store()
-    SARANE_FOROSH_BASELINE_CACHE = default
-    return default
+    """baseline سرانه فروش از Gist (فایل SARANE_FOROSH_BASELINE_FILE)."""
+    return _get_baseline_store("forosh_baseline", SARANE_FOROSH_BASELINE_FILE,
+                               "sarane_forosh_baseline", _default_sarane_forosh_baseline_store)
 
 
 def save_sarane_forosh_baseline_store(store):
-    """ذخیره‌ی store در فایل Gist جدای SARANE_FOROSH_BASELINE_FILE — این فایل با اولین
-    PATCH موفق خودکار داخل همون Gist ساخته می‌شه (نیازی به ساخت دستی نیست)."""
-    global SARANE_FOROSH_BASELINE_CACHE
-
-    if is_force_run():
-        SARANE_FOROSH_BASELINE_CACHE = copy.deepcopy(store)
-        _FORCE_RUN_SAVED.add("forosh_baseline")
-        logger.warning("🧪 FORCE_RUN: sarane_forosh_baseline تو Gist ذخیره نشد (فقط تو حافظه‌ی این اجرا)")
-        return
-
-    try:
-        if not GIST_ID or not GIST_TOKEN:
-            return
-
-        url = f"https://api.github.com/gists/{GIST_ID}"
-        headers = {"Authorization": f"token {GIST_TOKEN}"}
-
-        response = requests.patch(
-            url,
-            headers=headers,
-            json={
-                "files": {
-                    SARANE_FOROSH_BASELINE_FILE: {
-                        "content": json.dumps(store, ensure_ascii=False)
-                    }
-                }
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
-
-        if response.status_code == 200:
-            SARANE_FOROSH_BASELINE_CACHE = store
-
-    except Exception as e:
-        logger.error(f"خطا در ذخیره sarane_forosh_baseline: {e}")
+    """ذخیره‌ی store در فایل Gist جدای SARANE_FOROSH_BASELINE_FILE (با اولین PATCH موفق خودکار ساخته می‌شه)."""
+    _save_baseline_store("forosh_baseline", SARANE_FOROSH_BASELINE_FILE, "sarane_forosh_baseline", store)
 
 
 def get_sarane_forosh_baseline(commodity):
@@ -678,7 +574,7 @@ def get_sarane_forosh_baseline(commodity):
 def _compute_sarane_forosh_baseline(commodity, today):
     """محاسبه‌ی واقعی میانگین (بدون کش/Gist) — یک‌بار در روز از get_sarane_forosh_baseline صدا زده می‌شود."""
     try:
-        rows = read_from_sheets(commodity, limit=SARANE_KHARID_HISTORY_LOOKBACK_ROWS)
+        rows = read_from_sheets(commodity)
         if not rows:
             return None
 
@@ -1022,7 +918,7 @@ def get_previous_day_trade_value(commodity, today):
         float | None
     """
     try:
-        rows = read_from_sheets(commodity, limit=400)
+        rows = read_from_sheets(commodity)
         if not rows:
             return None
 
@@ -1340,7 +1236,48 @@ def check_and_send_alerts(
     funds_open=True,
 ):
     """
-    بررسی و ارسال همه‌ی هشدارهای یک کالا (gold یا silver).
+    بررسی و ارسال همه‌ی هشدارهای یک کالا + ذخیره‌ی وضعیت در Gist.
+
+    ذخیره‌ی وضعیت تو finally انجام می‌شه: اگه وسط کار (بعد از ارسال بعضی پیام‌ها) exception بیاد،
+    تغییراتی که درجا روی status اعمال شده هم ذخیره می‌شه تا ران بعدی همون هشدار رو دوباره نفرسته.
+    """
+    if commodity not in THRESHOLDS:
+        raise ValueError(f"کالای نامعتبر: {commodity}")
+
+    status = get_alert_status()
+    if status is None:
+        logger.error(f"❌ [{commodity}] وضعیت هشدارها از Gist خونده نشد — هشدارهای این ران رد شد (جلوگیری از هشدار تکراری)")
+        return
+
+    snapshot = copy.deepcopy(status)
+    completed = False
+    dirty = False
+    try:
+        dirty = _check_and_send_alerts(
+            commodity, bot_token, chat_id, data, dollar_prices, global_price,
+            yesterday_close, global_price_yesterday, check_dollar, funds_open, status,
+        )
+        completed = True
+    finally:
+        if dirty or (not completed and status != snapshot):
+            save_alert_status(status)
+
+
+def _check_and_send_alerts(
+    commodity,
+    bot_token,
+    chat_id,
+    data,
+    dollar_prices,
+    global_price,
+    yesterday_close,
+    global_price_yesterday,
+    check_dollar,
+    funds_open,
+    status,
+):
+    """
+    بدنه‌ی بررسی هشدارها. True = status عوض شده و باید ذخیره بشه (ذخیره با caller است).
 
     check_dollar=True فقط باید در یکی از دو فراخوانی (مثلاً طلا) ست بشه،
     چون دلار داده‌ی مشترکه و نباید دوبار در هر ران هشدار بده.
@@ -1357,10 +1294,6 @@ def check_and_send_alerts(
     th = THRESHOLDS[commodity]
 
     prev = get_previous_state_from_sheet(commodity)
-    status = get_alert_status()
-    if status is None:
-        logger.error(f"❌ [{commodity}] وضعیت هشدارها از Gist خونده نشد — هشدارهای این ران رد شد (جلوگیری از هشدار تکراری)")
-        return
 
     # ران‌های اول روز: داده‌ی صندوق‌ها ناقصه و مقایسه‌ی بعدی هم با همون داده‌ست (SESSION_WARMUP_RUNS)
     warmup = (prev.get("run_index") or 99) <= SESSION_WARMUP_RUNS
@@ -1379,28 +1312,18 @@ def check_and_send_alerts(
 
     df_funds = data["Fund_df"] if funds_open else data["Fund_df"].iloc[0:0]
     total_value = df_funds["value"].sum() if not df_funds.empty else 0
-    current_ekhtelaf = (
-        (df_funds["ekhtelaf_sarane"] * df_funds["value"]).sum() / total_value
-        if total_value > 0
-        else 0
-    )
-    current_bubble = (
-        (df_funds["nominal_bubble"] * df_funds["value"]).sum() / total_value
-        if total_value > 0
-        else 0
-    )
+
+    def _wm(col):
+        # میانگین وزنی NaN-safe؛ «بدون داده‌ی معتبر» اینجا 0 حساب می‌شه (مثل رفتار قبلی وقتی total_value=0)
+        v = weighted_mean(df_funds, col)
+        return 0.0 if v is None else v
+
+    current_ekhtelaf = _wm("ekhtelaf_sarane")
+    current_bubble = _wm("nominal_bubble")
     current_pol = df_funds["pol_hagigi"].sum() if not df_funds.empty else 0
     current_avg_bubble = _weighted_avg_bubble(df_funds)
-    current_sarane_kharid = (
-        (df_funds["sarane_kharid"] * df_funds["value"]).sum() / total_value
-        if total_value > 0
-        else 0
-    )
-    current_sarane_forosh = (
-        (df_funds["sarane_forosh"] * df_funds["value"]).sum() / total_value
-        if total_value > 0
-        else 0
-    )
+    current_sarane_kharid = _wm("sarane_kharid")
+    current_sarane_forosh = _wm("sarane_forosh")
 
     changed = False
     bubble_status_changed = False
@@ -1408,8 +1331,15 @@ def check_and_send_alerts(
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
 
-    # نوسان ۵ دقیقه‌ای دلار — فقط یک‌بار در کل ران
-    if check_dollar and prev["dollar_price"] and prev["dollar_price"] > 0:
+    # ردیف قبلی فقط وقتی «ران قبل» حساب می‌شه که همین روز باشه و فاصله‌ش معقول باشه؛ وگرنه (اولین ران روز)
+    # مقایسه با آخرین ردیف دیروزه و پیامِ «نسبت به ۱ دقیقه پیش» غلط/کاذب می‌شد (برای شمش هم warmup داریم).
+    gap = prev.get("time_diff_min")
+    prev_is_recent = prev.get("same_day") is True and gap is not None and gap <= PRICE_ALERT_MAX_GAP_MIN
+    if not prev_is_recent:
+        logger.info(f"⏭️ [{commodity}] ردیف قبلی «ران قبل» محسوب نمی‌شه (same_day={prev.get('same_day')}, gap={gap}) — نوسان دلار/اونس چک نشد")
+
+    # نوسان ۱ دقیقه‌ای دلار — فقط یک‌بار در کل ران
+    if prev_is_recent and check_dollar and prev["dollar_price"] and prev["dollar_price"] > 0:
         change = (current_dollar - prev["dollar_price"]) / prev["dollar_price"] * 100
         if abs(change) >= ALERT_THRESHOLD_PERCENT["dollar"]:
             send_price_alert(
@@ -1417,8 +1347,8 @@ def check_and_send_alerts(
                 change_vs_yesterday=_pct_change(current_dollar, yesterday_close, skip_zero=True),
             )
 
-    # نوسان ۵ دقیقه‌ای شمش (تو ران‌های اول روز نه: مقایسه با آخرین ردیف دیروزه، نه «۱ دقیقه پیش»)
-    if not warmup and prev["shams_price"] and prev["shams_price"] > 0:
+    # نوسان ۱ دقیقه‌ای شمش (تو ران‌های اول روز نه: مقایسه با آخرین ردیف دیروزه، نه «۱ دقیقه پیش»)
+    if not warmup and prev_is_recent and prev["shams_price"] and prev["shams_price"] > 0:
         change = (current_shams - prev["shams_price"]) / prev["shams_price"] * 100
         if abs(change) >= ALERT_THRESHOLD_PERCENT[commodity]:
             shams_divisor = 10 if commodity == "silver" else 1
@@ -1433,8 +1363,8 @@ def check_and_send_alerts(
                 change_vs_yesterday=shams_vs_yesterday,
             )
 
-    # نوسان ۵ دقیقه‌ای انس جهانی
-    if prev["global_price"] and prev["global_price"] > 0:
+    # نوسان ۱ دقیقه‌ای انس جهانی
+    if prev_is_recent and prev["global_price"] and prev["global_price"] > 0:
         change = (current_ounce - prev["global_price"]) / prev["global_price"] * 100
         if abs(change) >= ALERT_THRESHOLD_PERCENT[commodity]:
             send_price_alert(
@@ -1477,9 +1407,7 @@ def check_and_send_alerts(
             current_dollar, check_dollar, status,
         ):
             changed = True
-        if changed:
-            save_alert_status(status)
-        return
+        return changed
 
     # تغییر شدید اختلاف سرانه
     if not warmup and prev["ekhtelaf_sarane"] is not None:
@@ -1605,8 +1533,7 @@ def check_and_send_alerts(
     if switch_changed:
         changed = True
 
-    if changed or bubble_status_changed or pol_status_changed or sarane_spike_changed:
-        save_alert_status(status)
+    return bool(changed or bubble_status_changed or pol_status_changed or sarane_spike_changed)
 
 
 # ════════════════════════════════════════════════════════════════
