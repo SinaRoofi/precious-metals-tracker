@@ -58,9 +58,8 @@ def _darken_hex(hex_color, factor=0.55):
 
 MA_SHORT_WINDOW = 5
 MA_LONG_WINDOW = 22
-# یک ماه شمسی تا ۳۱ روزه؛ چون ممکنه در روزهای پرکار چند اجرا در روز هم رخ بده،
-# سقف واکشی رو بیشتر از حد نیاز هفتگی می‌گیریم تا کل ماه + حاشیه‌ی میانگین ۲۲روزه جا بشه.
-TRADE_VALUE_HISTORY_LOOKBACK_ROWS = 6000
+# کل تاریخچه‌ی شیت (حداکثر KEEP_DAYS روز) خونده می‌شه؛ سقف ردیفی نداریم چون با ≈۳۶۰ ردیف/روز
+# حتی ۶۰۰۰ ردیف فقط ≈۱۶ روزه و ماه شمسی ۳۱ روزه رو پوشش نمی‌داد.
 
 
 def _jalali_month_day_label(d):
@@ -156,7 +155,7 @@ def _load_daily_history(commodity):
     سپس میانگین‌های متحرک ۵ و ۲۲ روزه‌ی ارزش معاملات را روی کل تاریخچه محاسبه می‌کند —
     این کار لازم است چون در ابتدای ماه باید میانگین با داده‌ی روزهای ماه قبل هم حساب شود.
     """
-    rows = read_from_sheets(commodity, limit=TRADE_VALUE_HISTORY_LOOKBACK_ROWS)
+    rows = read_from_sheets(commodity)
     if not rows:
         logger.warning(f"⚠️ [{commodity}] داده‌ای از Sheets دریافت نشد")
         return None
