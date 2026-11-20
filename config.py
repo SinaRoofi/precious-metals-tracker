@@ -212,7 +212,16 @@ SERVICE_ACCOUNT_JSON = os.getenv("SHEETS_SERVICE_ACCOUNT")
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-TELETHON_API_ID = int(os.getenv('TELETHON_API_ID', 0))
+def _int_env(name, default=0):
+    """secret تعریف‌نشده تو GitHub Actions رشته‌ی خالی می‌شه و int("") تو import کرش می‌کرد؛
+    اینجا خالی/نامعتبر = default تا main.py پیام خطای «متغیر محیطی پیدا نشد» رو بده."""
+    try:
+        return int((os.getenv(name) or "").strip() or default)
+    except ValueError:
+        return default
+
+
+TELETHON_API_ID = _int_env('TELETHON_API_ID')
 TELETHON_API_HASH = os.getenv('TELETHON_API_HASH')
 TELEGRAM_SESSION = os.getenv('TELEGRAM_SESSION')
 TELEGRAM_ALERT_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID')
@@ -396,6 +405,9 @@ FONT_REGULAR_PATH = "assets/fonts/Vazirmatn-Regular.ttf"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 REQUEST_TIMEOUT = (5, 60)
+# سقف کل زمانِ «همه‌ی تلاش‌های یک fetch» (ثانیه). بدون این سقف، ۳ تلاش × (۵+۶۰)s + sleep می‌تونست ≈۳.۴ دقیقه
+# طول بکشه و با ساخت چارت/ارسال تلگرام از timeout-minutes=5 workflow رد بشه؛ تریگر هر ۱ دقیقه‌ست و ران کهنه ارزشی نداره.
+FETCH_DEADLINE_SECONDS = 90
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
