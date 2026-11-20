@@ -21,10 +21,10 @@ from config import (
     BULLION_ASSET,
 )
 from utils.data_fetcher import fetch_light_chart, fetch_market_data, fetch_dollar_prices, fetch_dirham_price
-from utils.data_processor import process_market_data
+from utils.data_processor import process_market_data, weighted_mean
 from utils.telegram_sender import send_to_telegram, flush_rich_report
 from utils.holidays import is_iranian_holiday, is_funds_trading_day
-from utils.sheets_storage import save_to_sheets, read_from_sheets, SheetsReadError
+from utils.sheets_storage import save_to_sheets, read_from_sheets, clear_old_data, SheetsReadError
 from utils.log_safety import redact
 from utils.alerts import check_and_send_alerts
 
@@ -67,7 +67,7 @@ def get_global_price_yesterday_from_sheet(commodity, today_date, rows=None):
     try:
         today = datetime.strptime(today_date, "%Y-%m-%d")
         if rows is None:
-            rows = read_from_sheets(commodity, limit=800)
+            rows = read_from_sheets(commodity)
 
         if not rows:
             logger.warning(f"⚠️ [{commodity}] هیچ رکوردی در شیت پیدا نشد")
@@ -99,7 +99,7 @@ def get_dollar_yesterday_from_sheet(commodity, today_date, rows=None):
     try:
         today = datetime.strptime(today_date, "%Y-%m-%d")
         if rows is None:
-            rows = read_from_sheets(commodity, limit=800)
+            rows = read_from_sheets(commodity)
 
         if not rows:
             return None, None, False
@@ -123,6 +123,14 @@ def get_dollar_yesterday_from_sheet(commodity, today_date, rows=None):
         return None, None, False
 
 
+def _is_first_run_today(rows, today_str):
+    """rows = ردیف‌های شیت «قبل از ذخیره‌ی این ران». اگه آخرین ردیف مال امروز نباشه، این اولین ران روزه."""
+    try:
+        return not rows or not str(rows[-1][0]).startswith(today_str)
+    except (IndexError, TypeError):
+        return False
+
+
 # ════════════════════════════════════════════════════════════════
 # مرحله‌ی fetch — parallel-safe (فقط شبکه، بدون write مشترک)
 # ════════════════════════════════════════════════════════════════
@@ -144,8 +152,14 @@ def _log_t(commodity, label, t0):
     logger.info(f"⏱️ [{commodity}] {label}: {time.perf_counter() - t0:.1f}s")
 
 
+def _fmt_signed(v, suffix="%", nd=2):
+    """برای لاگ: None (داده‌ی ناموجود) → «—»، نه کرش با فرمت None."""
+    return "—" if v is None else f"{v:+.{nd}f}{suffix}"
+
+
 def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar_prices,
-                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None):
+                          yesterday_close, dirham_price, check_dollar, preloaded_yesterday_rows=None,
+                          yesterday_close_known=True):
     """پردازش→ذخیره→ارسال→هشدار یک کالا. True = کامل انجام شد؛ False = رد شد (بدون نوشتن داده‌ی ناقص)."""
     bullion_key = BULLION_ASSET[commodity]
 
@@ -168,7 +182,7 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         commodity, today_str, rows=preloaded_yesterday_rows
     )
     if not found:
-        logger.warning(f"⚠️ [{commodity}] قیمت جهانی دیروز پیدا نشد → تغییر صفر محاسبه می‌شود")
+        logger.warning(f"⚠️ [{commodity}] قیمت جهانی دیروز پیدا نشد → تغییر روزانه‌ی انس خالی ذخیره می‌شود (نه صفر)")
         global_yesterday = None
 
     processed = process_market_data(
@@ -199,21 +213,29 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
 
     if funds_open:
         total_value = Fund_df["value"].sum()  # ارزش معاملات واقعی (برای ذخیره‌سازی) — می‌تواند صفر باشد
-        weighting_denominator = total_value or 1  # فقط برای جلوگیری از تقسیم بر صفر در میانگین‌های وزنی
-        fund_change_weighted = (Fund_df["close_price_change_percent"] * Fund_df["value"]).sum() / weighting_denominator
-        fund_bubble_weighted = (Fund_df["nominal_bubble"] * Fund_df["value"]).sum() / weighting_denominator
-        fund_final_price_avg = Fund_df["final_price_change"].mean()
-        sarane_kharid_w = (Fund_df["sarane_kharid"] * Fund_df["value"]).sum() / weighting_denominator
-        sarane_forosh_w = (Fund_df["sarane_forosh"] * Fund_df["value"]).sum() / weighting_denominator
-        ekhtelaf_sarane_w = sarane_kharid_w - sarane_forosh_w
+        # میانگین وزنی NaN-safe: صندوقِ بدون مقدار هم از صورت و هم از مخرج حذف می‌شه (قبلاً مخرج = جمع همه‌ی
+        # صندوق‌ها بود و میانگین رو به سمت صفر می‌کشید). None = هیچ داده‌ی معتبری نبود → خونه‌ی خالی تو شیت.
+        fund_change_weighted = weighted_mean(Fund_df, "close_price_change_percent")
+        fund_bubble_weighted = weighted_mean(Fund_df, "nominal_bubble")
+        fund_final_price_avg = pd.to_numeric(Fund_df["final_price_change"], errors="coerce").mean()
+        sarane_kharid_w = weighted_mean(Fund_df, "sarane_kharid")
+        sarane_forosh_w = weighted_mean(Fund_df, "sarane_forosh")
+        ekhtelaf_sarane_w = (
+            None if sarane_kharid_w is None or sarane_forosh_w is None
+            else sarane_kharid_w - sarane_forosh_w
+        )
         pol_hagigi_weighted = Fund_df["pol_hagigi"].sum()
     else:
         logger.info(f"📅 [{commodity}] امروز بازار صندوق‌ها بسته‌ست — ستون‌های صندوق خالی ذخیره می‌شن")
         total_value = fund_change_weighted = fund_bubble_weighted = fund_final_price_avg = None
         sarane_kharid_w = sarane_forosh_w = ekhtelaf_sarane_w = pol_hagigi_weighted = None
 
-    dollar_change = ((last_trade - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
-    global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
+    # بدون صفرِ ساختگی: قیمت دیروز ناموجود → None → خونه‌ی خالی (نه «۰٪ تغییر» که با «بدون تغییر» قاطی می‌شه)
+    dollar_change = (
+        (last_trade - yesterday_close) / yesterday_close * 100
+        if yesterday_close_known and yesterday_close else None
+    )
+    global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else None
 
     # بدون فالبک: داده‌ی شمش نیومد → این کالا رد می‌شه (نه صفر ساختگی تو شیت، نه NaN).
     # نکته: dfp در data_processor با reindex(ASSET_ORDER) ساخته می‌شه، پس کلید شمش همیشه
@@ -231,10 +253,16 @@ def process_and_dispatch(commodity, light_chart, market_data, last_trade, dollar
         )
         return False
 
-    logger.info(f"📈 [{commodity}] دلار: {dollar_change:+.2f}% | انس: {global_change:+.2f}% | شمش: {shams_change:+.2f}%")
+    logger.info(
+        f"📈 [{commodity}] دلار: {_fmt_signed(dollar_change)} | انس: {_fmt_signed(global_change)} | "
+        f"شمش: {_fmt_signed(shams_change)}"
+    )
     if funds_open:
-        logger.info(f"📈 [{commodity}] صندوق‌ها (وزنی): {fund_change_weighted:+.2f}% | حباب: {fund_bubble_weighted:+.2f}%")
-        logger.info(f"💸 [{commodity}] پول حقیقی: {pol_hagigi_weighted:+.2f} م.ت")
+        logger.info(
+            f"📈 [{commodity}] صندوق‌ها (وزنی): {_fmt_signed(fund_change_weighted)} | "
+            f"حباب: {_fmt_signed(fund_bubble_weighted)}"
+        )
+        logger.info(f"💸 [{commodity}] پول حقیقی: {_fmt_signed(pol_hagigi_weighted, ' م.ت')}")
 
     logger.info(f"💾 [{commodity}] ذخیره در Google Sheets...")
     _t = time.perf_counter()
@@ -357,8 +385,8 @@ async def main():
             fetched = await asyncio.gather(
                 fetch_dollar_prices(client),
                 asyncio.to_thread(dirham_fetcher),
-                asyncio.to_thread(read_from_sheets, "gold", 800, True),
-                asyncio.to_thread(read_from_sheets, "silver", 800, True),
+                asyncio.to_thread(read_from_sheets, "gold", None, True),
+                asyncio.to_thread(read_from_sheets, "silver", None, True),
                 fetch_commodity_inputs("gold"),
                 fetch_commodity_inputs("silver"),
                 return_exceptions=True,
@@ -388,7 +416,10 @@ async def main():
             )
             yesterday_close = dollar_yesterday if dollar_yesterday else last_trade
             if not dollar_found:
-                logger.warning(f"⚠️ قیمت دلار دیروز پیدا نشد → استفاده از قیمت فعلی ({last_trade:,})")
+                logger.warning(
+                f"⚠️ قیمت دلار دیروز پیدا نشد → برای نمایش از قیمت فعلی ({last_trade:,}) استفاده می‌شه، "
+                f"ولی «تغییر روزانه‌ی دلار» تو شیت خالی ذخیره می‌شه (نه صفر)"
+            )
 
             # ─── process→save→send→alert — sequential؛ خطای یک کالا کالای بعدی رو خراب نمی‌کنه ───
             yesterday_rows = {"gold": gold_yesterday_rows, "silver": silver_yesterday_rows}
@@ -408,6 +439,7 @@ async def main():
                         dirham_price=dirham_price,
                         check_dollar=(i == 0),  # فقط بار اول (طلا) دلار چک می‌شه
                         preloaded_yesterday_rows=yesterday_rows[commodity],
+                        yesterday_close_known=bool(dollar_found),
                     )
                 except Exception as e:
                     logger.error(f"❌ [{commodity}] خطای پیش‌بینی‌نشده — این کالا رد شد: {e}", exc_info=True)
@@ -415,6 +447,15 @@ async def main():
                 _log_t(commodity, "کل پردازش", t_c)
                 if not ok:
                     failed.append(commodity)
+
+        # پاک‌سازی ردیف‌های قدیمی‌تر از KEEP_DAYS: روزی یک‌بار (اولین ران روز)، نه هر دقیقه.
+        # قبلاً clear_old_data هیچ‌جا صدا زده نمی‌شد و شیت بی‌نهایت بزرگ می‌شد (هر ران کل شیت رو می‌خونه).
+        # clear_old_data خودش تو FORCE_RUN کاری نمی‌کنه و خطاهاش رو لاگ می‌کنه (ران رو خراب نمی‌کنه).
+        if not force_run:
+            for commodity, rows_before in yesterday_rows.items():
+                if _is_first_run_today(rows_before, today_str):
+                    logger.info(f"🧹 [{commodity}] اولین ران امروز — پاک‌سازی داده‌های قدیمی‌تر از KEEP_DAYS")
+                    await asyncio.to_thread(clear_old_data, commodity)
 
         # تنها پیام گزارش کانال: یک پیام Rich برای طلا + نقره (هر کالا تو حلقه‌ی بالا stage شده).
         # آخر حلقه یک‌جا می‌ره: اولین اجرای روز = پیام جدید، اجراهای بعدی = ویرایش همون پیام.
