@@ -60,21 +60,31 @@ def main():
 
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.error("❌ TELEGRAM_BOT_TOKEN یا TELEGRAM_CHAT_ID در Secrets تنظیم نشده!")
-        return
+        return False
 
+    failed = []
     for commodity in COMMODITIES:
         logger.info(f"▶️ [{commodity}] در حال ساخت و ارسال گزارش ماهانه...")
         success = send_monthly_report(commodity, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
         logger.info(f"{'✅' if success else '⚠️'} [{commodity}] گزارش ماهانه {'ارسال شد' if success else 'ارسال نشد'}")
+        if not success:
+            failed.append(commodity)
 
     logger.info("=" * 60)
+    if failed:
+        # exit code ناصفر تا GitHub Actions قرمز بشه (قبلاً حتی با شکست کامل ارسال، run سبز می‌موند).
+        # توجه: «داده‌ی کافی نبود → ارسال لغو شد» هم False برمی‌گردونه و همین‌جا قرمز می‌شه.
+        logger.error(f"❌ گزارش ماهانه برای این کالاها ارسال نشد: {', '.join(failed)}")
+        logger.info("=" * 60)
+        return False
     logger.info("✅ اجرای گزارش ماهانه به پایان رسید")
     logger.info("=" * 60)
+    return True
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(0 if main() is not False else 1)
     except Exception as e:
         logger.critical(f"💥 خطای بحرانی: {e}", exc_info=True)
         sys.exit(1)
