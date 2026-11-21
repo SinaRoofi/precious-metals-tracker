@@ -24,7 +24,7 @@ from config import (
     REQUEST_TIMEOUT, TIMEZONE, LOW_VALUE, VALUE, HIGH_VALUE, VALUE_DIFF,
     ASSET_ORDER, PRICING_FACTORS, TROY_OZ, GOLD_YEAR_END_OUNCE_TARGET,
     SILVER_YEAR_END_OUNCE_TARGET,
-    ESKEH_SLUG, ESKEH_ACTIVE, eskeh_days_to_maturity, eskeh_floor_return,
+    ESKEH_SLUG, ESKEH_ACTIVE, eskeh_days_to_maturity, eskeh_floor_return, eskeh_annualized_return,
 )
 from utils.chart_creator import create_market_charts
 from utils.alerts import get_sarane_kharid_baseline, get_sarane_forosh_baseline
@@ -1580,6 +1580,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     continue
                 e_price = row["close_price"] / asset_cfg["divisor"]
                 e_floor = eskeh_floor_return(e_price) * 100
+                e_annual = eskeh_annualized_return(e_price, days_left)
+                e_annual_txt = "—" if e_annual is None else cpct(e_annual * 100, 1)
                 trade_time = row.get("last_trade_time")
                 eskeh_ctx = {
                     "title": "🏦 عسکه",
@@ -1588,6 +1590,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                         ["قیمت (تومان)", f"{e_price:,.0f}"],
                         ["تغییر روزانه", cpct(row["close_price_change_percent"], 1)],
                         ["حداقل بازده تا سررسید", cpct(e_floor, 1)],
+                        ["بازده سالانه‌شده (حداقل)", e_annual_txt],
+                        ["حباب", pct(row["Bubble"], 1)],
                         ["تا سررسید", "امروز (آخرین روز)" if days_left == 0 else f"{days_left} روز"],
                     ],
                 }
@@ -1702,7 +1706,11 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
                     f"({fmt_pct(row['close_price_change_percent'], 1)}%)\n"
                 )
                 if asset_cfg.get("eskeh"):
-                    block += f"🎯 حداقل بازده: {fmt_pct(eskeh_floor_return(price) * 100, 1)}%\n"
+                    e_annual = eskeh_annualized_return(price, eskeh_days_to_maturity())
+                    annual_txt = "" if e_annual is None else f" | سالانه {fmt_pct(e_annual * 100, 1)}%"
+                    block += f"🎯 حداقل بازده: {fmt_pct(eskeh_floor_return(price) * 100, 1)}%{annual_txt}\n"
+                    if pd.notna(row.get("Bubble")):
+                        block += f"🫧 حباب: {fmt_pct(row['Bubble'], 1)}%\n"
                 prev_was_capsule = True
                 continue
 
