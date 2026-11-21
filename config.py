@@ -16,22 +16,22 @@ def is_force_run():
 DOLLAR_HIGH = 272_000
 DOLLAR_LOW = 270_000
 # --- طلا ---
-SHAMS_HIGH = 33_000_000
-SHAMS_LOW = 32_000_000
+SHAMS_HIGH = 32_000_000
+SHAMS_LOW = 31_000_000
 
-GOLD_HIGH = 4000
-GOLD_LOW = 3700
+GOLD_HIGH = 3600
+GOLD_LOW = 3500
 
 # --- نقره ---
 SILVER_SHAMS_HIGH = 500_000
 SILVER_SHAMS_LOW = 400_000
 
-SILVER_HIGH = 55
-SILVER_LOW = 45
+SILVER_HIGH = 50
+SILVER_LOW = 40
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 49_000, "low": 48_000},
+    "زروان": {"high": 47_000, "low": 46_000},
 }
 
 # ── 📦 صندوقی که الان نگه‌داری می‌کنی ──
