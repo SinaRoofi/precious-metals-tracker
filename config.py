@@ -13,8 +13,8 @@ def is_force_run():
 # تنظیمات پرکاربرد
 
 # ── 🚨 آستانه‌های هشدار قیمتی ──
-DOLLAR_HIGH = 272_000
-DOLLAR_LOW = 270_000
+DOLLAR_HIGH = 270_000
+DOLLAR_LOW = 265_000
 # --- طلا ---
 SHAMS_HIGH = 31_000_000
 SHAMS_LOW = 30_000_000
