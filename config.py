@@ -16,14 +16,14 @@ def is_force_run():
 DOLLAR_HIGH = 272_000
 DOLLAR_LOW = 270_000
 # --- طلا ---
-SHAMS_HIGH = 31_500_000
+SHAMS_HIGH = 31_000_000
 SHAMS_LOW = 30_000_000
 
 GOLD_HIGH = 3600
 GOLD_LOW = 3500
 
 # --- نقره ---
-SILVER_SHAMS_HIGH = 450_000
+SILVER_SHAMS_HIGH = 400_000
 SILVER_SHAMS_LOW = 350_000
 
 SILVER_HIGH = 50
@@ -63,8 +63,8 @@ VALUE = 285
 HIGH_VALUE = 605
 
 # ── 📐 هدف پایان سال اونس ──
-GOLD_YEAR_END_OUNCE_TARGET = 4200  
-SILVER_YEAR_END_OUNCE_TARGET = 55
+GOLD_YEAR_END_OUNCE_TARGET = 4000 
+SILVER_YEAR_END_OUNCE_TARGET = 50
 
 # ── 🧾 تاگل‌های کپشن گزارش تلگرام ──
 # True = خط تو کپشن می‌آد؛ False = نمیاد. فقط روی نمایش اثر دارن: ذخیره‌ی شیت و هشدارها به این‌ها
@@ -328,6 +328,22 @@ def eskeh_floor_return(price_toman):
     عسکه مثل آپشن پوته‌ست: کف تضمینی ۲۵۲ م، و اگه امامی بالاتر بره قیمت بازار بیشتر می‌ده."""
     return ESKEH_GUARANTEE_PRICE / price_toman * (1 - ESKEH_FEE) - 1
 
+
+ESKEH_ANNUALIZE_COMPOUND = True   # True: بازده مؤثر سالانه (مرکب) | False: بازده ساده‌ی خطی (r × 365/d)
+ESKEH_ANNUALIZE_MIN_DAYS = 7      # کمتر از این تعداد روز تا سررسید، سالانه‌سازی بی‌معنی (اعداد نجومی) → نمایش داده نمی‌شه
+
+
+def eskeh_annualized_return(price_toman, days_left):
+    """بازده سالانه‌شده‌ی «حداقل بازده تا سررسید» (کسری؛ ۰.۵ = ۵۰٪)، یا None اگه روزهای باقی‌مانده کمتر از
+    ESKEH_ANNUALIZE_MIN_DAYS باشه. مبنای سال ۳۶۵ روز تقویمیه؛ days_left همون eskeh_days_to_maturity() است.
+    این «حداقل» سالانه‌شده‌ست (کف تضمینی)، نه پیش‌بینی بازده."""
+    if days_left is None or days_left < ESKEH_ANNUALIZE_MIN_DAYS:
+        return None
+    r = eskeh_floor_return(price_toman)
+    if ESKEH_ANNUALIZE_COMPOUND:
+        return (1 + r) ** (365 / days_left) - 1
+    return r * 365 / days_left
+
 # ════════════════════════════════════════════════════════════════
 # 📝 دارایی‌های داخلی هر کالا (ترتیب = ترتیب ایندکس در calculate_values)
 # ════════════════════════════════════════════════════════════════
@@ -346,9 +362,6 @@ ASSET_ORDER = {
         "سکه-امامی-طرح-جدید",
         "سکه-بهار-آزادی-طرح-قدیم",
         "طلا-مظنه-آبشده-تهران",
-        "سکه0312پ01",
-        "سکه0411پ05",
-        "سکه0412پ03",
         "نیم-سکه",
         "ربع-سکه",
         "سکه-1-گرمی",
@@ -376,9 +389,6 @@ PRICING_FACTORS = {
         {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سکه-امامی-طرح-جدید
         {'purity': 0.9,   'weight': 8.133,   'scale': 10},    # سکه-بهار-آزادی-طرح-قدیم
         {'purity': 0.705, 'weight': 4.6083,  'scale': 10},    # طلا-مظنه-آبشده-تهران
-        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0312پ01
-        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0411پ05
-        {'purity': 0.9,   'weight': 8.133,   'scale': 0.01},  # سکه0412پ03
         {'purity': 0.9,   'weight': 4.0665,  'scale': 10},    # نیم-سکه
         {'purity': 0.9,   'weight': 2.03225, 'scale': 10},    # ربع-سکه
         {'purity': 0.9,   'weight': 1,       'scale': 10},    # سکه-1-گرمی
