@@ -246,7 +246,7 @@ def create_market_charts(commodity, funds_open=True):
                 line=dict(color='#8B949E', width=2, dash='dash'),
                 annotation_text=f'میانگین ماهانه: %{shams_bubble_monthly_avg:+.2f}',
                 annotation_position='top right',
-                annotation_font=dict(size=18, color='#8B949E', family=chart_font_family),
+                annotation_font=dict(size=22, color='#8B949E', family=chart_font_family),
             )
         else:
             set_y_range(fig, df, 'shams_bubble_percent', 4)
@@ -287,7 +287,7 @@ def create_market_charts(commodity, funds_open=True):
                     line=dict(color='#8B949E', width=2, dash='dash'),
                     annotation_text=f'میانگین ماهانه: %{fund_bubble_monthly_avg:+.2f}',
                     annotation_position='top right',
-                    annotation_font=dict(size=18, color='#8B949E', family=chart_font_family),
+                    annotation_font=dict(size=22, color='#8B949E', family=chart_font_family),
                 )
             else:
                 set_y_range(fig, df, 'fund_weighted_bubble_percent', 6)
@@ -379,8 +379,8 @@ def create_market_charts(commodity, funds_open=True):
                 fig.add_annotation(
                     text=f'میانگین ماهانه سرانه خرید: {int(kharid_monthly_avg):,}'.replace(',', '٬'),
                     xref='x8 domain', yref='y8 domain',
-                    x=0.01, y=1.10, xanchor='left', yanchor='bottom', showarrow=False,
-                    font=dict(size=20, color=COLOR_POSITIVE, family=chart_font_family),
+                    x=0.01, y=1.13, xanchor='left', yanchor='bottom', showarrow=False,
+                    font=dict(size=24, color=COLOR_POSITIVE, family=chart_font_family),
                     bgcolor=annotation_bg,
                 )
             if forosh_monthly_avg is not None:
@@ -396,7 +396,7 @@ def create_market_charts(commodity, funds_open=True):
                     text=f'میانگین ماهانه سرانه فروش: {int(abs(forosh_monthly_avg)):,}'.replace(',', '٬'),
                     xref='x8 domain', yref='y8 domain',
                     x=0.01, y=1.0, xanchor='left', yanchor='bottom', showarrow=False,
-                    font=dict(size=20, color=COLOR_NEGATIVE, family=chart_font_family),
+                    font=dict(size=24, color=COLOR_NEGATIVE, family=chart_font_family),
                     bgcolor=annotation_bg,
                 )
 
