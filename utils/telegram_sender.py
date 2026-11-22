@@ -1628,8 +1628,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             quick.append([f"<b>{bullion_asset['title']}</b> <sub>{b_unit}</sub>",
                           bullion_asset["price"].replace(" ریال", ""), bullion_asset["change"]])
         if funds_ctx:
-            # صندوق‌ها تو خلاصه بازار: فقط «تغییر آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
-            quick.append([f"<b>{fund_emoji} صندوق‌های {label}</b> <sub>تغییر آخرین قیمت</sub>", Span(cpct(avg_change_percent_weighted, 2), 2)])
+            # صندوق‌ها تو خلاصه بازار: فقط «درصد آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
+            quick.append([f"<b>{fund_emoji} صندوق‌های {label}</b> <sub>درصد آخرین قیمت</sub>", Span(cpct(avg_change_percent_weighted, 2), 2)])
         quick = [tuple(H(x) if i == 0 else x for i, x in enumerate(r)) for r in quick]
 
         ctx = {
