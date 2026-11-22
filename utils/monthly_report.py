@@ -172,6 +172,16 @@ def _load_daily_history(commodity):
     daily = df.sort_values("timestamp").groupby("date", as_index=False).last()
     daily = daily.sort_values("date").reset_index(drop=True)
 
+    # روزی که ارزش معاملات صندوق‌ها «صفر» بوده (مثلاً تعطیلی اضطراری/ثبت‌نشده تو لیست که ربات اجرا شده و فقط
+    # صفر ذخیره کرده) روز معاملاتی نیست: ستون‌های صندوق خالی (NaN) می‌شن تا مثل پنج‌شنبه از نمودار و
+    # میانگین‌ها بیرون بمونه، نه اینکه یک ستون/نقطه‌ی صفر بسازه. trade_value خالی (ردیف‌های قدیمی) دست نمی‌خوره.
+    fund_cols = [
+        "fund_weighted_change_percent", "fund_final_price_avg", "fund_weighted_bubble_percent",
+        "sarane_kharid_weighted", "sarane_forosh_weighted", "ekhtelaf_sarane_weighted",
+        "pol_hagigi", "trade_value",
+    ]
+    daily.loc[daily["trade_value"] <= 0, fund_cols] = float("nan")
+
     # میانگین متحرک روی کمترین تعداد روز موجود هم محاسبه می‌شود (min_periods=1)؛
     # یعنی در ابتدای تاریخچه (کمتر از ۵ یا ۲۲ روز داده) میانگین روی همان چند روز موجود است،
     # نه NaN — تا خط نمودار از همون ابتدای ماه رسم بشه.
@@ -386,7 +396,10 @@ def _render_monthly_chart(commodity, daily):
         fig.update_layout(showlegend=False)
 
         # ─── ردیف ۵: پول حقیقی تجمعی ───
-        _add_conditional_line_categorical(fig, daily, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
+        # روی fd (فقط روزهای دارای داده‌ی صندوق) رسم می‌شه نه daily: پاره‌خط‌ها بین دو روز «مجاور» ساخته می‌شن و
+        # روز پنج‌شنبه (pol_hagigi_cumulative=NaN) خط رو تکه‌تکه می‌کرد. حالا خط از چهارشنبه مستقیم به شنبه
+        # وصل می‌شه (مثل پنل‌های حباب/سرانه) و پنج‌شنبه تو محور می‌مونه (اونس/شمش اون روز دیده می‌شن).
+        _add_conditional_line_categorical(fig, fd, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
         set_y_range(fig, fd, "pol_hagigi_cumulative", ROW_POL_HAGIGI)
 
         # ─── ردیف ۶: سرانه خرید/فروش + اختلاف ───
