@@ -46,6 +46,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ERROR_CHAT_ID: ${{ secrets.TELEGRAM_ERROR_CHAT_ID }}  # اختیاری؛ خالی = پیش‌فرض config.py
+          GIST_ID: ${{ secrets.GIST_ID }}        # فقط برای cooldown پیام‌های خطا
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           SHEETS_SERVICE_ACCOUNT: ${{ secrets.SHEETS_SERVICE_ACCOUNT }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
         run: .venv/bin/python weekly_report_main.py
