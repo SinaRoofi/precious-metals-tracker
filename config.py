@@ -30,9 +30,15 @@ SILVER_HIGH = 50
 SILVER_LOW = 40
 
 # --- هشدار قیمتی نمادهای صندوق 
+# (فقط برای نمادهایی که تو جدول صندوق‌های tradersarena هستن؛ قیمت به ریال. عسکه از rahavard میاد → پایین‌تر)
 FUND_PRICE_ALERTS = {
-    "زروان": {"high":49_000, "low": 47_500},
+    "زروان": {"high": 49_000, "low": 47_500},
 }
+
+# --- هشدار قیمتی عسکه (دارایی rahavard، نه جدول صندوق‌ها) ---
+# آستانه‌ها به «عدد خام rahavard» (همونی که تو rahavard365 می‌بینی، مثلاً 2,540,060)؛ نه تومان و نه ریال.
+# معادل تومان = عدد × ۱۰۰ (مثلاً 2,540,060 → 254,006,000 تومان). هر دو باید پر باشن و high > low.
+ESKEH_PRICE_ALERT = {"high": 2_480_000, "low": 2_470_000}
 
 # ── 📦 صندوقی که الان نگه‌داری می‌کنی ──
 # نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
@@ -63,7 +69,7 @@ VALUE = 285
 HIGH_VALUE = 605
 
 # ── 📐 هدف پایان سال اونس ──
-GOLD_YEAR_END_OUNCE_TARGET = 4000 
+GOLD_YEAR_END_OUNCE_TARGET = 4000  
 SILVER_YEAR_END_OUNCE_TARGET = 50
 
 # ── 🧾 تاگل‌های کپشن گزارش تلگرام ──
@@ -225,6 +231,14 @@ TELETHON_API_ID = _int_env('TELETHON_API_ID')
 TELETHON_API_HASH = os.getenv('TELETHON_API_HASH')
 TELEGRAM_SESSION = os.getenv('TELEGRAM_SESSION')
 TELEGRAM_ALERT_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID')
+# کانال خطا: خطاهای اجرا (شکست/ERROR لاگ) اینجا گزارش می‌شن. شناسه‌ی چت سکرت نیست (توکن بات سکرته)؛
+# مقدار پیش‌فرض کانال خطای پروژه‌ست و با secret/متغیر TELEGRAM_ERROR_CHAT_ID قابل override است
+# (secret تعریف‌نشده تو Actions رشته‌ی خالی می‌شه، پس `or` پیش‌فرض رو برمی‌گردونه). بات باید ادمین کانال باشه.
+TELEGRAM_ERROR_CHAT_ID = os.getenv('TELEGRAM_ERROR_CHAT_ID') or '-1004301959467'
+# برچسب پروژه تو پیام خطا: کانال خطا بین چند ریپو (مثلاً ریپوی بورس) مشترکه و باید معلوم باشه خطا مال کدومه
+ERROR_PROJECT_LABEL = '🥇 طلا و نقره'
+# یک خطای پایدار (تریگر هر ۱ دقیقه) تا این مدت فقط یک‌بار گزارش می‌شه تا کانال پر نشه
+ERROR_NOTIFY_COOLDOWN_MIN = 30
 
 # ════════════════════════════════════════════════════════════════
 # 📡 کانال‌های تلگرام
