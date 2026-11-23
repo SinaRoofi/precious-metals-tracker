@@ -10,6 +10,7 @@ import pytz
 import jdatetime
 from config import (
     is_force_run,
+    ESKEH_SLUG, ESKEH_ACTIVE, ESKEH_RIAL_SCALE, ESKEH_PRICE_ALERT,
     DOLLAR_HIGH,
     DOLLAR_LOW,
     SHAMS_HIGH,
@@ -217,6 +218,7 @@ def _default_alert_status():
         status[f"{c}_switch_signal"] = "normal"
     for symbol in FUND_PRICE_ALERTS:
         status[f"fund_{symbol}"] = "normal"
+    status["eskeh_price"] = "normal"
     return status
 
 
@@ -1400,6 +1402,10 @@ def _check_and_send_alerts(
     if check_day_move_alerts(bot_token, chat_id, day_assets, status, now):
         changed = True
 
+    # هشدار قیمتی عسکه (از دارایی‌های rahavard؛ تو روز بدون صندوق هم چک می‌شه)
+    if commodity == "gold" and check_eskeh_price_alert(bot_token, chat_id, data["dfp"], status):
+        changed = True
+
     if not funds_open:
         # روز بدون صندوق (مثلاً پنج‌شنبه): بقیه‌ی هشدارها به داده‌ی صندوق‌ها وابسته‌ن و رد می‌شن
         if _check_price_thresholds(
@@ -1871,6 +1877,59 @@ def check_fund_price_alerts(bot_token, chat_id, df_funds, status):
 
 
 # ════════════════════════════════════════════════════════════════
+# 🪙 هشدار قیمتی عسکه (ESKEH_PRICE_ALERT در config — عدد خام rahavard)
+# ════════════════════════════════════════════════════════════════
+
+
+def check_eskeh_price_alert(bot_token, chat_id, dfp, status):
+    """هشدار عبور قیمت عسکه از سقف/کف (واحد: عدد خام rahavard، مثلاً 2,540,060).
+    عسکه تو جدول صندوق‌ها (Fund_df) نیست و از دارایی‌های rahavard میاد؛ پس جدا از FUND_PRICE_ALERTS چک می‌شه.
+    منطق وضعیت مثل بقیه‌ی هشدارهای آستانه‌ایه: بالای سقف → یک پیام؛ تا وقتی برنگرده تو بازه تکرار نمی‌شه.
+    خروجی: True اگه status عوض شده (باید ذخیره بشه)."""
+    if not ESKEH_ACTIVE or dfp is None or ESKEH_SLUG not in dfp.index:
+        return False
+
+    high = ESKEH_PRICE_ALERT.get("high")
+    low = ESKEH_PRICE_ALERT.get("low")
+    if high is None or low is None:
+        return False
+    if high <= low:
+        logger.warning(f"⚠️ ESKEH_PRICE_ALERT نامعتبره (high={high} باید بزرگ‌تر از low={low} باشه) — رد شد")
+        return False
+
+    rial = pd.to_numeric(dfp.loc[ESKEH_SLUG, "close_price"], errors="coerce")
+    if pd.isna(rial) or rial <= 0:
+        return False  # بدون داده (تو calculate_values داده‌ی ناموجود صفر می‌شه)
+
+    price = float(rial) / ESKEH_RIAL_SCALE  # برگشت به عدد خام rahavard
+    key = "eskeh_price"
+    current = status.get(key, "normal")
+
+    extra = [f"🪙 معادل {price * 100:,.0f} تومان"]
+    bubble = pd.to_numeric(dfp.loc[ESKEH_SLUG].get("Bubble"), errors="coerce")
+    if pd.notna(bubble):
+        extra.append(f"🫧 حباب: {bubble:+.2f}%")
+    extra_lines = "\n".join(extra)
+
+    if price > high:
+        if current != "above":
+            send_alert_threshold("عسکه", price, high, above=True, bot_token=bot_token, chat_id=chat_id,
+                                 extra_lines=extra_lines)
+            status[key] = "above"
+            return True
+    elif price < low:
+        if current != "below":
+            send_alert_threshold("عسکه", price, low, above=False, bot_token=bot_token, chat_id=chat_id,
+                                 extra_lines=extra_lines)
+            status[key] = "below"
+            return True
+    elif current != "normal":
+        status[key] = "normal"
+        return True
+    return False
+
+
+# ════════════════════════════════════════════════════════════════
 # 🌅 حرکت نسبت به قیمت باز شدن (دلار، شمش، صندوق خودت)
 # ════════════════════════════════════════════════════════════════
 
@@ -2210,13 +2269,17 @@ def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id, ext
     elif asset == "اونس نقره":
         unit, asset_emoji = "دلار", "🌕"
         price_display, threshold_display = price, threshold
+    elif asset == "عسکه":
+        # عدد خام rahavard (بدون واحد)؛ معادل تومان تو extra_lines میاد
+        unit, asset_emoji = "", "🪙"
+        price_display, threshold_display = price, threshold
     else:
         # نمادهای صندوق (FUND_PRICE_ALERTS) هم از همین مسیر رد می‌شوند
         unit, asset_emoji = "ریال", "📌"
         price_display, threshold_display = price, threshold
 
     # نمادهای صندوق فقط اسم نمادن؛ پیشوند «صندوق» تا با شمش/اونس اشتباه نشن (فقط نمایش)
-    asset_display = asset if asset in ("دلار", "شمش طلا", "شمش نقره", "اونس طلا", "اونس نقره") else f"صندوق {asset}"
+    asset_display = asset if asset in ("دلار", "شمش طلا", "شمش نقره", "اونس طلا", "اونس نقره", "عسکه") else f"صندوق {asset}"
 
     is_ounce_asset = "اونس" in asset
     price_formatted = f"{price_display:,.2f}" if is_ounce_asset else f"{int(round(price_display)):,}"
