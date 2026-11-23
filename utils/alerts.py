@@ -2298,24 +2298,60 @@ def send_alert_threshold(asset, price, threshold, above, bot_token, chat_id, ext
     send_alert_message(bot_token, chat_id, f"{main_text}\n{footer}")
 
 
+ALERT_SEND_MAX_ATTEMPTS = 3
+
+
 def send_alert_message(bot_token, chat_id, caption):
-    """ارسال پیام هشدار به تلگرام"""
-    try:
-        response = requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            data={"chat_id": chat_id, "text": caption, "parse_mode": "HTML"},
-            timeout=REQUEST_TIMEOUT,
-        )
+    """ارسال پیام هشدار به تلگرام با retry روی خطای گذرا (reset اتصال، تایم‌اوت، ۵xx، ۴۲۹).
+
+    قبلاً یک reset لحظه‌ای اتصال (ConnectionResetError) فقط لاگ می‌شد و هشدار برای همیشه گم می‌شد (چون
+    status هشدار «ارسال‌شده» ذخیره می‌شه). ۴xx غیر از ۴۲۹ (مثلاً متن HTML نامعتبر) retry نمی‌شه.
+    Returns: True اگه پیام رفت، وگرنه False (بعد از لاگ ERROR → گزارش به کانال خطا).
+    ⚠️ ممکنه نادر باشه که پیام برسه ولی پاسخش گم بشه و retry پیام تکراری بسازه؛ برای هشدار، تکراری بهتر از گم‌شده است.
+    """
+    last_error = None
+    for attempt in range(1, ALERT_SEND_MAX_ATTEMPTS + 1):
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                data={"chat_id": chat_id, "text": caption, "parse_mode": "HTML"},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.exceptions.RequestException as e:
+            last_error = f"{type(e).__name__}: {e}"
+            logger.warning(f"⚠️ ارسال هشدار شکست خورد (تلاش {attempt}/{ALERT_SEND_MAX_ATTEMPTS}): {last_error}")
+            if attempt < ALERT_SEND_MAX_ATTEMPTS:
+                time.sleep(1.5 * attempt)
+            continue
+        except Exception as e:  # noqa: BLE001 — خطای غیرمنتظره: retry نمی‌کنیم
+            logger.error(f"❌ خطا در ارسال هشدار: {e}")
+            return False
 
         if response.status_code == 200:
-            logger.info("✅ هشدار ارسال شد")
-        elif response.status_code == 429:
-            retry_after = response.json().get("parameters", {}).get("retry_after", 5)
-            logger.warning(f"⚠️ Rate limit hit, waiting {retry_after}s")
-            time.sleep(retry_after)
-            return send_alert_message(bot_token, chat_id, caption)
-        else:
-            logger.warning(f"⚠️ ارسال هشدار با خطا: {response.status_code}")
+            logger.info("✅ هشدار ارسال شد" + (f" (تلاش {attempt})" if attempt > 1 else ""))
+            return True
 
-    except Exception as e:
-        logger.error(f"❌ خطا در ارسال هشدار: {e}")
+        if response.status_code == 429:
+            try:
+                retry_after = response.json().get("parameters", {}).get("retry_after", 5)
+            except ValueError:
+                retry_after = 5
+            last_error = "HTTP 429"
+            logger.warning(f"⚠️ Rate limit hit, waiting {retry_after}s (تلاش {attempt}/{ALERT_SEND_MAX_ATTEMPTS})")
+            if attempt < ALERT_SEND_MAX_ATTEMPTS:
+                time.sleep(min(retry_after, 30))
+            continue
+
+        if response.status_code >= 500:
+            last_error = f"HTTP {response.status_code}"
+            logger.warning(f"⚠️ ارسال هشدار با خطای سرور {response.status_code} (تلاش {attempt}/{ALERT_SEND_MAX_ATTEMPTS})")
+            if attempt < ALERT_SEND_MAX_ATTEMPTS:
+                time.sleep(1.5 * attempt)
+            continue
+
+        # ۴xx دیگه (توکن/چت/متن نامعتبر) با تکرار درست نمی‌شه
+        logger.warning(f"⚠️ ارسال هشدار با خطا: {response.status_code}")
+        return False
+
+    logger.error(f"❌ ارسال هشدار بعد از {ALERT_SEND_MAX_ATTEMPTS} تلاش ناموفق ماند: {last_error}")
+    return False
