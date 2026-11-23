@@ -27,6 +27,7 @@ from utils.holidays import is_iranian_holiday, is_funds_trading_day
 from utils.sheets_storage import save_to_sheets, read_from_sheets, clear_old_data, SheetsReadError
 from utils.log_safety import redact
 from utils.alerts import check_and_send_alerts
+from utils import error_notifier
 
 class JalaliFormatter(logging.Formatter):
     """Formatter که %(asctime)s رو با تاریخ و ساعت شمسی (تهران) پر می‌کند"""
@@ -53,6 +54,7 @@ logging.basicConfig(
     handlers=[_file_handler, _stream_handler],
 )
 logger = logging.getLogger(__name__)
+error_notifier.install()  # جمع‌آوری لاگ‌های ERROR این اجرا برای گزارش به کانال خطا
 
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 
@@ -484,10 +486,16 @@ async def main():
 
 
 if __name__ == "__main__":
+    exit_code = 0
+    fatal = None
     try:
-        sys.exit(0 if asyncio.run(main()) else 1)
+        exit_code = 0 if asyncio.run(main()) else 1
     except KeyboardInterrupt:
         print("\n👋 خداحافظ!")
     except Exception as e:
         logger.critical(f"💥 خطای بحرانی: {e}", exc_info=True)
-        sys.exit(1)
+        fatal = e
+        exit_code = 1
+    # شکست اجرا یا هر ERRORِ لاگ‌شده → کانال خطا (با cooldown؛ هیچ‌وقت اجرا رو خراب نمی‌کنه)
+    error_notifier.notify_run_problems("Market Tracker", failed=exit_code != 0, fatal=fatal)
+    sys.exit(exit_code)
