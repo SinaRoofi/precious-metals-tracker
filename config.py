@@ -13,25 +13,25 @@ def is_force_run():
 # تنظیمات پرکاربرد
 
 # ── 🚨 آستانه‌های هشدار قیمتی ──
-DOLLAR_HIGH = 270_000
-DOLLAR_LOW = 265_000
+DOLLAR_HIGH = 272_000
+DOLLAR_LOW = 270_000
 # --- طلا ---
-SHAMS_HIGH = 31_500_000
-SHAMS_LOW = 30_000_000
+SHAMS_HIGH = 32_000_000
+SHAMS_LOW = 31_000_000
 
-GOLD_HIGH = 3600
-GOLD_LOW = 3500
+GOLD_HIGH = 3700
+GOLD_LOW = 3600
 
 # --- نقره ---
-SILVER_SHAMS_HIGH = 400_000
-SILVER_SHAMS_LOW = 350_000
+SILVER_SHAMS_HIGH = 450_000
+SILVER_SHAMS_LOW = 400_000
 
 SILVER_HIGH = 50
 SILVER_LOW = 40
 
 # --- هشدار قیمتی نمادهای صندوق 
 FUND_PRICE_ALERTS = {
-    "زروان": {"high":47_000, "low": 46_500},
+    "زروان": {"high":48_000, "low": 47_000},
 }
 
 # ── 📦 صندوقی که الان نگه‌داری می‌کنی ──
