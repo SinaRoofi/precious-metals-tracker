@@ -17,6 +17,7 @@ from utils.telegram_sender import send_monthly_report
 
 
 from utils.log_safety import redact
+from utils import error_notifier
 
 
 class JalaliFormatter(logging.Formatter):
@@ -40,6 +41,7 @@ _stream_handler.setFormatter(_formatter)
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO), handlers=[_file_handler, _stream_handler])
 logger = logging.getLogger(__name__)
+error_notifier.install()  # جمع‌آوری لاگ‌های ERROR برای گزارش به کانال خطا
 
 COMMODITIES = ["gold", "silver"]
 
@@ -83,8 +85,13 @@ def main():
 
 
 if __name__ == "__main__":
+    exit_code = 0
+    fatal = None
     try:
-        sys.exit(0 if main() is not False else 1)
+        exit_code = 0 if main() is not False else 1
     except Exception as e:
         logger.critical(f"💥 خطای بحرانی: {e}", exc_info=True)
-        sys.exit(1)
+        fatal = e
+        exit_code = 1
+    error_notifier.notify_run_problems("گزارش ماهانه", failed=exit_code != 0, fatal=fatal)
+    sys.exit(exit_code)
