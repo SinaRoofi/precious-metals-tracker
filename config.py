@@ -13,17 +13,17 @@ def is_force_run():
 # تنظیمات پرکاربرد
 
 # ── 🚨 آستانه‌های هشدار قیمتی ──
-DOLLAR_HIGH = 275_000
-DOLLAR_LOW = 270_000
+DOLLAR_HIGH = 280_000
+DOLLAR_LOW = 275_000
 # --- طلا ---
-SHAMS_HIGH = 33_000_000
-SHAMS_LOW = 32_000_000
+SHAMS_HIGH = 34_000_000
+SHAMS_LOW = 33_000_000
 
 GOLD_HIGH = 3700
 GOLD_LOW = 3600
 
 # --- نقره ---
-SILVER_SHAMS_HIGH = 450_000
+SILVER_SHAMS_HIGH = 500_000
 SILVER_SHAMS_LOW = 400_000
 
 SILVER_HIGH = 50
@@ -32,7 +32,7 @@ SILVER_LOW = 40
 # --- هشدار قیمتی نمادهای صندوق 
 # (فقط برای نمادهایی که تو جدول صندوق‌های tradersarena هستن؛ قیمت به ریال. عسکه از rahavard میاد → پایین‌تر)
 FUND_PRICE_ALERTS = {
-    "زروان": {"high": 49_000, "low": 47_500},
+    "زروان": {"high": 50_000, "low": 47_500},
 }
 
 # --- هشدار قیمتی عسکه 
