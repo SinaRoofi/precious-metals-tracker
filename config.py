@@ -24,8 +24,8 @@ GOLD_LOW = 3500
 SILVER_SHAMS_HIGH = 500_000
 SILVER_SHAMS_LOW = 400_000
 
-SILVER_HIGH = 50
-SILVER_LOW = 40
+SILVER_HIGH = 45
+SILVER_LOW = 35
 
 # --- هشدار قیمتی نمادهای صندوق 
 
@@ -66,8 +66,8 @@ VALUE = 285
 HIGH_VALUE = 605
 
 # ── 📐 هدف پایان سال اونس ──
-GOLD_YEAR_END_OUNCE_TARGET = 4000  
-SILVER_YEAR_END_OUNCE_TARGET = 50
+GOLD_YEAR_END_OUNCE_TARGET = 3800
+SILVER_YEAR_END_OUNCE_TARGET = 45
 
 # ── 🧾 تاگل‌های کپشن گزارش تلگرام ──
 # True = خط تو کپشن می‌آد؛ False = نمیاد. فقط روی نمایش اثر دارن: ذخیره‌ی شیت و هشدارها به این‌ها
