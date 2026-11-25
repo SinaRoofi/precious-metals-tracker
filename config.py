@@ -4,8 +4,6 @@ import os
 
 
 def is_force_run():
-    """FORCE_RUN=true (اجرای دستی/تست از GitHub Actions) → هیچ‌چیز تو Google Sheet و Gist ذخیره/پاک نمی‌شه.
-    خوندن، ارسال تلگرام و هشدارها مثل همیشه کار می‌کنن؛ پیام Rich هم «جدید» می‌ره (پیام امروز ویرایش نمی‌شه)."""
     return os.getenv("FORCE_RUN", "false").strip().lower() == "true"
 
 
