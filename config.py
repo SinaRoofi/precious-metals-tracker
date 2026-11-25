@@ -14,8 +14,8 @@ def is_force_run():
 DOLLAR_HIGH = 290_000
 DOLLAR_LOW = 285_000
 # --- طلا ---
-SHAMS_HIGH = 35_000_000
-SHAMS_LOW = 34_000_000
+SHAMS_HIGH = 34_000_000
+SHAMS_LOW = 33_000_000
 
 GOLD_HIGH = 3600
 GOLD_LOW = 3500
@@ -35,7 +35,7 @@ FUND_PRICE_ALERTS = {
 
 # --- هشدار قیمتی عسکه 
 
-ESKEH_PRICE_ALERT = {"high": 2_590_000, "low": 2_550_000}
+ESKEH_PRICE_ALERT = {"high": 2_550_000, "low": 2_500_000}
 
 # ── 📦 صندوقی که الان نگه‌داری می‌کنی ──
 # نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
