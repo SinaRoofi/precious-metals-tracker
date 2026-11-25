@@ -49,7 +49,7 @@ CURRENT_HOLDING = {
 ALERT_THRESHOLD_PERCENT = {
     "dollar": 0.5,
     "gold": 0.5,
-    "silver": 1.0,
+    "silver": 1.5,
 }
 EKHTELAF_THRESHOLD = 20
 
