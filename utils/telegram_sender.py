@@ -1449,7 +1449,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
         dollar_head = ["", "قیمت (تومان)", "تغییر روزانه", "بازده هفتگی"]
         dollar_rows = [
-            ["آخرین معامله" + (f" {tick}" if tick else "") + dollar_time_txt, f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
+            ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
             # خرید و فروش تو «یک» ردیف (سه ستون ادغام‌شده)؛ قبلاً دو ردیف با خط‌تیره‌ی خالی بود
             # ترتیب اعداد برعکس شد: اول فروش (🔴) بعد خرید (🟢)
             ["سرخط خرید | فروش", Span(f"🔴 {dollar_prices['ask']:,.0f}  |  🟢 {dollar_prices['bid']:,.0f}", 3)],
@@ -1640,7 +1640,9 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             "commodity": commodity,
             "section_title": f"{fund_emoji} بازار {label}",
             "update": current_time,
+            # time: ساعت آخرین معامله‌ی دلار، کنار تیتر «💵 دلار» (تو ستون برچسب جدول جا نمی‌شد و خط می‌شکست)
             "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation,
+                       "time": _trade_dt.strftime("%H:%M") if _trade_dt else None,
                        "last": (f"{dollar_last:,.0f}", cpct(dollar_change, 2)),
                        # دلار درهم: ردیف خلاصه بازار (قیمت، تغییر روزانه)؛ مستقل از طلا/نقره.
                        # تغییر روزانه‌ی درهم هنوز از منبع (alanchand) خونده نمی‌شه → None = فقط قیمت
