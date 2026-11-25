@@ -1358,13 +1358,16 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         dollar_prices.get("bid_time"),
         dollar_prices.get("ask_time"),
     )
+    # ساعت (به وقت تهران) آخرین معامله‌ی دلار — از تاریخ پیام کانال تلگرام می‌آد؛ نبودنش خط رو خراب نمی‌کنه
+    _trade_dt = dollar_prices.get("last_trade_time")
+    dollar_time_txt = f" 🕐 {_trade_dt.strftime('%H:%M')}" if _trade_dt else ""
 
     if commodity == "silver":
         caption = f"""
 🔄 آپدیت: {current_time}
 
 <b>💵 دلار</b>
-🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 1)}%) {tick}
+🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 1)}%) {tick}{dollar_time_txt}
 """
     else:
         caption = f"""
@@ -1381,7 +1384,7 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
             caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({fmt_pct(dirham_diff_pct, 1)}%)\n"
 
         # خط خالی بین بلاک کف/ارزش/سقف (+تتر/درهم) و معامله — مستقل از اینکه تتر/درهم باشن یا نه
-        caption += f"\n🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}\n"
+        caption += f"\n🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}{dollar_time_txt}\n"
     # \u200F لازمه: این خط (بعد از حذف کلمه‌های «خرید»/«فروش») هیچ حرف
     # فارسی نداره، فقط ایموجی+عدد+چارچوب لاتین — تلگرام همچین خطی رو LTR
     # (چپ‌چین) می‌گیره و می‌ره سمت چپ. RLM جهت پاراگراف رو راست‌به‌چپ
@@ -1446,9 +1449,10 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
 
         dollar_head = ["", "قیمت (تومان)", "تغییر روزانه", "بازده هفتگی"]
         dollar_rows = [
-            ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
+            ["آخرین معامله" + (f" {tick}" if tick else "") + dollar_time_txt, f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
             # خرید و فروش تو «یک» ردیف (سه ستون ادغام‌شده)؛ قبلاً دو ردیف با خط‌تیره‌ی خالی بود
-            ["سرخط خرید | فروش", Span(f"🟢 {dollar_prices['bid']:,.0f}  |  🔴 {dollar_prices['ask']:,.0f}", 3)],
+            # ترتیب اعداد برعکس شد: اول فروش (🔴) بعد خرید (🟢)
+            ["سرخط خرید | فروش", Span(f"🔴 {dollar_prices['ask']:,.0f}  |  🟢 {dollar_prices['bid']:,.0f}", 3)],
         ]
         valuation = []
         if commodity != "silver":
