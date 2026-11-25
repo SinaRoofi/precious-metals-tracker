@@ -1274,7 +1274,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
         times = [t for t in [last_trade_time, bid_time, ask_time] if t is not None]
         if not times:
             return ""
-        return "✅" if max(times) == last_trade_time else ""
+        # 🔥 = معامله تازه‌ترین پیام کانال است (حالت نادر؛ بیشتر وقت‌ها خرید/فروش جدیدترن)
+        return "🔥" if max(times) == last_trade_time else ""
 
     days = days_passed_this_year()
     low_total = LOW_VALUE * days + VALUE_DIFF
