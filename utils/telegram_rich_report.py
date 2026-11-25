@@ -139,8 +139,8 @@ def _quick_html(ctxs):
 
 def _dollar_html(ctx):
     d = ctx["dollar"]
-    title = "💵 دلار" + (f" · 🕐 {d['time']}" if d.get("time") else "")
-    parts = [f"<h2>{title}</h2>", _table(d["head"], d["rows"])]
+    # ساعت با همون _time_tag بقیه‌ی تیترها (اونس و ...): « 🕐 HH:MM» بدون جداکننده
+    parts = [f"<h2>💵 دلار{_time_tag(d.get('time'))}</h2>", _table(d["head"], d["rows"])]
     if d.get("valuation"):  # ارزش‌گذاری (کف/ارزش/سقف/درهم) تاشوئه
         parts += _collapsible("🧮 ارزش‌گذاری دلار",
                               [_table(["", "قیمت (تومان)", "فاصله از آخرین معامله"], d["valuation"])])
