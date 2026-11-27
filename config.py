@@ -4,6 +4,8 @@ import os
 
 
 def is_force_run():
+    """FORCE_RUN=true (اجرای دستی/تست از GitHub Actions) → هیچ‌چیز تو Google Sheet و Gist ذخیره/پاک نمی‌شه.
+    خوندن، ارسال تلگرام و هشدارها مثل همیشه کار می‌کنن؛ پیام Rich هم «جدید» می‌ره (پیام امروز ویرایش نمی‌شه)."""
     return os.getenv("FORCE_RUN", "false").strip().lower() == "true"
 
 
@@ -14,28 +16,29 @@ def is_force_run():
 DOLLAR_HIGH = 295_000
 DOLLAR_LOW = 290_000
 # --- طلا ---
-SHAMS_HIGH = 35_000_000
-SHAMS_LOW = 34_000_000
+SHAMS_HIGH = 34_000_000
+SHAMS_LOW = 33_000_000
 
-GOLD_HIGH = 3600
-GOLD_LOW = 3500
+GOLD_HIGH = 3700
+GOLD_LOW = 3600
 
 # --- نقره ---
-SILVER_SHAMS_HIGH = 500_000
+SILVER_SHAMS_HIGH = 450_000
 SILVER_SHAMS_LOW = 400_000
 
 SILVER_HIGH = 50
 SILVER_LOW = 40
 
 # --- هشدار قیمتی نمادهای صندوق 
-
+# (فقط برای نمادهایی که تو جدول صندوق‌های tradersarena هستن؛ قیمت به ریال. عسکه از rahavard میاد → پایین‌تر)
 FUND_PRICE_ALERTS = {
-    "عیار": {"high": 699_000, "low": 695_000},
+    "زروان": {"high": 49_000, "low": 47_500},
 }
 
-# --- هشدار قیمتی عسکه 
-
-ESKEH_PRICE_ALERT = {"high": 2_560_000, "low": 2_500_000}
+# --- هشدار قیمتی عسکه (دارایی rahavard، نه جدول صندوق‌ها) ---
+# آستانه‌ها به «عدد خام rahavard» (همونی که تو rahavard365 می‌بینی، مثلاً 2,540,060)؛ نه تومان و نه ریال.
+# معادل تومان = عدد × ۱۰۰ (مثلاً 2,540,060 → 254,006,000 تومان). هر دو باید پر باشن و high > low.
+ESKEH_PRICE_ALERT = {"high": 2_480_000, "low": 2_470_000}
 
 # ── 📦 صندوقی که الان نگه‌داری می‌کنی ──
 # نماد صندوقی که الان در هر کالا نگه‌داری می‌شود. None یعنی فعلاً پوزیشنی
@@ -49,7 +52,7 @@ CURRENT_HOLDING = {
 ALERT_THRESHOLD_PERCENT = {
     "dollar": 0.5,
     "gold": 0.5,
-    "silver": 1.5,
+    "silver": 1.0,
 }
 EKHTELAF_THRESHOLD = 20
 
@@ -66,8 +69,8 @@ VALUE = 285
 HIGH_VALUE = 605
 
 # ── 📐 هدف پایان سال اونس ──
-GOLD_YEAR_END_OUNCE_TARGET = 3800
-SILVER_YEAR_END_OUNCE_TARGET = 45
+GOLD_YEAR_END_OUNCE_TARGET = 4000  
+SILVER_YEAR_END_OUNCE_TARGET = 50
 
 # ── 🧾 تاگل‌های کپشن گزارش تلگرام ──
 # True = خط تو کپشن می‌آد؛ False = نمیاد. فقط روی نمایش اثر دارن: ذخیره‌ی شیت و هشدارها به این‌ها
@@ -234,8 +237,10 @@ TELEGRAM_ALERT_CHAT_ID = os.getenv('TELEGRAM_ALERT_CHAT_ID')
 TELEGRAM_ERROR_CHAT_ID = os.getenv('TELEGRAM_ERROR_CHAT_ID') or '-1004301959467'
 # برچسب پروژه تو پیام خطا: کانال خطا بین چند ریپو (مثلاً ریپوی بورس) مشترکه و باید معلوم باشه خطا مال کدومه
 ERROR_PROJECT_LABEL = '🥇 طلا و نقره'
-# یک خطای پایدار (تریگر هر ۱ دقیقه) تا این مدت فقط یک‌بار گزارش می‌شه تا کانال پر نشه
-ERROR_NOTIFY_COOLDOWN_MIN = 30
+# خطا باید تو این تعداد اجرای پشت‌سرهم تکرار بشه تا پیام بره (خطای تک‌اجرایی، مثل reset شبکه، پیام نمی‌ده).
+# بعد از اولین پیام تا رفع خطا پیام تکراری نمی‌ره؛ یک اجرای سالم همه‌چیز رو صفر می‌کنه. 1 = هر خطا فوری.
+# گزارش هفتگی/ماهانه همیشه فوری هستن (یک‌بار تو دوره می‌ان).
+ERROR_NOTIFY_MIN_CONSECUTIVE = 2
 
 # ════════════════════════════════════════════════════════════════
 # 📡 کانال‌های تلگرام
