@@ -340,6 +340,8 @@ CAPTION_ASSETS = {
         {"key": "شمش-طلا", "title": "🟨 شمش طلا بورس کالا", "unit": "ریال", "divisor": 1, "show_ounce_calc": True},
         {"key": "طلا-گرم-24-عیار", "title": "🔸 طلای ۲۴", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "طلا-گرم-18-عیار", "title": "🔸 طلای ۱۸", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
+        # آبشده (مظنه تهران): بین طلای ۱۸ و سکه‌ها. قیمتش مثل ۱۸ عیار به‌ازای مثقال/گرم ریال‌مقیاسه (ضرایب تو PRICING_FACTORS)
+        {"key": "طلا-مظنه-آبشده-تهران", "title": "🔶 آبشده", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "سکه-امامی-طرح-جدید", "title": "🟡 امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
         # فقط وقتی تاگل‌های کپشن اجازه بدن (SHOW_QUARTER_COIN_IN_CAPTION)؛ کم‌اهمیت‌ترین آیتم، مثل امامی
