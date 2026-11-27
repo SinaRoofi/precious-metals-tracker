@@ -87,5 +87,5 @@ if __name__ == "__main__":
         logger.critical(f"💥 خطای بحرانی: {e}", exc_info=True)
         fatal = e
         exit_code = 1
-    error_notifier.notify_run_problems("گزارش هفتگی", failed=exit_code != 0, fatal=fatal)
+    error_notifier.notify_run_problems("گزارش هفتگی", failed=exit_code != 0, fatal=fatal, min_consecutive=1)
     sys.exit(exit_code)
