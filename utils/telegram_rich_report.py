@@ -26,8 +26,7 @@ RICH_MESSAGE_LIMIT = 32768  # کاراکتر، طبق مستندات Bot API
 RICH_TIMEOUT = 90
 USE_SLIDESHOW = True  # هر جفت عکس تو یه اسلایدشو (<tg-slideshow>) که ورق می‌خوره؛ False = عکس‌ها زیر هم
 
-_LABELS = {"gold": "طلا", "silver": "نقره"}
-_STAGED = {}  # commodity → {"commodity", "images": [img1, img2], "ctx": dict|None, "html": str|None}
+_STAGED = {}  # commodity → {"commodity", "images": [img1, img2], "ctx": dict}
 
 
 # ───────────────────────── HTML سازنده‌ها ─────────────────────────
@@ -83,18 +82,6 @@ def _collapsible(title, inner_parts):
     """بلاک تاشو (بسته به‌صورت پیش‌فرض). title متن ساده‌ست (escape می‌شه)."""
     # \u200F (RLM) اول تیتر: جهت راست‌به‌چپ و راست‌چین‌شدنِ تیتر تاشو (حتی وقتی با ایموجی/عدد شروع می‌شه)
     return [f"<details><summary>\u200F{_e(title)}</summary>", *inner_parts, "</details>"]
-
-
-def caption_to_rich_html(caption):
-    """(فقط fallback) تبدیل کپشن متنی HTML (بلاک‌ها با خط خالی جدا شدن) به HTML Rich: هر بلاک یه <p> با <br/>."""
-    blocks = [b for b in re.split(r"\n\s*\n", caption.strip()) if b.strip()]
-    parts = []
-    for i, block in enumerate(blocks):
-        lines = [ln for ln in block.split("\n") if ln.strip()]
-        if i == len(blocks) - 1 and len(blocks) > 1 and len(lines) == 1 and "@" in lines[0]:
-            parts.append("<hr/>")
-        parts.append("<p>" + "<br/>".join(lines) + "</p>")
-    return "\n".join(parts)
 
 
 def _footer(channel):
@@ -201,9 +188,9 @@ def _commodity_html(ctx):
 def render_rich_merged(parts_list):
     """یک پیام برای چند کالا: آپدیت + خلاصه بازار + دلار (یک بار) → برای هر کالا: عنوان، اسلایدشوی عکس‌هاش و جزئیات → هندل.
 
-    parts_list: لیست مرتب {"commodity", "images", "ctx"|"html"}؛ عکس n‌ام (۱..) با id=img{n} تو media می‌ره.
+    parts_list: لیست مرتب {"commodity", "images", "ctx"}؛ عکس n‌ام (۱..) با id=img{n} تو media می‌ره.
     """
-    ctxs = [p["ctx"] for p in parts_list if p.get("ctx")]
+    ctxs = [p["ctx"] for p in parts_list]
     out = []
     if ctxs:
         out.append("<h1>📊 طلا و نقره لحظه‌ای</h1>")
@@ -215,9 +202,8 @@ def render_rich_merged(parts_list):
     for p in parts_list:
         ids = [f"img{n + i + 1}" for i in range(len(p["images"]))]
         n += len(p["images"])
-        title = p["ctx"]["section_title"] if p.get("ctx") else f"بازار {_LABELS.get(p['commodity'], p['commodity'])}"
-        out += ["<hr/>", f"<h2>{_e(title)}</h2>", _slideshow(ids)]
-        out += _commodity_html(p["ctx"]) if p.get("ctx") else [p.get("html") or ""]
+        out += ["<hr/>", f"<h2>{_e(p['ctx']['section_title'])}</h2>", _slideshow(ids)]
+        out += _commodity_html(p["ctx"])
     channel = ctxs[0]["channel"] if ctxs else ""
     if channel:
         out += ["<hr/>", _footer(channel)]
@@ -392,9 +378,9 @@ def pin_report(bot_token, chat_id, message_id, prev_id=None):
 
 
 # ───────────────────────── مرحله‌بندی (طلا + نقره = یک پیام) ─────────────────────────
-def stage_rich_part(commodity, img1_bytes, img2_bytes, ctx=None, html=None):
+def stage_rich_part(commodity, img1_bytes, img2_bytes, ctx):
     """بخش یک کالا رو برای پیام ادغام‌شده نگه می‌داره (هنوز ارسال نمی‌کنه)."""
-    _STAGED[commodity] = {"commodity": commodity, "images": [img1_bytes, img2_bytes], "ctx": ctx, "html": html}
+    _STAGED[commodity] = {"commodity": commodity, "images": [img1_bytes, img2_bytes], "ctx": ctx}
     logger.info(f"📦 [{commodity}] بخش Rich آماده‌ی ادغام شد ({len(_STAGED)} بخش)")
 
 
