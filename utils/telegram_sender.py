@@ -5,7 +5,6 @@ import io
 import json
 import logging
 import math
-import re
 import requests
 import pandas as pd
 import pytz
@@ -37,28 +36,9 @@ logger = logging.getLogger(__name__)
 COMMODITY_LABEL = {"gold": "طلا", "silver": "نقره"}
 COMMODITY_COLOR = {"gold": COLOR_GOLD, "silver": COLOR_SILVER}
 
-# حد کاراکتر کپشن مدیا در تلگرام (سخت‌گیرانه؛ باعث خطای "message caption is too
-# long" می‌شه اگر رد بشه). منبع: مستندات Bot API تلگرام.
 from utils.telegram_rich_report import (
-    RICH_MESSAGE_LIMIT, H, Span, caption_to_rich_html, delete_message, edit_rich, pin_report, send_rich, stage_rich_part, take_staged,
+    H, Span, delete_message, edit_rich, pin_report, send_rich, stage_rich_part, take_staged,
 )
-
-TELEGRAM_CAPTION_LIMIT = 1024
-_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
-
-
-def _caption_visible_len(caption_html):
-    """طول کپشن به‌شکلی که تلگرام می‌شمره: «0-1024 characters after entities parsing»
-    (مستندات رسمی Bot API، sendPhoto/InputMediaPhoto) — یعنی تگ‌های HTML (<b>…</b>) حساب نمی‌شن.
-    فرض: کپشن HTML-entity (مثل &lt;) نداره؛ اگه داشت هر کدوم تو تلگرام ۱ کاراکتره ولی اینجا بیشتر شمرده می‌شه
-    (به‌سمت محافظه‌کارانه)."""
-    return len(_HTML_TAG_RE.sub("", caption_html))
-
-
-def _truncate_caption(caption_html, limit):
-    """truncate اضطراری بدون خراب‌کردن تگ‌ها: تگ‌ها حذف می‌شن (کپشن بدون بولد می‌ره) و متن خالص بریده می‌شه."""
-    plain = _HTML_TAG_RE.sub("", caption_html)
-    return plain[: limit - 1] + "…"
 
 
 # محاسبه‌ی R/R شمش طلا همیشه با افق «پایان سال» انجام می‌شه، نه روز جاری —
@@ -94,33 +74,6 @@ def _caption_flag(name, default):
     (= رفتار قبلی) اعمال می‌شه تا نبودنِ یک خط تو config چیزی رو خراب نکنه."""
     import config
     return getattr(config, name, default)
-
-
-def _should_show_quarter_coin(funds_open=True):
-    """ربع سکه تو کپشن (فقط طلا) — SHOW_QUARTER_COIN_IN_CAPTION:
-        "auto" (پیش‌فرض): وقتی صندوق‌ها بسته‌ان (پنج‌شنبه: بلاک صندوق‌ها و عسکه کپشن نیست و جا باز
-                         می‌شه)، یا حداقل یکی از تاگل‌های تتر/درهم/عسکه خاموش باشه
-        True: همیشه   |   False: هیچ‌وقت
-    اگه کپشن از حد ۱۰۲۴ تلگرام رد بشه، fallback قدیمی کار می‌کنه: اول «میانه حباب» می‌ره."""
-    mode = _caption_flag("SHOW_QUARTER_COIN_IN_CAPTION", "auto")
-    if mode is True or mode is False:
-        return mode
-    if mode != "auto":
-        logger.warning(f"⚠️ SHOW_QUARTER_COIN_IN_CAPTION={mode!r} نامعتبره (فقط True/False/\"auto\") — auto اعمال شد")
-    if not funds_open:
-        return True
-    return not (
-        _caption_flag("SHOW_TETHER_IN_CAPTION", False)
-        and _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
-        and _caption_flag("SHOW_ESKEH_IN_REPORT", True)
-    )
-
-
-def _tether_caption_line(tether_price, tether_change_percent):
-    """خط تتر کپشن؛ با SHOW_TETHER_IN_CAPTION=False یا نبودنِ قیمت تتر، رشته‌ی خالی."""
-    if not _caption_flag("SHOW_TETHER_IN_CAPTION", False) or tether_price is None:
-        return ""
-    return f"\u200F💲 تتر: {tether_price:,.0f} ({fmt_pct(tether_change_percent, 1)}%)\n"
 
 
 def fmt_pct(value, decimals=2, sign=True):
@@ -344,7 +297,7 @@ CAPTION_ASSETS = {
         {"key": "طلا-مظنه-آبشده-تهران", "title": "🔶 آبشده", "unit": "تومان", "divisor": 10, "show_ounce_calc": True},
         {"key": "سطلا", "title": "🟡 سکه بورس کالا", "unit": "تومان", "divisor": 10, "show_ounce_calc": False},
         {"key": "سکه-امامی-طرح-جدید", "title": "🟡 امامی", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule"},
-        # فقط وقتی تاگل‌های کپشن اجازه بدن (SHOW_QUARTER_COIN_IN_CAPTION)؛ کم‌اهمیت‌ترین آیتم، مثل امامی
+        # ربع سکه: کم‌اهمیت‌ترین آیتم، مثل امامی؛ داده‌ی نامعتبرش از پیام حذف می‌شه
         # توسط fallback طول کپشن (حد ۱۰۲۴ تلگرام) اول از همه حذف می‌شه.
         {"key": "ربع-سکه", "title": "🟠 ربع سکه", "unit": "تومان", "divisor": 10, "show_ounce_calc": False, "style": "capsule", "quarter_coin_only": True},
         # عسکه (سلف استاندارد سکه مرکزی): از همون JSON رهاورد مثل بقیه‌ی دارایی‌ها میاد؛ ۱۹ آذر ۱۴۰۵ خودکار حذف می‌شه.
@@ -505,17 +458,11 @@ def send_to_telegram(commodity, bot_token, chat_id, data, dollar_prices, global_
             img2_bytes = future_chart.result()
 
         logger.info(f"📝 [{commodity}] در حال ساخت چیدمان Rich...")
-        caption_args = (commodity, data, dollar_prices, global_price,
-                        global_yesterday, yesterday_close, global_time, dirham_price,
-                        tether_price, tether_change_percent)
-        ctx = body = None
-        try:
-            ctx = create_simple_caption(*caption_args, funds_open=funds_open, rich_html=True, rich_ctx=True)
-        except Exception as e:  # چیدمان Rich نباید ارسال رو بخوابونه: برمی‌گردیم به متن ساده (بدون حد ۱۰۲۴)
-            logger.error(f"❌ [{commodity}] ساخت چیدمان Rich ناموفق ({e}) — متن ساده جایگزین می‌شه", exc_info=True)
-            body = caption_to_rich_html(
-                create_simple_caption(*caption_args, funds_open=funds_open, caption_limit=RICH_MESSAGE_LIMIT))
-        stage_rich_part(commodity, img1_bytes, img2_bytes, ctx=ctx, html=body)
+        # بدون fallback به کپشن متنی (حذف شده): اگه ساخت چیدمان خطا بده، این کالا تو پیام نمیاد و خطا گزارش می‌شه
+        ctx = build_report_ctx(commodity, data, dollar_prices, global_price,
+                               global_yesterday, yesterday_close, global_time, dirham_price,
+                               tether_price, tether_change_percent, funds_open=funds_open)
+        stage_rich_part(commodity, img1_bytes, img2_bytes, ctx=ctx)
         return True
 
     except Exception as e:
@@ -1251,10 +1198,11 @@ def _implied_prices(commodity, key, close_price, global_price, dollar_last):
             int(((close_price / factor) * TROY_OZ) / dollar_last / f["scale"]))
 
 
-def create_simple_caption(commodity, data, dollar_prices, global_price, global_yesterday,
-                           yesterday_close, global_time, dirham_price=None,
-                           tether_price=None, tether_change_percent=None,
-                           funds_open=True, caption_limit=TELEGRAM_CAPTION_LIMIT, rich_html=False, rich_ctx=False):
+def build_report_ctx(commodity, data, dollar_prices, global_price, global_yesterday,
+                     yesterday_close, global_time, dirham_price=None,
+                     tether_price=None, tether_change_percent=None, funds_open=True):
+    """داده‌ی ساخت‌یافته‌ی (ctx) بخش یک کالا برای پیام Rich: خلاصه بازار، دلار، اونس، صندوق‌ها، دارایی‌ها، عسکه.
+    (کپشن متنی قدیمی حذف شده؛ پیام فقط Rich است.)"""
     label = COMMODITY_LABEL[commodity]
     assets_config = CAPTION_ASSETS[commodity]
     # funds_open=False (مثلاً پنج‌شنبه): بازار صندوق‌ها بسته‌ست و داده‌ی صندوق‌ها همون چهارشنبه‌ست؛ بلاک
@@ -1262,7 +1210,6 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     # عسکه پنج‌شنبه معامله نمی‌شه، پس اون روز تو گزارش نمیاد. تاگل‌ها (config.py): False = نمیاد.
     show_eskeh = funds_open and _caption_flag("SHOW_ESKEH_IN_REPORT", True) and ESKEH_ACTIVE
     show_dirham = _caption_flag("SHOW_DIRHAM_IN_CAPTION", True)
-    show_quarter_coin = _should_show_quarter_coin(funds_open) if commodity == "gold" else False
     # قیمت‌های دلاری اونس (و اونس ضمنی): نقره همه‌جا دو رقم اعشار، طلا گرد
     ounce_fmt = ",.2f" if commodity == "silver" else ",.0f"
 
@@ -1326,8 +1273,6 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     sarane_kharid_ratio_str = ratio_to_baseline_str(sarane_kharid_w, sarane_kharid_baseline)
     sarane_forosh_ratio_str = ratio_to_baseline_str(sarane_forosh_w, sarane_forosh_baseline)
 
-    sarane_kharid_emoji = "💚"  # سبز، ولی متمایز از 🟢/🟩 که جای دیگه‌ی کپشن استفاده شدن
-    sarane_forosh_emoji = "❤️"  # قرمز، جفتِ قلبی 💚 — متمایز از 🔴/🟥 که جای دیگه‌ی کپشن استفاده شدن
 
     dollar_last = dollar_prices["last_trade"]
 
@@ -1337,10 +1282,8 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     dollar_change = ((dollar_last - yesterday_close) / yesterday_close * 100) if yesterday_close else 0
 
     dollar_from_dirham = None
-    dirham_diff_pct = None
     if dirham_price:
         dollar_from_dirham = int(dirham_price * 3.6727)
-        dirham_diff_pct = (dollar_from_dirham - dollar_last) / dollar_last * 100
 
     global_change = ((global_price - global_yesterday) / global_yesterday * 100) if global_yesterday else 0
 
@@ -1363,417 +1306,249 @@ def create_simple_caption(commodity, data, dollar_prices, global_price, global_y
     )
     # ساعت (به وقت تهران) آخرین معامله‌ی دلار — از تاریخ پیام کانال تلگرام می‌آد؛ نبودنش خط رو خراب نمی‌کنه
     _trade_dt = dollar_prices.get("last_trade_time")
-    dollar_time_txt = f" 🕐 {_trade_dt.strftime('%H:%M')}" if _trade_dt else ""
 
-    if commodity == "silver":
-        caption = f"""
-🔄 آپدیت: {current_time}
-
-<b>💵 دلار</b>
-🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 1)}%) {tick}{dollar_time_txt}
-"""
-    else:
-        caption = f"""
-🔄 آپدیت: {current_time}
-
-<b>💵 دلار</b>
-🟥 کف: {low_total:,.0f} ({fmt_pct(low_pct, 1, sign=False)}%)
-🧮 ارزش: {value_total:,.0f} ({fmt_pct(value_pct, 1, sign=False)}%)
-🟢 سقف: {high_total:,.0f} ({fmt_pct(high_pct, 1, sign=False)}%)
-"""
-        caption += _tether_caption_line(tether_price, tether_change_percent)
-
-        if show_dirham and dollar_from_dirham is not None:
-            caption += f"\u200F🇦🇪 درهم: {dollar_from_dirham:,.0f} ({fmt_pct(dirham_diff_pct, 1)}%)\n"
-
-        # خط خالی بین بلاک کف/ارزش/سقف (+تتر/درهم) و معامله — مستقل از اینکه تتر/درهم باشن یا نه
-        caption += f"\n🤝 معامله: {dollar_last:,.0f} ({fmt_pct(dollar_change, 2)}%) {tick}{dollar_time_txt}\n"
-    # \u200F لازمه: این خط (بعد از حذف کلمه‌های «خرید»/«فروش») هیچ حرف
-    # فارسی نداره، فقط ایموجی+عدد+چارچوب لاتین — تلگرام همچین خطی رو LTR
-    # (چپ‌چین) می‌گیره و می‌ره سمت چپ. RLM جهت پاراگراف رو راست‌به‌چپ
-    # برمی‌گردونه؛ دقیقاً همون مشکل/راه‌حلی که برای خط «دلار ضمنی» و
-    # بقیه‌ی خط‌های بدون کاراکتر فارسی تو همین فایل قبلاً حل شده.
-    caption += f"\u200F🟢 {dollar_prices['bid']:,.0f} | 🔴 {dollar_prices['ask']:,.0f}\n"
 
     ounce_emoji = "🟡" if commodity == "gold" else "⚪"
     fund_emoji = "🥇" if commodity == "gold" else "🥈"
-    ounce_time_str = f" 🕐 {global_time[:5]}" if global_time else ""
-    ounce_sign = "+" if global_change >= 0 else "-"
-    caption += f"""
-<b>{ounce_emoji} اونس {label}</b>{ounce_time_str}
-\u200F📊 {global_price:{ounce_fmt}} \u2066(%{fmt_pct(abs(global_change), 2, sign=False)}{ounce_sign})\u2069
-"""
-    if funds_open:
-        caption += f"""
-<b>{fund_emoji} صندوق‌های {label}</b>
-💰 ارزش معاملات: {total_value:,.0f} ({value_to_avg_ratio:.0f}%)
-💸 ورود پول: {total_pol:,.0f} ({pol_to_value_ratio:.0f}%)
-📈 آخرین قیمت: ({fmt_pct(avg_change_percent_weighted, 2)}%)
-{sarane_kharid_emoji} سرانه خرید: {sarane_kharid_w:,.0f} ({sarane_kharid_ratio_str})
-{sarane_forosh_emoji} سرانه فروش: {sarane_forosh_w:,.0f} ({sarane_forosh_ratio_str})
-\u200F🫧 میانگین حباب: {fmt_pct(avg_bubble_weighted, 2)}%
-\u200F🫧 میانه حباب: {fmt_pct(median_bubble, 2)}%
-"""
 
-    header = caption
-    footer = f"\n🔗 {CHANNEL_HANDLE}\n"
 
     rr = calculate_bullion_rr(commodity, dfp)
 
-    if rich_html:
-        # نسخه‌ی Rich: بدون خلاصه‌نویسی (همه‌ی دارایی‌ها با جزئیات کامل، اونس ضمنی همه‌جا) و بدون حد ۱۰۲۴.
-        # فقط چیدمان فرق می‌کنه؛ عددها از همین متغیرهای بالا میان (بدون محاسبه‌ی تکراری).
-        def pct(v, d=1, sign=True):
-            return f"{fmt_pct(v, d, sign=sign)}%"
+    # نسخه‌ی Rich: بدون خلاصه‌نویسی (همه‌ی دارایی‌ها با جزئیات کامل، اونس ضمنی همه‌جا) و بدون حد ۱۰۲۴.
+    # فقط چیدمان فرق می‌کنه؛ عددها از همین متغیرهای بالا میان (بدون محاسبه‌ی تکراری).
+    def pct(v, d=1, sign=True):
+        return f"{fmt_pct(v, d, sign=sign)}%"
 
-        def dot(v, d=1):
-            """نقطه‌ی رنگی جلوی عدد (Rich رنگ متن نداره): 🟢 مثبت | 🔴 منفی | ⚪ صفر؛ بر اساس مقدارِ گردشده‌ی نمایشی."""
-            if not RICH_COLOR_DOTS:
-                return ""
-            r = round(v, d)
-            return ("🟢" if r > 0 else ("🔴" if r < 0 else "⚪")) + " "
+    def dot(v, d=1):
+        """نقطه‌ی رنگی جلوی عدد (Rich رنگ متن نداره): 🟢 مثبت | 🔴 منفی | ⚪ صفر؛ بر اساس مقدارِ گردشده‌ی نمایشی."""
+        if not RICH_COLOR_DOTS:
+            return ""
+        r = round(v, d)
+        return ("🟢" if r > 0 else ("🔴" if r < 0 else "⚪")) + " "
 
-        def cpct(v, d=1):
-            return f"{dot(v, d)}{pct(v, d)}"
+    def cpct(v, d=1):
+        return f"{dot(v, d)}{pct(v, d)}"
 
-        def rich_title(key, title):
-            if key in RICH_ASSET_NAMES:  # ایموجی عنوان می‌مونه، اسم کامل می‌شه
-                emoji = title.split(" ", 1)[0]
-                return f"{emoji} {RICH_ASSET_NAMES[key]}"
-            return title
+    def rich_title(key, title):
+        if key in RICH_ASSET_NAMES:  # ایموجی عنوان می‌مونه، اسم کامل می‌شه
+            emoji = title.split(" ", 1)[0]
+            return f"{emoji} {RICH_ASSET_NAMES[key]}"
+        return title
 
-        bullion_key = BULLION_KEY.get(commodity)
-        shams_now = dfp.loc[bullion_key, "close_price"] if bullion_key in dfp.index else None
-        rets = _bullion_returns(commodity, dollar_last, global_price, shams_now) or {}
+    bullion_key = BULLION_KEY.get(commodity)
+    shams_now = dfp.loc[bullion_key, "close_price"] if bullion_key in dfp.index else None
+    rets = _bullion_returns(commodity, dollar_last, global_price, shams_now) or {}
 
-        def weekly(name):
-            r = (rets.get(name) or (None, None))[0]  # r5: ۵ روز معاملاتی = یک هفته‌ی بازار
-            return cpct(r, 1) if r is not None else "—"
+    def weekly(name):
+        r = (rets.get(name) or (None, None))[0]  # r5: ۵ روز معاملاتی = یک هفته‌ی بازار
+        return cpct(r, 1) if r is not None else "—"
 
-        dollar_head = ["", "قیمت (تومان)", "تغییر روزانه", "بازده هفتگی"]
-        dollar_rows = [
-            ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
-            # خرید و فروش تو «یک» ردیف (سه ستون ادغام‌شده)؛ قبلاً دو ردیف با خط‌تیره‌ی خالی بود
-            # ترتیب اعداد برعکس شد: اول فروش (🔴) بعد خرید (🟢)
-            ["سرخط خرید | فروش", Span(f"🔴 {dollar_prices['ask']:,.0f}  |  🟢 {dollar_prices['bid']:,.0f}", 3)],
+    dollar_head = ["", "قیمت (تومان)", "تغییر روزانه", "بازده هفتگی"]
+    dollar_rows = [
+        ["آخرین معامله" + (f" {tick}" if tick else ""), f"{dollar_last:,.0f}", cpct(dollar_change, 2), weekly("دلار")],
+        # خرید و فروش تو «یک» ردیف (سه ستون ادغام‌شده)؛ قبلاً دو ردیف با خط‌تیره‌ی خالی بود
+        # ترتیب اعداد برعکس شد: اول فروش (🔴) بعد خرید (🟢)
+        ["سرخط خرید | فروش", Span(f"🔴 {dollar_prices['ask']:,.0f}  |  🟢 {dollar_prices['bid']:,.0f}", 3)],
+    ]
+    valuation = []
+    if commodity != "silver":
+        valuation = [
+            ["کران پایین", f"{low_total:,.0f}", pct(low_pct, 1, False)],
+            ["ارزش دلار", f"{value_total:,.0f}", pct(value_pct, 1, False)],
+            ["کران بالا", f"{high_total:,.0f}", pct(high_pct, 1, False)],
         ]
-        valuation = []
-        if commodity != "silver":
-            valuation = [
-                ["کران پایین", f"{low_total:,.0f}", pct(low_pct, 1, False)],
-                ["ارزش دلار", f"{value_total:,.0f}", pct(value_pct, 1, False)],
-                ["کران بالا", f"{high_total:,.0f}", pct(high_pct, 1, False)],
-            ]
-            if tether_price is not None and _caption_flag("SHOW_TETHER_IN_CAPTION", False):
-                valuation.append(["تتر", f"{tether_price:,.0f}", pct(tether_change_percent, 1)])
+        if tether_price is not None and _caption_flag("SHOW_TETHER_IN_CAPTION", False):
+            valuation.append(["تتر", f"{tether_price:,.0f}", pct(tether_change_percent, 1)])
 
-        ounce_ctx = {
-            "title": f"{ounce_emoji} اونس {label}",
-            "time": global_time[:5] if global_time else "",
-            "head": ["قیمت (دلار)", "تغییر روزانه", "بازده هفتگی"],
-            "rows": [[f"{global_price:{ounce_fmt}}", cpct(global_change, 2), weekly("اونس")]],
+    ounce_ctx = {
+        "title": f"{ounce_emoji} اونس {label}",
+        "time": global_time[:5] if global_time else "",
+        "head": ["قیمت (دلار)", "تغییر روزانه", "بازده هفتگی"],
+        "rows": [[f"{global_price:{ounce_fmt}}", cpct(global_change, 2), weekly("اونس")]],
+    }
+
+    funds_ctx = None
+    final_change_avg = None
+    if funds_open:
+        # تغییر قیمت پایانی: همون «fund_final_price_avg» نمودار/شیت (میانگین ساده‌ی final_price_change صندوق‌ها)
+        if "final_price_change" in df_funds.columns and not df_funds.empty:
+            _fc = df_funds["final_price_change"].mean()
+            final_change_avg = None if pd.isna(_fc) else float(_fc)
+
+        # قدرت خرید (buyPower از API) = نسبتِ علامت‌دار سرانه‌ها: مثبت = خریدارها قوی‌ترن (سرانه خرید÷فروش)،
+        # منفی = فروشنده‌ها قوی‌ترن (−سرانه فروش÷خرید)؛ قدرِ مطلقش همیشه ≥۱ ـه. امروز: میانگین وزنیِ ارزش معاملاتِ
+        # صندوق‌ها؛ میانگین ۲۰ روزه: همون میانگین وزنی با وزنِ «میانگین ماهانه‌ی ارزش معاملات» (static.marketHistory).
+        def _wmean(col, wcol):
+            if col not in df_funds.columns or df_funds.empty:
+                return None
+            v = pd.to_numeric(df_funds[col], errors="coerce")
+            w = pd.to_numeric(df_funds[wcol], errors="coerce")
+            m = v.notna() & w.notna() & (w > 0)
+            return float((v[m] * w[m]).sum() / w[m].sum()) if m.any() else None
+
+        buy_power_w = _wmean("buy_power", "value")
+        buy_power_avg = _wmean("buy_power_avg20", "avg_monthly_value")
+        _signed = (sarane_kharid_w / sarane_forosh_w if sarane_kharid_w >= sarane_forosh_w else -(sarane_forosh_w / sarane_kharid_w)) \
+            if sarane_kharid_w and sarane_forosh_w else float("nan")
+        logger.info(f"💪 [{commodity}] قدرت خرید: امروز={'—' if buy_power_w is None else f'{buy_power_w:+.2f}'} | "
+                    f"میانگین ۲۰ روز={'—' if buy_power_avg is None else f'{buy_power_avg:+.2f}'} | "
+                    f"نسبت علامت‌دار سرانه‌ها (برای تطبیق)={_signed:+.2f}")
+        sarane_gap = sarane_kharid_w - sarane_forosh_w  # = میانگین وزنیِ اختلاف سرانه‌ی صندوق‌ها
+        gap_avg = _sheet_daily_mean(commodity, "ekhtelaf_sarane_weighted", n=20)  # میانگین ماهانه‌ی (۲۰ روز معاملاتی) از شیت
+
+        def frow(label, value, ratio=None, basis=""):
+            """ردیف جدول «معاملات و پول»: ۴ ستون (شاخص | مقدار | نسبت | مبنای نسبت)؛ بدون نسبت، مقدار سه ستون رو یکپارچه می‌گیره."""
+            if ratio in (None, "", "—"):
+                return [label, Span(value, 3)]
+            return [label, value, ratio, basis]
+
+        def avgrow(label, value, avg_text):
+            """ردیف با «میانگین» به‌جای نسبت: مقدار | میانگین (یکپارچه رو دو ستون آخر)."""
+            return [label, value, Span(avg_text, 2)] if avg_text else frow(label, value)
+
+        funds_ctx = {
+            "title": f"{fund_emoji} صندوق‌های {label}",
+            "tables": [
+                # بدون نسبت/درصد: فقط شاخص و مقدار
+                {"title": "قیمت و حباب", "headers": ["شاخص", "مقدار"], "rows": [
+                    ["آخرین قیمت ٪", cpct(avg_change_percent_weighted, 2)],
+                    ["قیمت پایانی ٪", cpct(final_change_avg, 2) if final_change_avg is not None else "—"],
+                    ["میانگین حباب", pct(avg_bubble_weighted, 2)],
+                    ["میانه حباب", pct(median_bubble, 2)],
+                ]},
+                {"title": "معاملات و پول", "headers": ["شاخص", "مقدار", "نسبت / اختلاف", "مبنا"], "rows": [
+                    frow(H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"),
+                    frow(H("ورود پول <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)}{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
+                    frow("سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"),
+                    frow("سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"),
+                    # اختلاف سرانه و قدرت خرید: «اختلاف» با میانگین ماهانه (۲۰ روز معاملاتی؛ امروز − میانگین)؛ چون علامتشون می‌تونه عوض بشه
+                    # و نسبت‌گیری بین مقدارِ مثبت و منفی بی‌معنیه. مثال: امروز +150، میانگین −150 ← اختلاف +300.
+                    frow("اختلاف سرانه", f"{dot(sarane_gap, 0)}{sarane_gap:+,.0f}",
+                         f"{sarane_gap - gap_avg:+,.0f}" if gap_avg is not None else None,
+                         f"از میانگین ماهانه ({gap_avg:+,.0f})" if gap_avg is not None else ""),
+                    (frow("قدرت خرید", f"{dot(buy_power_w, 2)}{buy_power_w:+.2f}",
+                          f"{buy_power_w - buy_power_avg:+.2f}" if buy_power_avg is not None else None,
+                          f"از میانگین ماهانه ({buy_power_avg:+.2f})" if buy_power_avg is not None else "")
+                     if buy_power_w is not None else
+                     avgrow("قدرت خرید", "—", None if buy_power_avg is None else f"میانگین ماهانه: {buy_power_avg:+.2f}")),
+                ]},
+            ],
         }
 
-        funds_ctx = None
-        final_change_avg = None
-        if funds_open:
-            # تغییر قیمت پایانی: همون «fund_final_price_avg» نمودار/شیت (میانگین ساده‌ی final_price_change صندوق‌ها)
-            if "final_price_change" in df_funds.columns and not df_funds.empty:
-                _fc = df_funds["final_price_change"].mean()
-                final_change_avg = None if pd.isna(_fc) else float(_fc)
+        # ۵ صندوق پرارزش‌ترین معاملات (امروز؛ اگه هنوز معامله‌ای نیست بر اساس میانگین ماهانه‌ی ارزش) — عمداً بدون نقطه‌ی رنگی
+        _key = "value" if pd.to_numeric(df_funds["value"], errors="coerce").fillna(0).sum() > 0 else "avg_monthly_value"
+        _top = df_funds.assign(_k=pd.to_numeric(df_funds[_key], errors="coerce")).sort_values("_k", ascending=False).head(5)
 
-            # قدرت خرید (buyPower از API) = نسبتِ علامت‌دار سرانه‌ها: مثبت = خریدارها قوی‌ترن (سرانه خرید÷فروش)،
-            # منفی = فروشنده‌ها قوی‌ترن (−سرانه فروش÷خرید)؛ قدرِ مطلقش همیشه ≥۱ ـه. امروز: میانگین وزنیِ ارزش معاملاتِ
-            # صندوق‌ها؛ میانگین ۲۰ روزه: همون میانگین وزنی با وزنِ «میانگین ماهانه‌ی ارزش معاملات» (static.marketHistory).
-            def _wmean(col, wcol):
-                if col not in df_funds.columns or df_funds.empty:
-                    return None
-                v = pd.to_numeric(df_funds[col], errors="coerce")
-                w = pd.to_numeric(df_funds[wcol], errors="coerce")
-                m = v.notna() & w.notna() & (w > 0)
-                return float((v[m] * w[m]).sum() / w[m].sum()) if m.any() else None
+        def _p(x, d):
+            return "—" if pd.isna(x) else pct(x, d)
 
-            buy_power_w = _wmean("buy_power", "value")
-            buy_power_avg = _wmean("buy_power_avg20", "avg_monthly_value")
-            _signed = (sarane_kharid_w / sarane_forosh_w if sarane_kharid_w >= sarane_forosh_w else -(sarane_forosh_w / sarane_kharid_w)) \
-                if sarane_kharid_w and sarane_forosh_w else float("nan")
-            logger.info(f"💪 [{commodity}] قدرت خرید: امروز={'—' if buy_power_w is None else f'{buy_power_w:+.2f}'} | "
-                        f"میانگین ۲۰ روز={'—' if buy_power_avg is None else f'{buy_power_avg:+.2f}'} | "
-                        f"نسبت علامت‌دار سرانه‌ها (برای تطبیق)={_signed:+.2f}")
-            sarane_gap = sarane_kharid_w - sarane_forosh_w  # = میانگین وزنیِ اختلاف سرانه‌ی صندوق‌ها
-            gap_avg = _sheet_daily_mean(commodity, "ekhtelaf_sarane_weighted", n=20)  # میانگین ماهانه‌ی (۲۰ روز معاملاتی) از شیت
+        funds_ctx["top"] = {
+            "summary": f"🏆 ۵ صندوق پرمعامله {label}",
+            "headers": ["صندوق", "آخرین قیمت ٪", "حباب", "قدرت پول"],
+            "rows": [[str(sym), _p(r.get("close_price_change_percent"), 2), _p(r.get("nominal_bubble"), 2),
+                      _p(r.get("pol_to_value_ratio"), 0)] for sym, r in _top.iterrows()],
+        }
 
-            def frow(label, value, ratio=None, basis=""):
-                """ردیف جدول «معاملات و پول»: ۴ ستون (شاخص | مقدار | نسبت | مبنای نسبت)؛ بدون نسبت، مقدار سه ستون رو یکپارچه می‌گیره."""
-                if ratio in (None, "", "—"):
-                    return [label, Span(value, 3)]
-                return [label, value, ratio, basis]
+    # ریسک به ریوارد: جدولش زیر خود شمش میاد
+    rr_table = None
+    if rr and (rr["rr_high"] is not None or rr["rr_value"] is not None):
+        rr_rows = []
+        if rr["rr_high"] is not None:
+            rr_rows.append(["کران بالا", f"{reward_emoji(rr['reward_high'])} {pct(rr['reward_high'], 2)}", format_rr_ratio(rr["rr_high"])])
+        if rr["rr_value"] is not None:
+            rr_rows.append(["ارزش دلار", f"{reward_emoji(rr['reward_value'])} {pct(rr['reward_value'], 2)}", format_rr_ratio(rr["rr_value"])])
+        rr_table = {"title": "⚖️ ریسک به ریوارد شمش (تا پایان سال)",
+                    "headers": ["سناریو", "سود/زیان تا ارزش شمش", "R/R"], "rows": rr_rows}
+    sens = bullion_sensitivity(commodity, rr, dollar_last, global_price)  # حساسیت بازده شمش به اونس و دلار
+    sens_table = ({"title": "📊 حساسیت بازده شمش به اونس و دلار", **sens} if sens else None)
 
-            def avgrow(label, value, avg_text):
-                """ردیف با «میانگین» به‌جای نسبت: مقدار | میانگین (یکپارچه رو دو ستون آخر)."""
-                return [label, value, Span(avg_text, 2)] if avg_text else frow(label, value)
-
-            funds_ctx = {
-                "title": f"{fund_emoji} صندوق‌های {label}",
-                "tables": [
-                    # بدون نسبت/درصد: فقط شاخص و مقدار
-                    {"title": "قیمت و حباب", "headers": ["شاخص", "مقدار"], "rows": [
-                        ["آخرین قیمت ٪", cpct(avg_change_percent_weighted, 2)],
-                        ["قیمت پایانی ٪", cpct(final_change_avg, 2) if final_change_avg is not None else "—"],
-                        ["میانگین حباب", pct(avg_bubble_weighted, 2)],
-                        ["میانه حباب", pct(median_bubble, 2)],
-                    ]},
-                    {"title": "معاملات و پول", "headers": ["شاخص", "مقدار", "نسبت / اختلاف", "مبنا"], "rows": [
-                        frow(H("ارزش معاملات <sub>میلیارد تومان</sub>"), f"{total_value:,.0f}", f"{value_to_avg_ratio:.0f}%", "میانگین ماهانه"),
-                        frow(H("ورود پول <sub>میلیارد تومان</sub>"), f"{dot(total_pol, 0)}{total_pol:,.0f}", f"{pol_to_value_ratio:.0f}%", "ارزش معاملات"),
-                        frow("سرانه خرید", f"{sarane_kharid_w:,.0f}", sarane_kharid_ratio_str, "میانگین ۱۰ روز"),
-                        frow("سرانه فروش", f"{sarane_forosh_w:,.0f}", sarane_forosh_ratio_str, "میانگین ۱۰ روز"),
-                        # اختلاف سرانه و قدرت خرید: «اختلاف» با میانگین ماهانه (۲۰ روز معاملاتی؛ امروز − میانگین)؛ چون علامتشون می‌تونه عوض بشه
-                        # و نسبت‌گیری بین مقدارِ مثبت و منفی بی‌معنیه. مثال: امروز +150، میانگین −150 ← اختلاف +300.
-                        frow("اختلاف سرانه", f"{dot(sarane_gap, 0)}{sarane_gap:+,.0f}",
-                             f"{sarane_gap - gap_avg:+,.0f}" if gap_avg is not None else None,
-                             f"از میانگین ماهانه ({gap_avg:+,.0f})" if gap_avg is not None else ""),
-                        (frow("قدرت خرید", f"{dot(buy_power_w, 2)}{buy_power_w:+.2f}",
-                              f"{buy_power_w - buy_power_avg:+.2f}" if buy_power_avg is not None else None,
-                              f"از میانگین ماهانه ({buy_power_avg:+.2f})" if buy_power_avg is not None else "")
-                         if buy_power_w is not None else
-                         avgrow("قدرت خرید", "—", None if buy_power_avg is None else f"میانگین ماهانه: {buy_power_avg:+.2f}")),
-                    ]},
+    assets_ctx = []
+    eskeh_ctx = None
+    for asset_cfg in assets_config:
+        key = asset_cfg["key"]
+        if key not in dfp.index:
+            logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از گزارش Rich حذف شد")
+            continue
+        row = dfp.loc[key]
+        if asset_cfg.get("eskeh"):
+            # عسکه: بلاک مخصوص خودش (قیمت، تغییر، حداقل بازده تا سررسید، روز تا سررسید). داده‌ی ناقص/بعد از سررسید = نمیاد.
+            days_left = eskeh_days_to_maturity()
+            if (not show_eskeh or days_left < 0 or pd.isna(row["close_price"]) or row["close_price"] <= 0
+                    or pd.isna(row["close_price_change_percent"])):
+                if show_eskeh:
+                    logger.warning(f"⚠️ [{commodity}] داده‌ی عسکه نامعتبر/سررسید گذشته — از گزارش Rich حذف شد")
+                continue
+            e_price = row["close_price"] / asset_cfg["divisor"]
+            e_floor = eskeh_floor_return(e_price) * 100
+            e_annual = eskeh_annualized_return(e_price, days_left)
+            e_annual_txt = "—" if e_annual is None else cpct(e_annual * 100, 1)
+            trade_time = row.get("last_trade_time")
+            eskeh_ctx = {
+                "title": "🏦 عسکه",
+                "time": trade_time[:5] if trade_time else "",
+                "rows": [
+                    ["قیمت (تومان)", f"{e_price:,.0f}"],
+                    ["تغییر روزانه", cpct(row["close_price_change_percent"], 1)],
+                    ["حداقل بازده تا سررسید", cpct(e_floor, 1)],
+                    ["بازده سالانه‌شده (حداقل)", e_annual_txt],
+                    ["حباب", pct(row["Bubble"], 1)],
+                    ["تا سررسید", "امروز (آخرین روز)" if days_left == 0 else f"{days_left} روز"],
                 ],
             }
+            continue
+        if asset_cfg.get("quarter_coin_only") and (
+            pd.isna(row["close_price"]) or row["close_price"] <= 0 or pd.isna(row["close_price_change_percent"])
+        ):
+            logger.warning(f"⚠️ [{commodity}] داده‌ی ربع سکه نامعتبر — از کپشن Rich حذف شد")
+            continue
+        price = row["close_price"] / asset_cfg["divisor"]
+        d_calc, _diff_d, o_calc, _diff_o = calc_diffs(row)
+        unit = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
+        trade_time = row.get("last_trade_time")
+        # دلار/اونس ضمنی برای همه‌ی دارایی‌ها؛ برای اونی که data_processor حسابش نکرده (صفر) از فرمول همون حساب می‌شه
+        if not d_calc or pd.isna(d_calc) or not o_calc or pd.isna(o_calc):
+            d_calc, o_calc = _implied_prices(commodity, key, row["close_price"], global_price, dollar_last)
+        assets_ctx.append({
+            "key": key,
+            "title": rich_title(key, asset_cfg["title"]),
+            "time": trade_time[:5] if trade_time else "",
+            "price": f"{price:,.0f}{unit}",
+            "change": cpct(row["close_price_change_percent"], 1),
+            "bubble": pct(row["Bubble"], 1),
+            "dollar": f"{d_calc:,.0f}" if d_calc else "—",
+            "ounce": f"{o_calc:{ounce_fmt}}" if o_calc else "—",
+            "tables": [t for t in (rr_table, sens_table) if t] if key == bullion_key else [],
+        })
 
-            # ۵ صندوق پرارزش‌ترین معاملات (امروز؛ اگه هنوز معامله‌ای نیست بر اساس میانگین ماهانه‌ی ارزش) — عمداً بدون نقطه‌ی رنگی
-            _key = "value" if pd.to_numeric(df_funds["value"], errors="coerce").fillna(0).sum() > 0 else "avg_monthly_value"
-            _top = df_funds.assign(_k=pd.to_numeric(df_funds[_key], errors="coerce")).sort_values("_k", ascending=False).head(5)
+    # «خلاصه بازار» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
+    quick = [[f"<b>{ounce_ctx['title']}</b> <sub>دلار</sub>", f"{global_price:{ounce_fmt}}", cpct(global_change, 2)]]
+    bullion_asset = next((a for a in assets_ctx if a["key"] == bullion_key), None)
+    if bullion_asset:
+        b_unit = "ریال" if bullion_asset["price"].endswith("ریال") else "تومان"
+        quick.append([f"<b>{bullion_asset['title']}</b> <sub>{b_unit}</sub>",
+                      bullion_asset["price"].replace(" ریال", ""), bullion_asset["change"]])
+    if funds_ctx:
+        # صندوق‌ها تو خلاصه بازار: فقط «درصد آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
+        quick.append([f"<b>{fund_emoji} صندوق‌های {label}</b> <sub>درصد آخرین قیمت</sub>", Span(cpct(avg_change_percent_weighted, 2), 2)])
+    quick = [tuple(H(x) if i == 0 else x for i, x in enumerate(r)) for r in quick]
 
-            def _p(x, d):
-                return "—" if pd.isna(x) else pct(x, d)
-
-            funds_ctx["top"] = {
-                "summary": f"🏆 ۵ صندوق پرمعامله {label}",
-                "headers": ["صندوق", "آخرین قیمت ٪", "حباب", "قدرت پول"],
-                "rows": [[str(sym), _p(r.get("close_price_change_percent"), 2), _p(r.get("nominal_bubble"), 2),
-                          _p(r.get("pol_to_value_ratio"), 0)] for sym, r in _top.iterrows()],
-            }
-
-        # ریسک به ریوارد: جدولش زیر خود شمش میاد
-        rr_table = None
-        if rr and (rr["rr_high"] is not None or rr["rr_value"] is not None):
-            rr_rows = []
-            if rr["rr_high"] is not None:
-                rr_rows.append(["کران بالا", f"{reward_emoji(rr['reward_high'])} {pct(rr['reward_high'], 2)}", format_rr_ratio(rr["rr_high"])])
-            if rr["rr_value"] is not None:
-                rr_rows.append(["ارزش دلار", f"{reward_emoji(rr['reward_value'])} {pct(rr['reward_value'], 2)}", format_rr_ratio(rr["rr_value"])])
-            rr_table = {"title": "⚖️ ریسک به ریوارد شمش (تا پایان سال)",
-                        "headers": ["سناریو", "سود/زیان تا ارزش شمش", "R/R"], "rows": rr_rows}
-        sens = bullion_sensitivity(commodity, rr, dollar_last, global_price)  # حساسیت بازده شمش به اونس و دلار
-        sens_table = ({"title": "📊 حساسیت بازده شمش به اونس و دلار", **sens} if sens else None)
-
-        assets_ctx = []
-        eskeh_ctx = None
-        for asset_cfg in assets_config:
-            key = asset_cfg["key"]
-            if key not in dfp.index:
-                logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از گزارش Rich حذف شد")
-                continue
-            row = dfp.loc[key]
-            if asset_cfg.get("eskeh"):
-                # عسکه: بلاک مخصوص خودش (قیمت، تغییر، حداقل بازده تا سررسید، روز تا سررسید). داده‌ی ناقص/بعد از سررسید = نمیاد.
-                days_left = eskeh_days_to_maturity()
-                if (not show_eskeh or days_left < 0 or pd.isna(row["close_price"]) or row["close_price"] <= 0
-                        or pd.isna(row["close_price_change_percent"])):
-                    if show_eskeh:
-                        logger.warning(f"⚠️ [{commodity}] داده‌ی عسکه نامعتبر/سررسید گذشته — از گزارش Rich حذف شد")
-                    continue
-                e_price = row["close_price"] / asset_cfg["divisor"]
-                e_floor = eskeh_floor_return(e_price) * 100
-                e_annual = eskeh_annualized_return(e_price, days_left)
-                e_annual_txt = "—" if e_annual is None else cpct(e_annual * 100, 1)
-                trade_time = row.get("last_trade_time")
-                eskeh_ctx = {
-                    "title": "🏦 عسکه",
-                    "time": trade_time[:5] if trade_time else "",
-                    "rows": [
-                        ["قیمت (تومان)", f"{e_price:,.0f}"],
-                        ["تغییر روزانه", cpct(row["close_price_change_percent"], 1)],
-                        ["حداقل بازده تا سررسید", cpct(e_floor, 1)],
-                        ["بازده سالانه‌شده (حداقل)", e_annual_txt],
-                        ["حباب", pct(row["Bubble"], 1)],
-                        ["تا سررسید", "امروز (آخرین روز)" if days_left == 0 else f"{days_left} روز"],
-                    ],
-                }
-                continue
-            if asset_cfg.get("quarter_coin_only") and (
-                pd.isna(row["close_price"]) or row["close_price"] <= 0 or pd.isna(row["close_price_change_percent"])
-            ):
-                logger.warning(f"⚠️ [{commodity}] داده‌ی ربع سکه نامعتبر — از کپشن Rich حذف شد")
-                continue
-            price = row["close_price"] / asset_cfg["divisor"]
-            d_calc, _diff_d, o_calc, _diff_o = calc_diffs(row)
-            unit = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
-            trade_time = row.get("last_trade_time")
-            # دلار/اونس ضمنی برای همه‌ی دارایی‌ها؛ برای اونی که data_processor حسابش نکرده (صفر) از فرمول همون حساب می‌شه
-            if not d_calc or pd.isna(d_calc) or not o_calc or pd.isna(o_calc):
-                d_calc, o_calc = _implied_prices(commodity, key, row["close_price"], global_price, dollar_last)
-            assets_ctx.append({
-                "key": key,
-                "title": rich_title(key, asset_cfg["title"]),
-                "time": trade_time[:5] if trade_time else "",
-                "price": f"{price:,.0f}{unit}",
-                "change": cpct(row["close_price_change_percent"], 1),
-                "bubble": pct(row["Bubble"], 1),
-                "dollar": f"{d_calc:,.0f}" if d_calc else "—",
-                "ounce": f"{o_calc:{ounce_fmt}}" if o_calc else "—",
-                "tables": [t for t in (rr_table, sens_table) if t] if key == bullion_key else [],
-            })
-
-        # «خلاصه بازار» بالای پیام: اونس + شمش هر کالا (دلار از ctx دلار می‌آد)
-        quick = [[f"<b>{ounce_ctx['title']}</b> <sub>دلار</sub>", f"{global_price:{ounce_fmt}}", cpct(global_change, 2)]]
-        bullion_asset = next((a for a in assets_ctx if a["key"] == bullion_key), None)
-        if bullion_asset:
-            b_unit = "ریال" if bullion_asset["price"].endswith("ریال") else "تومان"
-            quick.append([f"<b>{bullion_asset['title']}</b> <sub>{b_unit}</sub>",
-                          bullion_asset["price"].replace(" ریال", ""), bullion_asset["change"]])
-        if funds_ctx:
-            # صندوق‌ها تو خلاصه بازار: فقط «درصد آخرین قیمت» (یک عدد، پس دو ستون قیمت/تغییر ادغام می‌شن)
-            quick.append([f"<b>{fund_emoji} صندوق‌های {label}</b> <sub>درصد آخرین قیمت</sub>", Span(cpct(avg_change_percent_weighted, 2), 2)])
-        quick = [tuple(H(x) if i == 0 else x for i, x in enumerate(r)) for r in quick]
-
-        ctx = {
-            "commodity": commodity,
-            "section_title": f"{fund_emoji} بازار {label}",
-            "update": current_time,
-            # time: ساعت آخرین معامله‌ی دلار، کنار تیتر «💵 دلار» (تو ستون برچسب جدول جا نمی‌شد و خط می‌شکست)
-            "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation,
-                       "time": _trade_dt.strftime("%H:%M") if _trade_dt else None,
-                       "last": (f"{dollar_last:,.0f}", cpct(dollar_change, 2)),
-                       # دلار درهم: ردیف خلاصه بازار (قیمت، تغییر روزانه)؛ مستقل از طلا/نقره.
-                       # تغییر روزانه‌ی درهم هنوز از منبع (alanchand) خونده نمی‌شه → None = فقط قیمت
-                       "dirham": ((f"{dollar_from_dirham:,.0f}", None)
-                                  if (show_dirham and dollar_from_dirham is not None) else None)},
-            "ounce": ounce_ctx,
-            "funds": funds_ctx,
-            "assets": assets_ctx,
-            "eskeh": eskeh_ctx,
-            "quick": quick,
-            "channel": CHANNEL_HANDLE,
-        }
-        return ctx
-
-    def build_assets_block(include_capsule_items):
-        """
-        include_capsule_items=False یعنی دارایی‌های با style="capsule"
-        (فعلاً فقط «سکه امامی») کلاً از کپشن حذف می‌شن.
-
-        این تنها fallback کپشنه — «اونس ضمنی» (برای هر دارایی که
-        show_ounce_calc=True داره) و خط R/R شمش همیشه، بدون قید و شرط،
-        نشون داده می‌شن؛ هیچ‌وقت به‌خاطر طول کپشن حذف نمی‌شن. وقتی کپشن
-        کامل از حد مجاز تلگرام رد می‌شه، تنها چیزی که کم می‌شه بخش سکه
-        امامی است (چون در قیاس با بقیه‌ی بخش‌ها کم‌اهمیت‌تره).
-        """
-        block = ""
-        prev_was_capsule = False
-        for asset_cfg in assets_config:
-            key = asset_cfg["key"]
-            if key not in dfp.index:
-                logger.warning(f"⚠️ [{commodity}] دارایی '{key}' در dfp پیدا نشد — از کپشن حذف شد")
-                continue
-
-            if asset_cfg.get("style") == "capsule" and not include_capsule_items:
-                # fallback: این بخش (سکه امامی) موقتاً از کپشن کنار گذاشته می‌شه
-                # تا جا برای اونس ضمنی و R/R (که همیشه باید بمونن) باز بشه.
-                continue
-
-            if asset_cfg.get("quarter_coin_only") and not show_quarter_coin:
-                continue
-            if asset_cfg.get("eskeh") and (not show_eskeh or eskeh_days_to_maturity() < 0):
-                continue
-
-            row = dfp.loc[key]
-            if asset_cfg.get("quarter_coin_only") and (
-                pd.isna(row["close_price"]) or row["close_price"] <= 0
-                or pd.isna(row["close_price_change_percent"])
-            ):
-                # بدون فالبک: داده‌ی ربع سکه نیومده → خطش نمیاد (نه «۰ تومان» ساختگی)
-                logger.warning(f"⚠️ [{commodity}] داده‌ی ربع سکه نامعتبر — از کپشن حذف شد")
-                continue
-            price = row["close_price"] / asset_cfg["divisor"]
-
-            if asset_cfg.get("style") == "capsule":
-                # فرمت فوق‌فشرده‌ی تک‌خطی (تیتر کوتاه + قیمت + درصدِ بدون اعشار) —
-                # بدون واحد («تومان»)، بدون ساعت معامله، بدون خط حباب، بدون
-                # دلار ضمنی/اونس ضمنی/R-R. عمداً تا این حد فشرده شده چون حاشیه‌ی
-                # کپشن نسبت به حد تلگرام خیلی تنگه (ارقام دلار/سکه چندرقمی‌ان)؛
-                # حتی با این حال یک تضمین قطعی نیست — روزهایی که ارقام رقمی
-                # بیشتر دارن ممکنه هنوز لازم باشه طبق fallback زیر این بخش کلاً
-                # حذف بشه.
-                # فقط قبل از اولین آیتم کپسولی یه خط خالی می‌ذاریم تا از بلاک کامل
-                # قبلی جدا دیده بشه؛ بین خودِ آیتم‌های کپسولی پشت‌سرهم فاصله نمی‌خواد.
-                prefix = "\n" if not prev_was_capsule else ""
-                block += (
-                    f"{prefix}{asset_cfg['title']}: {price:,.0f} "
-                    f"({fmt_pct(row['close_price_change_percent'], 1)}%)\n"
-                )
-                if asset_cfg.get("eskeh"):
-                    e_annual = eskeh_annualized_return(price, eskeh_days_to_maturity())
-                    annual_txt = "" if e_annual is None else f" | سالانه {fmt_pct(e_annual * 100, 1)}%"
-                    block += f"🎯 حداقل بازده: {fmt_pct(eskeh_floor_return(price) * 100, 1)}%{annual_txt}\n"
-                    if pd.notna(row.get("Bubble")):
-                        block += f"🫧 حباب: {fmt_pct(row['Bubble'], 1)}%\n"
-                prev_was_capsule = True
-                continue
-
-            prev_was_capsule = False
-
-            d_calc, diff_d, o_calc, diff_o = calc_diffs(row)
-            trade_time = row.get("last_trade_time")
-            time_str = f" 🕐 {trade_time[:5]}" if trade_time else ""
-
-            # واحد فقط برای دارایی‌های «ریال» (شمش طلا) نوشته می‌شه؛ بقیه بدون واحدن.
-            # درصد تغییر داخل پرانتز جلوی قیمته و ساعت کنار تیتر.
-            # \u200F اول خط قیمت لازمه: بعد از حذف «تومان»، این خط هیچ حرف فارسی نداره و
-            # تلگرام جهتش رو LTR (چپ‌چین) می‌گیره؛ RLM جهت پاراگراف رو راست‌به‌چپ می‌کنه.
-            unit_str = f" {asset_cfg['unit']}" if asset_cfg["unit"] == "ریال" else ""
-            block += f"""
-<b>{asset_cfg['title']}</b>{time_str}
-\u200F📊 {price:,.0f}{unit_str} ({fmt_pct(row['close_price_change_percent'], 1)}%)
-\u200F🫧 حباب: {fmt_pct(row['Bubble'], 1)}%
-💵 دلار ضمنی: {d_calc:,.0f}
-"""
-            if asset_cfg["show_ounce_calc"]:
-                block += f"{ounce_emoji} اونس ضمنی: {o_calc:{ounce_fmt}}\n"
-
-            if key == BULLION_KEY.get(commodity) and rr:
-                rr_lines = []
-                if rr["rr_high"] is not None:
-                    rr_lines.append(
-                        f"{reward_emoji(rr['reward_high'])} سقف: {fmt_pct(rr['reward_high'], 2)}% "
-                        f"→ {format_rr_ratio(rr['rr_high'])}"
-                    )
-                if rr["rr_value"] is not None:
-                    rr_lines.append(
-                        f"{reward_emoji(rr['reward_value'])} ارزش: {fmt_pct(rr['reward_value'], 2)}% "
-                        f"→ {format_rr_ratio(rr['rr_value'])}"
-                    )
-                if rr_lines:
-                    block += "\u200F⚖️ ریوارد به ریسک:\n"
-                    for line in rr_lines:
-                        block += f"{line}\n"
-        return block
-
-    caption = (header + build_assets_block(include_capsule_items=True) + footer).strip()
-
-    if _caption_visible_len(caption) > caption_limit:
-        logger.warning(
-            f"⚠️ [{commodity}] کپشن {_caption_visible_len(caption)} کاراکتر شد (حد تلگرام: {caption_limit}) — "
-            f"بخش سکه امامی از کپشن حذف می‌شه (اونس ضمنی و R/R همیشه نگه داشته می‌شن)"
-        )
-        caption = (header + build_assets_block(include_capsule_items=False) + footer).strip()
-
-    if _caption_visible_len(caption) > caption_limit:
-        logger.error(
-            f"❌ [{commodity}] کپشن حتی بعد از حذف سکه امامی هم {_caption_visible_len(caption)} کاراکتره — truncate اضطراری"
-        )
-        caption = _truncate_caption(caption, caption_limit)
-
-    return caption
+    ctx = {
+        "commodity": commodity,
+        "section_title": f"{fund_emoji} بازار {label}",
+        "update": current_time,
+        # time: ساعت آخرین معامله‌ی دلار، کنار تیتر «💵 دلار» (تو ستون برچسب جدول جا نمی‌شد و خط می‌شکست)
+        "dollar": {"head": dollar_head, "rows": dollar_rows, "valuation": valuation,
+                   "time": _trade_dt.strftime("%H:%M") if _trade_dt else None,
+                   "last": (f"{dollar_last:,.0f}", cpct(dollar_change, 2)),
+                   # دلار درهم: ردیف خلاصه بازار (قیمت، تغییر روزانه)؛ مستقل از طلا/نقره.
+                   # تغییر روزانه‌ی درهم هنوز از منبع (alanchand) خونده نمی‌شه → None = فقط قیمت
+                   "dirham": ((f"{dollar_from_dirham:,.0f}", None)
+                              if (show_dirham and dollar_from_dirham is not None) else None)},
+        "ounce": ounce_ctx,
+        "funds": funds_ctx,
+        "assets": assets_ctx,
+        "eskeh": eskeh_ctx,
+        "quick": quick,
+        "channel": CHANNEL_HANDLE,
+    }
+    return ctx
